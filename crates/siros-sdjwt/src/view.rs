@@ -5,7 +5,6 @@ use siros_openid4vp::detail;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Fault;
 
-use crate::FAULT;
 use crate::jose::Signer;
 
 /// The SD-JWT members of a credential's view, each read when an operation needs it.
@@ -35,14 +34,11 @@ impl<'a, 'v> SdJwtMembers<'a, 'v> {
 
     /// The view's member is no string.
     fn fault(&self, name: &str) -> Fault {
-        Fault::new(
-            FAULT,
-            detail!(
-                "{id}: the view's {name} is no string",
-                id = self.view.credential().id.to_string(),
-                name = name.to_owned()
-            ),
-        )
+        crate::fault(detail!(
+            "{id}: the view's {name} is no string",
+            id = self.view.credential().id.to_string(),
+            name = name.to_owned()
+        ))
     }
 
     /// The Issuer-signed JWT's signer: `alg` and `curve`.

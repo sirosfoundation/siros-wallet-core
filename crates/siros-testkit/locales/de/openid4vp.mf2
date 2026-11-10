@@ -1,9 +1,9 @@
-# The test app's German source of the openid4vp module. The number format's options are siros-cldr's.
+# The test app's German wording of siros-openid4vp's statements.
 @locale de
 @dir ltr
 ---
 
-[wallet]
+[openid4vp.wallet]
 deny = Abbrechen
 share = Teilen
 none = Keine
@@ -13,16 +13,9 @@ yes = Ja
 no = Nein
 claim = Angabe
 null = Kein Wert
+text = {$value}
+number = {$value :number}
+date = {$value :siros:date}
+date_time = {$value :siros:datetime}
 bytes = {$length :integer} Byte
-
-[formats.number]
-zero = 0
-decimal = ,
-group = .
-minus = -
-plus = +
-grouping = 1
-cardinal =
-  one: i = 1 and v = 0
-ordinal =
-pattern = #,##0.###
+label = {$label}

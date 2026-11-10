@@ -3,6 +3,8 @@
 //! matched, offered, its first selection shown and answered. Each expected value is the specification's text, or a value it defines computed
 //! here from the example's bytes.
 
+siros_i18n::scope!("integration");
+
 #[path = "../common/mod.rs"]
 mod common;
 mod csc;
@@ -12,7 +14,7 @@ mod matcher;
 mod metadata;
 mod we_build;
 
-use crate::common::HaipHost;
+use crate::common::{Amounts, HaipHost};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
@@ -20,7 +22,6 @@ use sha2::{Digest, Sha256};
 use siros_openid4vp::consent::{ConsentEntry, Header};
 use std::num::NonZeroU32;
 
-use siros_explain::{AllOf, Text};
 use siros_openid4vp::host::{
     AttackDetection, Authentication, Factor, FalseAcceptRate, Inherence, Isolation, Knowledge,
     Modality, Possession, Sensor, Timestamp,
@@ -30,10 +31,11 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Delivery, Prepared};
-use siros_openid4vp::rows::{Amounts, Choice, Env, RenderOptions};
+use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::wallet::Wallet;
+use siros_syntax::AllOf;
 use siros_testkit::Published;
-use siros_testkit::fixtures::{Held, NONCE, OPTIONS, ORIGIN, parameters};
+use siros_testkit::fixtures::{Held, NONCE, ORIGIN, parameters};
 use siros_testkit::reading::model_shape;
 use siros_testkit::sd_jwt_reading;
 use siros_testkit::verifier::{self, ISSUER};
@@ -42,7 +44,7 @@ use siros_wallet_state::{
     Timestamp as WalletTimestamp, TransactionId, WalletState,
 };
 
-use common::{paso_app, registry, sri};
+use common::{registry, sri};
 
 const PAY: &str = "urn:paso:sca:global:payment:1";
 const RESPONSE_MODE: &str = "urn:paso:risk:global:response_mode:1";
@@ -89,20 +91,18 @@ fn member(json: &str, name: &str) -> String {
         .to_string()
 }
 
-/// An English wallet showing amounts as written.
+/// An English wallet's configuration.
 pub(crate) fn english() -> Env {
     Env::new(
         vec![LocaleTag::parse("en").expect("en")],
-        Vec::new(),
-        RenderOptions {
-            amounts: Amounts::Written,
-            ..OPTIONS
-        },
         Vec::new(),
         Choice::First,
     )
     .expect("the configuration")
 }
+
+/// How the English wallet words an amount: as written, as Core A.4 shows it.
+pub(crate) const AMOUNTS: Amounts = Amounts::Written;
 
 /// What the user saw and what the wallet answered for the first selection the consent offers:
 /// each slot's default.
@@ -132,11 +132,10 @@ fn answer(
     )
     .expect("a wallet");
     let accepted = Accepted::new(request, &registry).expect("the request keeps every rule");
-    let app = common::wallet_app(&wallet, request, &env, host);
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("no fault");
+    let context = common::wallet_app(&wallet, request, &env, AMOUNTS, host);
+    let matched = Match::run(&accepted, &wallet, &env, &context).expect("no fault");
     let consent = Consent::of(&matched).expect("the wallet meets the request");
-    let views = Views::of(&matched, &env).expect("no fault");
+    let views = Views::of(&matched, &env, &context).expect("no fault");
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("no fault");
     let ids: Vec<&str> = shown.sets()[0]
@@ -147,22 +146,23 @@ fn answer(
         .set(0)
         .and_then(|set| set.select(&ids))
         .expect("the defaults are a selection");
-    let header = selection.header();
+    let header = selection.header(&context).expect("the header resolves");
     let chosen = selection.ids();
     let entry = views
         .by_id(chosen[0])
         .expect("the chosen entry")
         .entry
         .clone();
-    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, host)
-        .expect("authentic");
+    let authenticated =
+        siros_testkit::fixtures::authenticate(request.envelope(), &registry, &context, host)
+            .expect("authentic");
     let built = Prepared::prepare(
         &authenticated,
         &chosen,
         &wallet,
         &registry,
         &env,
-        &rendering,
+        &context,
         host,
     )
     .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
@@ -333,26 +333,11 @@ fn a2_envelopes(a2: &Value) -> Value {
         .collect()
 }
 
-/// A text of Payment A.1's type as the test app renders it for the English wallet.
-fn english_text(text: &Text) -> String {
-    let types = payment_metadata();
-    let given = Node::parse(&types).expect("the types");
-    let given = given.get(PAY).expect("Payment A.1's metadata");
-    let english = english();
-    let app = paso_app(
-        PAY,
-        &given.json_compact().to_string(),
-        english.priority(),
-        &english.priority()[0],
-    );
-    app.plain(&english, text).expect("the text renders")
-}
-
 /// Core A.4: the payment screen of A.1's transaction in English.
 fn assert_core_a4(answered: &Answered) {
     let header = &answered.header;
     assert_eq!(
-        [&header.title, &header.confirm, &header.cancel].map(english_text),
+        [&header.title, &header.confirm, &header.cancel].map(ToString::to_string),
         ["Payment Confirmation", "Pay", "Cancel"]
     );
     let payment = answered
@@ -361,7 +346,7 @@ fn assert_core_a4(answered: &Answered) {
         .and_then(|overlay| overlay.header.as_ref())
         .expect("a payment's transaction header");
     assert_eq!(
-        [payment.counterparty.text(), payment.amount.text()].map(english_text),
+        [&payment.counterparty, &payment.amount].map(ToString::to_string),
         ["Shop Inc.", "49.99 EUR"]
     );
 }

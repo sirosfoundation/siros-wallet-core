@@ -100,8 +100,8 @@ impl<'b> Reader<'b> {
             26 => u64::from(u32::from_be_bytes(self.fixed()?)),
             27 => u64::from_be_bytes(self.fixed()?),
             31 if self.lengths == Lengths::Any => return Ok(Argument::Indefinite),
-            31 => return Err(CborError::Indefinite(at)),
-            _ => return Err(CborError::Malformed(at)),
+            31 => return Err(CborError::Indefinite { at }),
+            _ => return Err(CborError::Malformed { at }),
         }))
     }
 
@@ -110,7 +110,7 @@ impl<'b> Reader<'b> {
         if depth < self.depth {
             Ok(depth + 1)
         } else {
-            Err(CborError::Depth(self.depth))
+            Err(CborError::Depth { levels: self.depth })
         }
     }
 
@@ -127,8 +127,9 @@ impl<'b> Reader<'b> {
             (1, Argument::Definite(value)) => {
                 let value = -1 - i128::from(value);
                 Value::Integer(
-                    Integer::try_from(value)
-                        .map_err(|_| CborError::IntegerRange(value.to_string()))?,
+                    Integer::try_from(value).map_err(|_| CborError::IntegerRange {
+                        number: value.to_string(),
+                    })?,
                 )
             }
             (2, Argument::Definite(length)) => Value::Bytes(self.take(length)?.to_vec()),
@@ -154,7 +155,7 @@ impl<'b> Reader<'b> {
             (6, Argument::Definite(tag)) => {
                 Value::Tag(tag, Box::new(self.item(self.deeper(depth)?)?))
             }
-            _ => return Err(CborError::Malformed(at)),
+            _ => return Err(CborError::Malformed { at }),
         })
     }
 
@@ -164,16 +165,16 @@ impl<'b> Reader<'b> {
             20 => Value::Bool(false),
             21 => Value::Bool(true),
             22 => Value::Null,
-            0..=19 | UNDEFINED => return Err(CborError::Simple(info)),
+            0..=19 | UNDEFINED => return Err(CborError::Simple { value: info }),
             24 => match u8::from_be_bytes(self.fixed()?) {
-                simple @ 32.. => return Err(CborError::Simple(simple)),
-                _ => return Err(CborError::Malformed(at)),
+                simple @ 32.. => return Err(CborError::Simple { value: simple }),
+                _ => return Err(CborError::Malformed { at }),
             },
             25 => Value::Float(half(u16::from_be_bytes(self.fixed()?))),
             26 => Value::Float(f64::from(f32::from_be_bytes(self.fixed()?))),
             27 => Value::Float(f64::from_be_bytes(self.fixed()?)),
-            31 if self.lengths == Lengths::Definite => return Err(CborError::Indefinite(at)),
-            _ => return Err(CborError::Malformed(at)),
+            31 if self.lengths == Lengths::Definite => return Err(CborError::Indefinite { at }),
+            _ => return Err(CborError::Malformed { at }),
         })
     }
 
@@ -189,7 +190,7 @@ impl<'b> Reader<'b> {
             Argument::Definite(length) if initial >> 5 == major => {
                 Ok(Some(Chunk::read(self.take(length)?, at)))
             }
-            _ => Err(CborError::Malformed(at)),
+            _ => Err(CborError::Malformed { at }),
         }
     }
 
@@ -237,7 +238,7 @@ impl<'b> Chunk<'b> {
 
     /// The chunk as text: each chunk of a text string is UTF-8 on its own.
     fn text(&self) -> Result<&'b str, CborError> {
-        std::str::from_utf8(self.bytes).map_err(|_| CborError::Utf8(self.at))
+        std::str::from_utf8(self.bytes).map_err(|_| CborError::Utf8 { at: self.at })
     }
 }
 

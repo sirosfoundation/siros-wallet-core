@@ -108,10 +108,10 @@ fn signature_algorithm(curve: Curve) -> Option<SignatureAlgorithm> {
 
 /// Why bytes are no P-256 key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "mdoc.stored.point_error")]
 #[error("{}", self.code())]
 pub enum PointError {
     /// The bytes are not an uncompressed SEC 1 point of 32-byte coordinates.
+    #[explain(id = "stored.point_error.not_uncompressed")]
     NotUncompressed,
 }
 

@@ -702,16 +702,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ct-merkle"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ed89bf5e2d6dfa1762dcd00e1ef68f1f6070a67e217ce280ab6b53971c3a60d"
-dependencies = [
- "digest 0.11.3",
- "subtle",
-]
-
-[[package]]
 name = "ctr"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1956,6 +1946,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "inventory"
+version = "0.3.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6928282826c822ad91bf1c9a1cb90a30ba1c26770749929b4656cd6be829cd7c"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1966,27 +1965,6 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
-
-[[package]]
-name = "iso_country"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20633e788d3948ea7336861fdb09ec247f5dae4267e8f0743fa97de26c28624d"
-dependencies = [
- "lazy_static",
-]
-
-[[package]]
-name = "iso_currency"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52d721074ff687a7ac523217a2bedb8277ac81d83dc10216ffc2a19128ca3dd5"
-dependencies = [
- "iso_country",
- "proc-macro2",
- "quote",
- "strum",
-]
 
 [[package]]
 name = "itoa"
@@ -2133,12 +2111,6 @@ dependencies = [
  "x448",
  "zeroize",
 ]
-
-[[package]]
-name = "lazy_static"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "libc"
@@ -3333,6 +3305,7 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "siros-explain",
+ "siros-syntax",
  "thiserror 2.0.21",
 ]
 
@@ -3340,19 +3313,32 @@ dependencies = [
 name = "siros-credman"
 version = "0.1.0"
 dependencies = [
+ "icu_properties",
+ "rustc-hash",
  "siros-credman",
  "siros-explain",
  "siros-i18n",
  "siros-openid4vp",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "siros-derive-internals"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]
 name = "siros-explain"
 version = "0.1.0"
 dependencies = [
- "iso_currency",
+ "inventory",
  "siros-explain",
  "siros-explain-derive",
  "thiserror 2.0.21",
@@ -3364,33 +3350,50 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "siros-derive-internals",
+ "siros-explain",
  "syn 3.0.9",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "siros-i18n"
 version = "0.1.0"
 dependencies = [
- "ct-merkle",
  "fixed_decimal",
  "icu_calendar",
  "icu_datetime",
  "icu_decimal",
  "icu_experimental",
- "icu_list",
  "icu_locale_core",
  "icu_plurals",
  "icu_properties",
  "icu_time",
+ "inventory",
  "rand 0.9.5",
  "rand_chacha 0.9.0",
+ "rustc-hash",
  "serde_json",
- "sha2 0.11.1",
  "siros-explain",
  "siros-i18n",
+ "siros-i18n-derive",
+ "siros-syntax",
  "thiserror 2.0.21",
  "unicode-normalization",
  "writeable",
+]
+
+[[package]]
+name = "siros-i18n-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "siros-derive-internals",
+ "siros-explain",
+ "siros-i18n",
+ "syn 3.0.9",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3413,6 +3416,7 @@ dependencies = [
  "siros-paso",
  "siros-qes",
  "siros-sdjwt",
+ "siros-syntax",
  "siros-testkit",
  "siros-ts12",
  "siros-wallet-state",
@@ -3434,6 +3438,7 @@ dependencies = [
  "siros-i18n",
  "siros-mdoc",
  "siros-openid4vp",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]
@@ -3462,6 +3467,7 @@ dependencies = [
  "sha3 0.12.0",
  "siros-explain",
  "siros-i18n",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]
@@ -3484,6 +3490,7 @@ dependencies = [
  "siros-openid4vp",
  "siros-paso",
  "siros-sdjwt",
+ "siros-syntax",
  "siros-testkit",
  "siros-x509",
  "thiserror 2.0.21",
@@ -3503,10 +3510,12 @@ dependencies = [
  "sha2 0.11.1",
  "sha3 0.12.0",
  "siros-explain",
+ "siros-i18n",
  "siros-mdoc",
  "siros-openid4vp",
  "siros-qes",
  "siros-sdjwt",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]
@@ -3524,7 +3533,16 @@ dependencies = [
  "siros-i18n",
  "siros-openid4vp",
  "siros-sdjwt",
+ "siros-syntax",
  "siros-testkit",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "siros-syntax"
+version = "0.1.0"
+dependencies = [
+ "siros-explain",
  "thiserror 2.0.21",
 ]
 
@@ -3543,6 +3561,7 @@ dependencies = [
  "siros-explain",
  "siros-i18n",
  "siros-openid4vp",
+ "siros-syntax",
  "thiserror 2.0.21",
 ]
 
@@ -3572,6 +3591,7 @@ dependencies = [
  "siros-openid4vp",
  "siros-paso",
  "siros-sdjwt",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]
@@ -3592,6 +3612,7 @@ version = "0.1.0"
 dependencies = [
  "siros-explain",
  "siros-openid4vp",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]
@@ -3605,7 +3626,9 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "siros-explain",
+ "siros-i18n",
  "siros-openid4vp",
+ "siros-syntax",
  "siros-testkit",
  "spki 0.8.1",
  "thiserror 2.0.21",
@@ -3740,27 +3763,6 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
-
-[[package]]
-name = "strum"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
-dependencies = [
- "strum_macros",
-]
-
-[[package]]
-name = "strum_macros"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
 
 [[package]]
 name = "subtle"

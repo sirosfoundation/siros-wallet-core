@@ -46,9 +46,12 @@ pub struct Skew(Seconds);
 
 /// A skew past 300 seconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.time")]
-#[error("a clock skew of {0} s is past 300 s")]
-pub struct SkewTooLarge(#[explain(name = "seconds")] pub u64);
+#[explain(id = "time.skew_too_large")]
+#[error("a clock skew of {seconds} s is past 300 s")]
+pub struct SkewTooLarge {
+    /// The skew in seconds.
+    pub seconds: u64,
+}
 
 impl Skew {
     /// The longest skew the wallet allows.
@@ -61,7 +64,7 @@ impl Skew {
     /// The skew is past 300 seconds.
     pub const fn new(seconds: Seconds) -> Result<Self, SkewTooLarge> {
         if seconds.0 > Self::MAX {
-            Err(SkewTooLarge(seconds.0))
+            Err(SkewTooLarge { seconds: seconds.0 })
         } else {
             Ok(Self(seconds))
         }
@@ -76,16 +79,21 @@ impl Skew {
 
 /// A JWT used outside its validity, or a time claim that is no NumericDate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.time")]
 pub enum TimeError {
     /// `exp` or `nbf` is no number.
-    #[error("{0} is no NumericDate")]
-    NotNumericDate(#[explain(name = "claim")] &'static str),
+    #[error("{claim} is no NumericDate")]
+    #[explain(id = "time.not_numeric_date")]
+    NotNumericDate {
+        /// The claim's name.
+        claim: &'static str,
+    },
     /// `exp` has passed.
     #[error("expired")]
+    #[explain(id = "time.expired")]
     Expired,
     /// `nbf` is still ahead.
     #[error("not yet valid")]
+    #[explain(id = "time.not_yet_valid")]
     NotYetValid,
 }
 
@@ -114,7 +122,7 @@ impl Validity {
     pub fn read(exp: Option<&Node<'_>>, nbf: Option<&Node<'_>>) -> Result<Self, TimeError> {
         let date = |value: Option<&Node<'_>>, claim: &'static str| {
             value
-                .map(|value| NumericDate::of(value).ok_or(TimeError::NotNumericDate(claim)))
+                .map(|value| NumericDate::of(value).ok_or(TimeError::NotNumericDate { claim }))
                 .transpose()
         };
         Ok(Self {

@@ -5,22 +5,30 @@
 use siros_explain::Explain;
 
 /// A form body, which serde_urlencoded writes from flat members, each name once. Only
-/// [`FormBody::of`] makes one.
+#[cfg_attr(feature = "uri", doc = "[`FormBody::of`] makes one.")]
+#[cfg_attr(
+    not(feature = "uri"),
+    doc = "`FormBody::of`, with the feature `uri`, makes one."
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormBody(String);
 
 /// Members that make no form body.
 #[cfg(feature = "uri")]
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.form")]
 pub enum NotForm {
     /// A nested value, which RFC 6749 Appendix B's format holds no place for, or another
     /// serializer refusal: serde_urlencoded's message.
     #[error("the members make no form body: {0}")]
+    #[explain(id = "form.serializer")]
     Serializer(#[explain(skip)] String),
     /// A member name written twice, which a recipient reads one way or another.
-    #[error("the form body names {0} twice")]
-    Repeated(#[explain(name = "member")] String),
+    #[error("the form body names {member} twice")]
+    #[explain(id = "form.repeated")]
+    Repeated {
+        /// The member's name.
+        member: String,
+    },
 }
 
 impl FormBody {
@@ -38,11 +46,10 @@ impl FormBody {
         let pairs: Vec<(String, String)> =
             serde_urlencoded::from_str(&text).map_err(|e| NotForm::Serializer(e.to_string()))?;
         for (k, (name, _)) in pairs.iter().enumerate() {
-            if pairs
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|(other, _)| other == name))
-            {
-                return Err(NotForm::Repeated(name.clone()));
+            if pairs.iter().take(k).any(|(other, _)| other == name) {
+                return Err(NotForm::Repeated {
+                    member: name.clone(),
+                });
             }
         }
         Ok(Self(text))

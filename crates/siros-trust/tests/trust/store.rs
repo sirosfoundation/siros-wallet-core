@@ -25,7 +25,9 @@ fn verdict(record: &str) -> Verdict {
         Ok(_) => Verdict::Parsed,
         Err(StoreError::Entry { entry, error }) => Verdict::Entry(entry.value(), error),
         Err(StoreError::Repeated(entry)) => Verdict::Repeated(entry.value()),
-        Err(StoreError::Json(JsonError::DuplicateMember(name))) => Verdict::RepeatedMember(name),
+        Err(StoreError::Json(JsonError::DuplicateMember { member })) => {
+            Verdict::RepeatedMember(member)
+        }
         Err(error) => Verdict::Record(error.code()),
     }
 }

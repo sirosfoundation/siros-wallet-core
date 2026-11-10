@@ -7,7 +7,8 @@
 //! - `tests/end_to_end`: one path per configuration, and every flow of the design, F1 to F13, to
 //!   its `Delivery` or `Reply` over the HAIP build (`flows`), and the WE BUILD build's own
 //!   (`we_build`), each built from a specification's own example.
-//! - `tests/messages.rs`: one identifier names one message across the crates.
+//! - `tests/texts.rs`: `Context::check` over every crate the tests link: one row per derived
+//!   error and statement, each id once, and the test app words every statement.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]

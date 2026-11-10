@@ -46,7 +46,7 @@ impl VpTokenError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::NotJson(JsonError::Syntax(_)) | Self::NotObject => "response_not_object",
-            Self::NotJson(JsonError::DuplicateMember(_)) => "duplicate_member",
+            Self::NotJson(JsonError::DuplicateMember { .. }) => "duplicate_member",
             Self::QueryIdMissing => "query_id_missing",
             Self::NotArray => "presentations_not_array",
             Self::Empty => "presentations_empty",

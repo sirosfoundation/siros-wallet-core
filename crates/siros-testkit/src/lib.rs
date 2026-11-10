@@ -15,8 +15,9 @@
 //! the format plug-ins' tests share ([`fixtures`]), the probes that hand a test what the core's
 //! flow gives a plug-in ([`probe`]), the certificates and chains the X.509 tests sign under
 //! ([`x509`]), and the reference
-//! model's shapes the tests read ([`oracle`]), and the test app's texts: its main module, the
-//! crate modules in its English and German, and a renderer over them ([`render`]).
+//! model's shapes the tests read ([`oracle`]), the test doubles' fault ([`fault`], [`caused`]),
+//! and the test app: its wording of every crate in English and German, a context per language
+//! ([`render`]).
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -57,37 +58,40 @@ pub mod sd_jwt_reading;
 pub mod verifier;
 pub mod x509;
 
-use siros_explain::{Message, Messages};
-use siros_openid4vp::plugins::FaultDomain;
+use std::error::Error;
 
-/// The test doubles' domain, as their fault message, which tests' own plug-ins fault in too.
-pub const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "testkit.fault");
+use siros_explain::Explain;
+use siros_openid4vp::plugins::{Detail, Fault};
 
-/// The test doubles' messages: those their error types and rules declare, and their fault's.
-pub struct CrateMessages;
+siros_explain::scope!("testkit");
 
-impl Messages for CrateMessages {
-    fn messages() -> Vec<Message> {
-        let declared: &[fn() -> Vec<Message>] = &[
-            issuer::IssueError::messages,
-            sd_jwt_reading::SdJwtReadError::messages,
-            verifier::EncodeError::messages,
-            fixtures::FixtureError::messages,
-            reading::ReadError::messages,
-            oracle::OracleError::messages,
-            render::AppError::messages,
-            rules::FormatRule::messages,
-            rules::EntryRule::messages,
-            rules::Excluded::messages,
-            rules::TestRule::messages,
-            rules::TestExclusion::messages,
-        ];
-        declared
-            .iter()
-            .flat_map(|messages| messages())
-            .chain([FAULT.message()])
-            .collect()
-    }
+/// The test doubles' fault error, which tests' own plug-ins fault with too.
+#[derive(Debug, thiserror::Error, Explain)]
+#[error("{detail}")]
+#[explain(id = "fault")]
+struct TestFault {
+    #[explain(skip)]
+    detail: Detail,
+    #[source]
+    cause: Option<Box<dyn Error + Send + Sync>>,
+}
+
+/// The test doubles' fault, its log line written by `detail`.
+#[must_use]
+pub fn fault(detail: Detail) -> Fault {
+    Fault::new(TestFault {
+        detail,
+        cause: None,
+    })
+}
+
+/// The test doubles' fault caused by an error, its log line written by `detail`.
+#[must_use]
+pub fn caused(detail: Detail, cause: impl Error + Send + Sync + 'static) -> Fault {
+    Fault::new(TestFault {
+        detail,
+        cause: Some(Box::new(cause)),
+    })
 }
 
 pub use doubles::{

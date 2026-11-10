@@ -1,10 +1,10 @@
 //! The consent entry as platform-neutral data, which the matcher's platform mapping and the
 //! wallet UI lay out. A format plug-in draws a credential's [`Card`]; a transaction's profile
 //! gives an [`Overlay`], whose [`TransactionHeader`] holds what the End-User confirms; the core's
-//! display step pairs them in a [`ConsentEntry`]. An overlay's texts depend on the request, so
-//! each is a [`RequestText`], which a registration's package holds the messages of.
+//! display step pairs them in a [`ConsentEntry`]. Every text is a [`Text`] the presentation's
+//! `siros_i18n::Context` resolved.
 
-use siros_explain::{RequestText, Text};
+use siros_i18n::Text;
 
 use crate::rows::{Icon, Row};
 
@@ -25,12 +25,12 @@ pub struct Card {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Overlay {
     /// The rows the entry shows before the card's rows.
-    pub rows: Vec<Row<RequestText>>,
+    pub rows: Vec<Row>,
     /// The transaction's header, for a transaction whose counterparty and amount the End-User
     /// confirms (PSD2 RTS Art. 5(1)(a): the payee and the amount).
     pub header: Option<TransactionHeader>,
-    /// The security hint: plain text, shown exactly.
-    pub hint: Option<RequestText>,
+    /// The security hint, shown exactly.
+    pub hint: Option<Text>,
 }
 
 /// A transaction's header: the counterparty, the amount, and the rows that show them, which the
@@ -38,11 +38,11 @@ pub struct Overlay {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransactionHeader {
     /// The counterparty: a payee, a merchant.
-    pub counterparty: RequestText,
+    pub counterparty: Text,
     /// The amount.
-    pub amount: RequestText,
+    pub amount: Text,
     /// The rows the header shows.
-    pub rows: Vec<Row<RequestText>>,
+    pub rows: Vec<Row>,
 }
 
 /// A consent entry: the card, and the overlay of the transaction when there is one. Only the
@@ -77,7 +77,7 @@ impl ConsentEntry {
     pub fn rows(&self) -> impl Iterator<Item = Row> + '_ {
         self.overlay
             .iter()
-            .flat_map(|overlay| overlay.rows.iter().cloned().map(Row::from))
+            .flat_map(|overlay| overlay.rows.iter().cloned())
             .chain(self.card.rows.iter().cloned())
     }
 }

@@ -7,7 +7,7 @@
 
 mod common;
 
-use siros_explain::AllOf;
+use siros_i18n::Context;
 use siros_openid4vp::detail;
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::host::{
@@ -27,7 +27,7 @@ use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption, Entr
 use siros_openid4vp::resolve::{Delivery, Finding, Outcome, Prepared, Rejection, UndeclaredMember};
 use siros_openid4vp::rows::{Choice, Env, HttpsUrl};
 use siros_openid4vp::wallet::Wallet;
-use siros_testkit::FAULT;
+use siros_syntax::AllOf;
 use siros_testkit::{
     Binds, Published, Stale, TestFormat, TestHaip, TestHost, TestPlatform, TestProfile,
     TestRequestDecryption,
@@ -35,6 +35,7 @@ use siros_testkit::{
 
 use common::{Held, entry, env, parameters, registry, request_of, test_queries, unsigned};
 use siros_testkit::fixtures::authenticate;
+use siros_testkit::render::Language;
 
 /// q (multiple) or r, each named by an entry; c1 and c2 answer q, c3 and c4 answer r.
 fn fixture() -> (String, Vec<Held>) {
@@ -61,22 +62,22 @@ fn fixture() -> (String, Vec<Held>) {
     )
 }
 
-/// The test app of the core's module.
-fn test_app() -> siros_testkit::render::App {
-    siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app")
+/// The test app's English context.
+fn english() -> &'static Context {
+    Language::English.shared().expect("the test app")
 }
 
 /// The id of each entry the display offers, in display order.
 fn offered(text: &str, held: &[Held]) -> Vec<String> {
-    offered_in(text, held, &registry(Binds::First))
+    offered_in(text, held, &registry(Binds::First), english())
 }
 
-/// The ids the consent offers over a registry, which reads the request.
+/// The ids the consent offers over a registry, which reads the request, in a context.
 fn offered_in<H: siros_openid4vp::plugins::Build>(
     text: &str,
     held: &[Held],
     registry: &Registry<H>,
+    context: &Context,
 ) -> Vec<String> {
     let received = unsigned(text).expect("received");
     let envelope = Envelope::parse(&received, registry).expect("envelope");
@@ -84,11 +85,9 @@ fn offered_in<H: siros_openid4vp::plugins::Build>(
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let env = env("en");
     let accepted = Accepted::new(&request, registry).expect("accepted");
-    let app = test_app();
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
     let consent = Consent::of(&matched).expect("consent");
-    let views = Views::of(&matched, &env).expect("views");
+    let views = Views::of(&matched, &env, context).expect("views");
     let sets = offer(&matched, &consent, Choice::LetChoose);
     let shown = display(&sets, &views, &[]).expect("display");
     let mut ids: Vec<String> = Vec::new();
@@ -101,20 +100,30 @@ fn offered_in<H: siros_openid4vp::plugins::Build>(
 }
 
 fn outcome(text: &str, held: &[Held], ids: &[&str], host: &TestHost) -> Result<String, Outcome> {
+    outcome_in(text, held, ids, host, english())
+}
+
+/// Phase 2's `vp_token` for the picks, in a context.
+fn outcome_in(
+    text: &str,
+    held: &[Held],
+    ids: &[&str],
+    host: &TestHost,
+    context: &Context,
+) -> Result<String, Outcome> {
     let received = unsigned(text).expect("received");
     let request = request_of(&received).expect("request");
     let registry = registry(Binds::First);
-    let authenticated = authenticate(request.envelope(), &registry, host).expect("authentic");
+    let authenticated =
+        authenticate(request.envelope(), &registry, context, host).expect("authentic");
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
-    let app = test_app();
-    let rendering = app.rendering().expect("the rendering");
     Prepared::prepare(
         &authenticated,
         ids,
         &wallet,
         &registry,
         &env("en"),
-        &rendering,
+        context,
         host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), host))
@@ -193,65 +202,32 @@ fn phase_2_falls_back_on_a_record_it_does_not_derive() {
     }
 }
 
-/// I31: phase 2 refuses a pick whose rendering inputs differ from its own, naming the input, and
-/// renders nothing to compare: one fixture per input.
+/// I31: a record commits to the texts its entry shows. The same entry worded otherwise gives
+/// another record, which phase 2 refuses; under the wording the End-User read it answers.
 #[test]
-fn phase_2_refuses_a_pick_rendered_with_other_inputs() {
-    use siros_openid4vp::matching::RenderingInput;
+fn phase_2_refuses_a_pick_shown_in_other_words() {
     let (text, held) = fixture();
-    let ids = offered(&text, &held);
-    let c1 = ids[0].as_str();
-    let digest_at = c1.find(r#""openid4vp":""#).expect("the core's module") + 13;
-    let mut altered_digest = c1.to_owned();
-    let flipped = if &c1[digest_at..=digest_at] == "0" {
-        "1"
-    } else {
-        "0"
+    let german = Language::German.shared().expect("the test app");
+    let english_ids = offered(&text, &held);
+    let german_ids = offered_in(&text, &held, &registry(Binds::First), german);
+    let members = |id: &str| -> Vec<serde_json::Value> {
+        serde_json::from_str(id).expect("a record is JSON")
     };
-    altered_digest.replace_range(digest_at..=digest_at, flipped);
-    let cases = [
-        (
-            c1.replace(r#""selected":null"#, r#""selected":["paso","en"]"#),
-            RenderingInput::Selected,
-        ),
-        (
-            c1.replace(r#""language":"en""#, r#""language":"de""#),
-            RenderingInput::Language,
-        ),
-        (
-            c1.replace(r#""fallback":false"#, r#""fallback":true"#),
-            RenderingInput::Fallback,
-        ),
-        (
-            altered_digest,
-            RenderingInput::Module("openid4vp".to_owned()),
-        ),
-        (
-            c1.replace(r#""modules":{"#, r#""modules":{"extra":"00","#),
-            RenderingInput::Module("extra".to_owned()),
-        ),
-        (
-            c1.replace(r#""amounts":"formatted""#, r#""amounts":"written""#),
-            RenderingInput::Amounts,
-        ),
-        (
-            c1.replace(r#""bidi":"none""#, r#""bidi":"default""#),
-            RenderingInput::Bidi,
-        ),
-        (
-            c1.replace(r#""renderer":1}"#, r#""renderer":2}"#),
-            RenderingInput::Renderer,
-        ),
-    ];
-    for (id, want) in &cases {
-        assert_ne!(id, c1, "{want:?} alters the pick");
-        match outcome(&text, &held, &[id], &TestHost::default()) {
+    let (english_c1, german_c1) = (members(&english_ids[0]), members(&german_ids[0]));
+    assert_eq!(english_c1[..6], german_c1[..6], "one entry");
+    assert_ne!(english_c1[6], german_c1[6], "shown in other words");
+    for (ids, context) in [(&english_ids, german), (&german_ids, english())] {
+        match outcome_in(&text, &held, &[&ids[0]], &TestHost::default(), context) {
             Err(Outcome::Fallback(findings)) => assert!(
-                matches!(findings.items(), [Finding::Rendered { record, input }] if record.get() == 0 && input == want),
-                "{want:?}: {findings:?}"
+                matches!(findings.items(), [Finding::Rendered { record }] if record.get() == 0),
+                "{findings:?}"
             ),
-            other => panic!("{want:?}: {other:?}"),
+            other => panic!("{other:?}"),
         }
+    }
+    for (ids, context) in [(&english_ids, english()), (&german_ids, german)] {
+        let answered = outcome_in(&text, &held, &[&ids[0]], &TestHost::default(), context);
+        assert!(answered.is_ok(), "{answered:?}");
     }
 }
 
@@ -292,9 +268,8 @@ fn phase_2_falls_back_on_what_no_longer_holds() {
             assert_eq!(bare.informed(&[finding]).map(drop), Err(InformError));
             let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
             let accepted = Accepted::new(&request, &informed).expect("accepted");
-            let app = test_app();
-            let rendering = app.rendering().expect("the rendering");
-            let matched = Match::run(&accepted, &wallet, &env("en"), &rendering).expect("match");
+            let context = english();
+            let matched = Match::run(&accepted, &wallet, &env("en"), context).expect("match");
             let q = request.indexed_queries().next().expect("q").0;
             let ids: Vec<&str> = matched
                 .candidates(q)
@@ -332,8 +307,13 @@ impl Profile for Strong {
     fn members(&self, placement: siros_openid4vp::wallet_metadata::Placement) -> Option<&[Member]> {
         self.0.members(placement)
     }
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
-        self.0.bind(binding, env)
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate> {
+        self.0.bind(binding, env, context)
     }
 }
 
@@ -382,17 +362,17 @@ fn phase_2_refuses_an_authentication_weaker_than_a_profile_needs() {
         host.platform.now,
         AllOf::one(Factor::Knowledge(Knowledge::Pin(None))),
     ));
-    let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
+    let authenticated =
+        authenticate(request.envelope(), &registry, english(), &host).expect("authentic");
     let ids: &[&str] = &[&ids[0]];
-    let app = test_app();
-    let rendering = app.rendering().expect("the rendering");
+    let context = english();
     match Prepared::prepare(
         &authenticated,
         ids,
         &wallet,
         &registry,
         &env("en"),
-        &rendering,
+        context,
         &host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
@@ -418,8 +398,13 @@ impl Profile for Undeclared {
     fn members(&self, placement: siros_openid4vp::wallet_metadata::Placement) -> Option<&[Member]> {
         self.0.members(placement)
     }
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
-        self.0.bind(binding, env)
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate> {
+        self.0.bind(binding, env, context)
     }
 }
 
@@ -452,7 +437,7 @@ impl<H> ProfileHost<H> for Undeclared {
             Member::claim("extra"),
             MemberValue::Text("forged".to_owned()),
         ));
-        Members::new(members).map_err(|twice| Fault::new(FAULT, detail!("{twice}")))
+        Members::new(members).map_err(|twice| siros_testkit::fault(detail!("{twice}")))
     }
 }
 
@@ -470,17 +455,17 @@ fn phase_2_faults_on_a_member_the_profile_does_not_declare() {
     let request = request_of(&received).expect("request");
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let host = TestHost::default();
-    let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
+    let authenticated =
+        authenticate(request.envelope(), &registry, english(), &host).expect("authentic");
     let ids: &[&str] = &[&ids[0]];
-    let app = test_app();
-    let rendering = app.rendering().expect("the rendering");
+    let context = english();
     match Prepared::prepare(
         &authenticated,
         ids,
         &wallet,
         &registry,
         &env("en"),
-        &rendering,
+        context,
         &host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
@@ -520,7 +505,7 @@ impl Haip for FailingHaip {
         _: ContentEncryption<'_>,
         _: &[u8],
     ) -> Result<SealedJwe, Fault> {
-        Err(Fault::new(FAULT, detail!("no key agreement")))
+        Err(siros_testkit::fault(detail!("no key agreement")))
     }
 }
 
@@ -584,18 +569,17 @@ fn sealed<H: CoreHost>(
     registry: &Registry<H>,
     host: &H,
 ) -> Result<Delivery, Outcome> {
-    let authenticated = authenticate(request.envelope(), registry, host)
-        .map_err(|e| Fault::new(FAULT, detail!("{e}", e = e.to_string())))?;
+    let authenticated = authenticate(request.envelope(), registry, english(), host)
+        .map_err(|e| siros_testkit::fault(detail!("{e}", e = e.to_string())))?;
     let ids: &[&str] = &[id];
-    let app = test_app();
-    let rendering = app.rendering().expect("the rendering");
+    let context = english();
     Prepared::prepare(
         &authenticated,
         ids,
         wallet,
         registry,
         &env("en"),
-        &rendering,
+        context,
         host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), host))
@@ -655,10 +639,7 @@ fn phase_2_answers_nothing_it_cannot_encrypt_as_dc_api_jwt_asks() {
             .iter()
             .map(|refusal| refusal.rule().id())
             .collect::<Vec<_>>(),
-        [siros_explain::checked!(
-            siros_explain::MessageId,
-            "openid4vp.modes.c7_key"
-        )]
+        ["err.openid4vp.modes.c7_key"]
     );
     assert_eq!(host.platform.authentications(), 0);
 }
@@ -669,7 +650,7 @@ fn the_core_checks_what_a_mode_chooses_and_writes() {
     use siros_openid4vp::routing::{ChannelKind, ModeName};
     use siros_testkit::{TestBody, TestChoice, TestMode};
 
-    const NAME: ModeName = siros_explain::checked!(ModeName, "dc_api.test");
+    const NAME: ModeName = siros_syntax::checked!(ModeName, "dc_api.test");
     let jwk = r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0", "y": "XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc", "use": "enc", "alg": "ECDH-ES"}"#;
     // The Verifier lists A192GCM and A128GCM; the test HAIP module states A256GCM and A128GCM.
     let text = format!(
@@ -695,7 +676,7 @@ fn the_core_checks_what_a_mode_chooses_and_writes() {
             Some(RouteBreach::Foreign),
         ),
         (
-            key(siros_explain::checked!(
+            key(siros_syntax::checked!(
                 ContentEncryption<'static>,
                 "A192GCM"
             )),
@@ -745,7 +726,7 @@ fn the_core_checks_what_a_mode_chooses_and_writes() {
         let registry = builder.build().expect("registry");
         let envelope = Envelope::parse(&received, &registry).expect("envelope");
         let request = Request::parse(&envelope).expect("request");
-        let ids = offered_in(&text, &held, &registry);
+        let ids = offered_in(&text, &held, &registry, english());
         let host = TestHost::default();
         let outcome = sealed(&request, &ids[0], &wallet, &registry, &host);
         match (breach, outcome) {
@@ -779,8 +760,8 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
     use siros_openid4vp::wallet_metadata::ParameterName;
     use siros_testkit::TestResponseParameters;
 
-    const ISS: ParameterName = siros_explain::checked!(ParameterName, "iss");
-    const VP_TOKEN: ParameterName = siros_explain::checked!(ParameterName, "vp_token");
+    const ISS: ParameterName = siros_syntax::checked!(ParameterName, "iss");
+    const VP_TOKEN: ParameterName = siros_syntax::checked!(ParameterName, "vp_token");
 
     /// Declares `iss` at `build`, `vp_token` afterwards, and writes `vp_token`.
     #[derive(Debug)]
@@ -829,18 +810,18 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
         let received = unsigned(&text).expect("received");
         let request = request_of(&received).expect("request");
         let host = TestHost::default();
-        let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
+        let authenticated =
+            authenticate(request.envelope(), &registry, english(), &host).expect("authentic");
         let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
         let ids: &[&str] = &[&ids[0]];
-        let app = test_app();
-        let rendering = app.rendering().expect("the rendering");
+        let context = english();
         Prepared::prepare(
             &authenticated,
             ids,
             &wallet,
             &registry,
             &env("en"),
-            &rendering,
+            context,
             &host,
         )
         .and_then(|prepared| {

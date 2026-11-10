@@ -224,7 +224,7 @@ fn a_uri_route_seals_its_errors_to_the_bound_key_else_sends_them_plain() {
 /// §8.2's example error: `invalid_request`, `unsupported client_id_prefix`, `state`
 /// `eyJhb...6-sVA`.
 #[derive(Debug, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "test.ka8")]
+#[explain(id = "ka8")]
 #[error("unsupported client_id_prefix")]
 struct Section82;
 

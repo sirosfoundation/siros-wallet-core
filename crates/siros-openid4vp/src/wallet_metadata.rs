@@ -10,6 +10,8 @@ use std::fmt;
 use siros_explain::Explain;
 
 #[cfg(feature = "uri")]
+use crate::detail;
+#[cfg(feature = "uri")]
 use crate::host::{CoreHost, EphemeralKey};
 #[cfg(feature = "uri")]
 use crate::ids::ClientId;
@@ -18,7 +20,7 @@ use crate::json::Node;
 #[cfg(feature = "uri")]
 use crate::plugins::{Fault, Registry};
 #[cfg(feature = "uri")]
-use crate::{FAULT, detail};
+use crate::plugins::{caused, fault};
 
 /// How a format's proof carries a profile's response members (B.3.3.1, PaSO Core §6.2, §6.3, CSC
 /// §7.2.1): claims of a JSON proof (an SD-JWT VC's Key Binding JWT), or elements of a name space
@@ -48,7 +50,7 @@ impl Placement {
 
 /// A parameter or metadata name (RFC 6749 §8.2's `param-name`: one or more of ASCII letters,
 /// digits, `-`, `.` and `_`), the names RFC 8414 metadata and OAuth parameters take. A plug-in
-/// makes its own with `siros_explain::checked!`.
+/// makes its own with `siros_syntax::checked!`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ParameterName(&'static str);
 
@@ -82,15 +84,6 @@ impl fmt::Display for ParameterName {
     }
 }
 
-/// A name is named by its text in a message.
-impl siros_explain::IntoArg for ParameterName {
-    type Kind = siros_explain::kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
-    }
-}
-
 /// Where a registered name sits, for the name conflicts the registry refuses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NamePlace {
@@ -107,32 +100,31 @@ pub enum NamePlace {
 /// The `wallet_metadata` members the core writes itself (§5.10, §10.1): `vp_formats_supported`,
 /// `client_id_prefixes_supported`, `request_object_signing_alg_values_supported` and `jwks`.
 pub const CORE_METADATA: [ParameterName; 4] = [
-    siros_explain::checked!(ParameterName, "vp_formats_supported"),
-    siros_explain::checked!(ParameterName, "client_id_prefixes_supported"),
-    siros_explain::checked!(ParameterName, "request_object_signing_alg_values_supported"),
-    siros_explain::checked!(ParameterName, "jwks"),
+    siros_syntax::checked!(ParameterName, "vp_formats_supported"),
+    siros_syntax::checked!(ParameterName, "client_id_prefixes_supported"),
+    siros_syntax::checked!(ParameterName, "request_object_signing_alg_values_supported"),
+    siros_syntax::checked!(ParameterName, "jwks"),
 ];
 
 /// The `request_uri` POST's parameters the core owns (§5.10): `wallet_metadata`, which it writes,
 /// and `wallet_nonce`, which it leaves out (decision 12).
 pub const CORE_PARAMETERS: [ParameterName; 2] = [
-    siros_explain::checked!(ParameterName, "wallet_metadata"),
-    siros_explain::checked!(ParameterName, "wallet_nonce"),
+    siros_syntax::checked!(ParameterName, "wallet_metadata"),
+    siros_syntax::checked!(ParameterName, "wallet_nonce"),
 ];
 
 /// The Authorization Response's and the error response's parameters the core writes (§8.1, RFC
 /// 6749 §4.1.2.1): `vp_token`, `state`, `error`, `error_description`, `error_uri`.
 pub const CORE_RESPONSE: [ParameterName; 5] = [
-    siros_explain::checked!(ParameterName, "vp_token"),
-    siros_explain::checked!(ParameterName, "state"),
-    siros_explain::checked!(ParameterName, "error"),
-    siros_explain::checked!(ParameterName, "error_description"),
-    siros_explain::checked!(ParameterName, "error_uri"),
+    siros_syntax::checked!(ParameterName, "vp_token"),
+    siros_syntax::checked!(ParameterName, "state"),
+    siros_syntax::checked!(ParameterName, "error"),
+    siros_syntax::checked!(ParameterName, "error_description"),
+    siros_syntax::checked!(ParameterName, "error_uri"),
 ];
 
 /// The Response URI answer's member the core reads itself (§8.2): `redirect_uri`.
-pub const CORE_ANSWER: [ParameterName; 1] =
-    [siros_explain::checked!(ParameterName, "redirect_uri")];
+pub const CORE_ANSWER: [ParameterName; 1] = [siros_syntax::checked!(ParameterName, "redirect_uri")];
 
 #[cfg(feature = "resolve")]
 /// One member a contributor writes into `wallet_metadata`: its declared name and its JSON value.
@@ -258,15 +250,22 @@ pub struct WalletMetadata {
 /// Contributions that make no `wallet_metadata`. The registry refused every name conflict when it
 /// built, so what remains is a contributor that broke its declaration.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.wallet_metadata")]
 pub enum MetadataRefused {
     /// A contributor wrote a name it did not declare.
-    #[error("a contributor wrote {0}, which it did not declare")]
-    Undeclared(#[explain(name = "member")] ParameterName),
+    #[error("a contributor wrote {member}, which it did not declare")]
+    #[explain(id = "wallet_metadata.undeclared")]
+    Undeclared {
+        /// The parameter's name.
+        member: ParameterName,
+    },
     /// A contribution that is no JSON object where §10.1 asks for one: a format's
     /// `vp_formats_supported` value.
-    #[error("the wallet_metadata member {0} is no JSON object")]
-    NotObject(#[explain(name = "member")] String),
+    #[error("the wallet_metadata member {member} is no JSON object")]
+    #[explain(id = "wallet_metadata.not_object")]
+    NotObject {
+        /// The member's path.
+        member: String,
+    },
     /// A contributor broke its contract.
     #[error(transparent)]
     Fault(#[from] Fault),
@@ -296,7 +295,7 @@ impl WalletMetadata {
         client_id: &ClientId<'_>,
         key: Option<&EphemeralKey>,
     ) -> Result<Self, MetadataRefused> {
-        let fault = |e| Fault::caused(FAULT, detail!("the wallet metadata"), e);
+        let unwritten = |e| caused(detail!("the wallet metadata"), e);
         let names = |values: &mut dyn Iterator<Item = &'static str>| {
             Node::Array(
                 values
@@ -310,17 +309,16 @@ impl WalletMetadata {
             .map(|format| {
                 let value = format.wallet_formats()?;
                 if value.as_object().is_none() {
-                    return Err(MetadataRefused::NotObject(format!(
-                        "vp_formats_supported.{}",
-                        format.id()
-                    )));
+                    return Err(MetadataRefused::NotObject {
+                        member: format!("vp_formats_supported.{}", format.id()),
+                    });
                 }
                 Ok((Cow::Owned(format.id().to_string()), value))
             })
             .collect::<Result<Vec<_>, MetadataRefused>>()?;
         members.push((
             Cow::Borrowed("vp_formats_supported"),
-            Node::object(formats).map_err(fault)?,
+            Node::object(formats).map_err(unwritten)?,
         ));
         let prefixes: Vec<&'static str> =
             registry.prefix_names().map(|name| name.as_str()).collect();
@@ -347,7 +345,7 @@ impl WalletMetadata {
             members.push((
                 Cow::Borrowed("jwks"),
                 Node::object([(Cow::Borrowed("keys"), Node::Array(vec![jwk(key)?]))])
-                    .map_err(fault)?,
+                    .map_err(unwritten)?,
             ));
         }
         let mut parameters: Vec<PostParameter> = Vec::new();
@@ -359,22 +357,21 @@ impl WalletMetadata {
             members.extend(declared_members(contribution.members(), written)?);
             for parameter in posted {
                 if !contribution.parameters().contains(&parameter.name) {
-                    return Err(MetadataRefused::Undeclared(parameter.name));
+                    return Err(MetadataRefused::Undeclared {
+                        member: parameter.name,
+                    });
                 }
                 if parameters.iter().any(|known| known.name == parameter.name) {
-                    return Err(Fault::new(
-                        FAULT,
-                        detail!(
-                            "a contribution wrote the POST parameter {name} twice",
-                            name = parameter.name
-                        ),
-                    )
+                    return Err(fault(detail!(
+                        "a contribution wrote the POST parameter {name} twice",
+                        name = parameter.name
+                    ))
                     .into());
                 }
                 parameters.push(parameter);
             }
         }
-        let object = Node::object(members).map_err(fault)?;
+        let object = Node::object(members).map_err(unwritten)?;
         Ok(Self {
             json: object.json_compact().to_string(),
             parameters,
@@ -400,7 +397,7 @@ fn declared_members(
             if declared.contains(&name) {
                 Ok((Cow::Borrowed(name.as_str()), value))
             } else {
-                Err(MetadataRefused::Undeclared(name))
+                Err(MetadataRefused::Undeclared { member: name })
             }
         })
         .collect()
@@ -413,10 +410,9 @@ fn jwk(key: &EphemeralKey) -> Result<Node<'static>, Fault> {
     match public.get("use").map(Node::as_str) {
         None | Some(Some("enc")) => {}
         Some(_) => {
-            return Err(Fault::new(
-                FAULT,
-                detail!("the ephemeral key's JWK names another use than enc"),
-            ));
+            return Err(fault(detail!(
+                "the ephemeral key's JWK names another use than enc"
+            )));
         }
     }
     let mut members: Vec<_> = public
@@ -426,7 +422,7 @@ fn jwk(key: &EphemeralKey) -> Result<Node<'static>, Fault> {
         .map(|member| (member.name.clone(), member.value.clone()))
         .collect();
     members.push((Cow::Borrowed("use"), Node::String(Cow::Borrowed("enc"))));
-    Node::object(members).map_err(|e| Fault::caused(FAULT, detail!("the ephemeral key's JWK"), e))
+    Node::object(members).map_err(|e| caused(detail!("the ephemeral key's JWK"), e))
 }
 
 #[cfg(feature = "uri")]

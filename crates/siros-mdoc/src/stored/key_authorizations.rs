@@ -107,10 +107,16 @@ fn read_data_elements(
                 .ok_or(KeyAuthorizationsFault::NameSpace)?,
         );
         if name_spaces.contains(&name_space) {
-            return Err(KeyAuthorizationsFault::Overlap(name_space));
+            return Err(KeyAuthorizationsFault::Overlap {
+                namespace: name_space,
+            });
         }
-        let identifiers = names_once(identifiers, ElementIdentifier::new)
-            .map_err(|fault| KeyAuthorizationsFault::Elements(name_space.clone(), fault))?;
+        let identifiers = names_once(identifiers, ElementIdentifier::new).map_err(|cause| {
+            KeyAuthorizationsFault::Elements {
+                namespace: name_space.clone(),
+                cause,
+            }
+        })?;
         Ok(DataElements {
             name_space,
             identifiers,
@@ -126,7 +132,9 @@ fn names_once<T>(item: &Value, name: fn(&str) -> T) -> Result<Vec<T>, NamesFault
     for text in names {
         let text = text.as_text().ok_or(NamesFault::NotText)?;
         if !seen.insert(text) {
-            return Err(NamesFault::Repeated(text.to_owned()));
+            return Err(NamesFault::Repeated {
+                name: text.to_owned(),
+            });
         }
         read.push(name(text));
     }

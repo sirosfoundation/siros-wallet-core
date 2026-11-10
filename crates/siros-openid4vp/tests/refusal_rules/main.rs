@@ -8,11 +8,16 @@ mod parsing;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use siros_explain::{ArgValue, Explain};
+use std::error::Error;
+
+use siros_explain::Explain;
+use siros_i18n::Context;
 use siros_openid4vp::arrival::Unreadable;
 use siros_openid4vp::envelope::Envelope;
+use siros_openid4vp::hash::HashesAlgRule;
 use siros_openid4vp::host::{Authentication, AuthenticationNeed, ProfileHost};
 use siros_openid4vp::ids::TransactionType;
+use siros_openid4vp::json::JsonError;
 use siros_openid4vp::matching::Accepted;
 use siros_openid4vp::plugins::{
     Answered, Binding, Bound, Exclude, Fault, FetchedRecord, Member, Members, NoCandidate, Profile,
@@ -20,7 +25,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::recourse::Failure;
 use siros_openid4vp::refusal::{ErrorCode, Refusal, Refused};
-use siros_openid4vp::request::{EntryIndex, Request};
+use siros_openid4vp::request::{EntryIndex, Malformed, Request};
 use siros_openid4vp::resolve::{Outcome, Prepared};
 use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_openid4vp::wallet::Wallet;
@@ -45,10 +50,10 @@ struct Said {
 }
 
 impl Said {
-    fn of(message: &dyn Explain, code: ErrorCode) -> Self {
+    fn of(error: &dyn Explain, code: ErrorCode) -> Self {
         Self {
-            rule: message.id().as_str(),
-            cause: innermost(message),
+            rule: error.id(),
+            cause: innermost(error),
             code,
         }
     }
@@ -60,17 +65,32 @@ impl From<Refusal> for Said {
     }
 }
 
-/// The identifier of the last message a message names, or its own.
-fn innermost(message: &dyn Explain) -> &'static str {
-    message
-        .args()
-        .as_slice()
-        .iter()
-        .find_map(|named| match named.arg().value() {
-            ArgValue::Message(cause) => Some(innermost(*cause)),
-            _ => None,
-        })
-        .unwrap_or_else(|| message.id().as_str())
+/// The id of the last error among `error`'s sources that is of a type the tests name as a
+/// cause, or its own.
+fn innermost(error: &dyn Explain) -> &'static str {
+    let mut id = error.id();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        if let Some(named) = named_cause(cause) {
+            id = named.id();
+        }
+        source = cause.source();
+    }
+    id
+}
+
+/// The error as a cause the tests name: why an entry or a JSON text is malformed, or B.3.3.1's
+/// rule on an algorithm list.
+fn named_cause<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Explain> {
+    if let Some(json) = error.downcast_ref::<JsonError>() {
+        Some(json)
+    } else if let Some(malformed) = error.downcast_ref::<Malformed>() {
+        Some(malformed)
+    } else {
+        error
+            .downcast_ref::<HashesAlgRule>()
+            .map(|rule| rule as &dyn Explain)
+    }
 }
 
 /// Each refusal's rule.
@@ -174,7 +194,7 @@ impl Profile for Counts {
     ) -> Option<&[Member]> {
         None
     }
-    fn bind(&self, _: Binding<'_>, _: &Env) -> Result<Bound, NoCandidate> {
+    fn bind(&self, _: Binding<'_>, _: &Env, _: &Context) -> Result<Bound, NoCandidate> {
         Err(Exclude::new(TestExclusion::new("binds nothing")).into())
     }
 }
@@ -225,35 +245,35 @@ fn each_core_rule_refuses_with_its_error_code() {
     let named =
         |kind: &str, ids: &str| entry(&format!(r#"{{"type": "{kind}", "credential_ids": {ids}}}"#));
     let unsigned = request("dc_api", "{}", &[], "");
-    let cases: [(&str, String, bool, ErrorCode, &str); 14] = [
+    let cases: [(&str, String, bool, ErrorCode, &str); 15] = [
         (
             "dcql_query",
             r#"{"response_type":"vp_token","response_mode":"dc_api","nonce":"n-0S6_WzA2Mj"}"#
                 .to_owned(),
             false,
             ErrorCode::INVALID_REQUEST,
-            "openid4vp.structure.dcql_absent",
+            "err.openid4vp.structure.dcql_absent",
         ),
         (
             "transaction_data",
             request("dc_api", "{}", &[], r#","transaction_data":[]"#),
             false,
             ErrorCode::INVALID_REQUEST,
-            "openid4vp.structure.transaction_data",
+            "err.openid4vp.structure.transaction_data",
         ),
         (
             "expected_origins",
             request("dc_api", "{}", &[], r#","expected_origins":5"#),
             true,
             ErrorCode::INVALID_REQUEST,
-            "openid4vp.structure.expected_origins",
+            "err.openid4vp.structure.expected_origins",
         ),
         (
             "nonce",
             unsigned.replace(r#""nonce":"n-0S6_WzA2Mj""#, r#""nonce":5"#),
             false,
             ErrorCode::INVALID_REQUEST,
-            "openid4vp.structure.nonce",
+            "err.openid4vp.structure.nonce",
         ),
         (
             "a format's rules",
@@ -263,28 +283,28 @@ fn each_core_rule_refuses_with_its_error_code() {
             ),
             false,
             ErrorCode::INVALID_REQUEST,
-            "testkit.format.options",
+            "err.testkit.format.options",
         ),
         (
             "C0",
             request("dc_api", "{}", &["e30=".to_owned()], ""),
             false,
             ErrorCode::INVALID_TRANSACTION_DATA,
-            "openid4vp.rules.c0",
+            "err.openid4vp.rules.c0",
         ),
         (
             "C1",
             request("dc_api", "{}", &[named("t9", r#"["q"]"#)], ""),
             false,
             ErrorCode::INVALID_TRANSACTION_DATA,
-            "openid4vp.rules.c1",
+            "err.openid4vp.rules.c1",
         ),
         (
             "C2",
             request("dc_api", "{}", &[named("t1", r#"["q", "qX"]"#)], ""),
             false,
             ErrorCode::INVALID_TRANSACTION_DATA,
-            "openid4vp.rules.c2",
+            "err.openid4vp.rules.c2",
         ),
         (
             "C3",
@@ -296,7 +316,7 @@ fn each_core_rule_refuses_with_its_error_code() {
             ),
             false,
             ErrorCode::INVALID_TRANSACTION_DATA,
-            "openid4vp.rules.c3",
+            "err.openid4vp.rules.c3",
         ),
         (
             "C4",
@@ -308,35 +328,42 @@ fn each_core_rule_refuses_with_its_error_code() {
             ),
             false,
             ErrorCode::INVALID_TRANSACTION_DATA,
-            "openid4vp.rules.c4",
+            "err.openid4vp.rules.c4",
         ),
         (
             "C5",
             request("direct_post", "{}", &[], ""),
             false,
             ErrorCode::INVALID_REQUEST,
-            "openid4vp.routing.c5",
+            "err.openid4vp.routing.c5",
         ),
         (
             "C6",
             request("dc_api", "[]", &[], ""),
             false,
             ErrorCode::INVALID_REQUEST,
-            "openid4vp.rules.c6",
+            "err.openid4vp.rules.c6",
+        ),
+        (
+            "C6 jwks",
+            request("dc_api", r#"{"jwks": []}"#, &[], ""),
+            false,
+            ErrorCode::INVALID_REQUEST,
+            "err.openid4vp.rules.c6",
         ),
         (
             "C7",
             request("dc_api.jwt", "{}", &[], ""),
             false,
             ErrorCode::INVALID_REQUEST,
-            "openid4vp.modes.c7_key",
+            "err.openid4vp.modes.c7_key",
         ),
         (
             "C8",
             request("dc_api", "{}", &[], ""),
             true,
             ErrorCode::INVALID_REQUEST,
-            "openid4vp.rules.c8",
+            "err.openid4vp.rules.c8",
         ),
     ];
     for (name, parameters, is_signed, code, rule) in cases {
@@ -352,21 +379,21 @@ fn malformed_entries_are_refused_by_c0() {
     let cases = [
         (
             raw(r#"{"type": "t1", "credential_ids": ["q"], "a": 1, "a": 2}"#),
-            "openid4vp.json.duplicate_member",
+            "err.openid4vp.json.duplicate_member",
         ),
-        (raw("[1]"), "openid4vp.entry.not_object"),
-        (raw(r#"{"a":"#), "openid4vp.json.syntax"),
-        ("e30=".to_owned(), "openid4vp.entry.not_base64_url"),
-        ("e30+".to_owned(), "openid4vp.entry.not_base64_url"),
+        (raw("[1]"), "err.openid4vp.entry.not_object"),
+        (raw(r#"{"a":"#), "err.openid4vp.json.syntax"),
+        ("e30=".to_owned(), "err.openid4vp.entry.not_base64_url"),
+        ("e30+".to_owned(), "err.openid4vp.entry.not_base64_url"),
         // No base64url text has a length of 1 modulo 4.
-        ("e30aa".to_owned(), "openid4vp.entry.not_base64_url"),
+        ("e30aa".to_owned(), "err.openid4vp.entry.not_base64_url"),
         (
             raw(r#"{"type": 5, "credential_ids": ["q"]}"#),
-            "openid4vp.entry.type",
+            "err.openid4vp.entry.type",
         ),
         (
             raw(r#"{"type": "t1", "credential_ids": []}"#),
-            "openid4vp.entry.credential_ids",
+            "err.openid4vp.entry.credential_ids",
         ),
     ];
     // base64url's own characters, `-` and `_`, decode.
@@ -392,7 +419,7 @@ fn malformed_entries_are_refused_by_c0() {
         assert_eq!(
             said,
             [(
-                "openid4vp.rules.c0",
+                "err.openid4vp.rules.c0",
                 cause,
                 ErrorCode::INVALID_TRANSACTION_DATA
             )],
@@ -405,15 +432,19 @@ fn malformed_entries_are_refused_by_c0() {
 fn response_mode_and_client_metadata_follow_annex_a_and_section_8_3() {
     let registry = registry(Binds::First);
     let key = r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0", "y": "XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc", "alg": "ECDH-ES"}"#;
-    let c7 = "openid4vp.modes.c7_key";
-    let c7_enc = "openid4vp.modes.c7_enc";
+    let c7 = "err.openid4vp.modes.c7_key";
+    let c7_enc = "err.openid4vp.modes.c7_enc";
     let cases: [(&str, String, &[&str]); 11] = [
-        ("direct_post", "{}".to_owned(), &["openid4vp.routing.c5"]),
-        ("dc_api", "[]".to_owned(), &["openid4vp.rules.c6"]),
+        (
+            "direct_post",
+            "{}".to_owned(),
+            &["err.openid4vp.routing.c5"],
+        ),
+        ("dc_api", "[]".to_owned(), &["err.openid4vp.rules.c6"]),
         (
             "dc_api",
             r#"{"vp_formats_supported": []}"#.to_owned(),
-            &["openid4vp.rules.c6"],
+            &["err.openid4vp.rules.c6"],
         ),
         ("dc_api.jwt", "{}".to_owned(), &[c7]),
         (
@@ -490,7 +521,7 @@ fn a_signed_request_names_the_origin_in_expected_origins() {
             true,
             &registry
         )),
-        ["openid4vp.rules.c8"]
+        ["err.openid4vp.rules.c8"]
     );
     assert_eq!(
         refusals(&request("dc_api", "{}", &[], &both), true, &registry),
@@ -519,19 +550,19 @@ fn phase_2_answers_no_request_the_rules_refuse() {
     let received = fixtures::unsigned(&text).expect("received");
     let request = fixtures::request_of(&received).expect("request");
     let host = TestHost::default();
-    let authenticated =
-        fixtures::authenticate(request.envelope(), &registry, &host).expect("authentic");
-    let ids: &[&str] = &["none"];
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
+    let authenticated =
+        fixtures::authenticate(request.envelope(), &registry, context, &host).expect("authentic");
+    let ids: &[&str] = &["none"];
     let outcome = Prepared::prepare(
         &authenticated,
         ids,
         &Wallet::default(),
         &registry,
         &env("en"),
-        &rendering,
+        context,
         &host,
     )
     .and_then(|prepared| {
@@ -545,7 +576,10 @@ fn phase_2_answers_no_request_the_rules_refuse() {
     let said: Vec<_> = refused
         .refusals()
         .iter()
-        .map(|refusal| (refusal.id().as_str(), refusal.code()))
+        .map(|refusal| (refusal.id(), refusal.code()))
         .collect();
-    assert_eq!(said, [("openid4vp.routing.c5", ErrorCode::INVALID_REQUEST)]);
+    assert_eq!(
+        said,
+        [("err.openid4vp.routing.c5", ErrorCode::INVALID_REQUEST)]
+    );
 }

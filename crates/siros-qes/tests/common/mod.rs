@@ -7,8 +7,7 @@
 pub mod fixtures;
 
 use serde_json::Value as Json;
-use siros_explain::AllOf;
-use siros_explain::Text;
+use siros_i18n::{Context, Text};
 use siros_openid4vp::consent::{Card, ConsentEntry, Header};
 use siros_openid4vp::detail;
 use siros_openid4vp::effects::{Fetch, MediaType, Resource};
@@ -30,10 +29,9 @@ use siros_openid4vp::rows::{Choice, Env, HttpsUrl, Row, Value};
 use siros_openid4vp::session::Session;
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder, Wallet};
 use siros_qes::QesProfile;
-use siros_testkit::FAULT;
-use siros_testkit::fixtures::OPTIONS;
-use siros_testkit::render::{App, CrateSource, ENGLISH_QES, GERMAN_QES};
-use siros_testkit::{Published, PublishedResource, TestHost};
+use siros_syntax::AllOf;
+use siros_testkit::render::Language;
+use siros_testkit::{DoubleText, Published, PublishedResource, TestHost, caused};
 
 /// The Origin of the requests.
 pub const ORIGIN: &str = "https://verifier.example";
@@ -159,8 +157,6 @@ pub fn env(locale: &'static str) -> Env {
     Env::new(
         vec![LocaleTag::parse(locale).expect("tag")],
         Vec::new(),
-        OPTIONS,
-        Vec::new(),
         Choice::First,
     )
     .expect("env")
@@ -268,9 +264,15 @@ struct StandInOption<'a> {
 }
 
 fn view<'c>(credential: &'c Credential<'_>) -> Result<Node<'c>, Fault> {
-    let text = std::str::from_utf8(credential.view)
-        .map_err(|e| Fault::caused(FAULT, detail!("view"), e))?;
-    Node::parse(text).map_err(|e| Fault::caused(FAULT, detail!("view"), e))
+    let text = std::str::from_utf8(credential.view).map_err(|e| caused(detail!("view"), e))?;
+    Node::parse(text).map_err(|e| caused(detail!("view"), e))
+}
+
+/// A text as written, in the test app's wording.
+fn written(context: &Context, text: &str) -> Result<Text, Fault> {
+    context
+        .resolve(&DoubleText::written(text))
+        .map_err(|e| caused(detail!("a written text"), e))
 }
 
 impl FormatQuery for StandInQuery {
@@ -316,6 +318,7 @@ impl FormatQuery for StandInQuery {
         credential: &Credential<'_>,
         _shown: Shown<'_>,
         env: &Env,
+        context: &Context,
     ) -> Result<Card, Fault> {
         let view = view(credential)?;
         let rows = view
@@ -329,14 +332,16 @@ impl FormatQuery for StandInQuery {
                         .and_then(|cells| cells.get(k))
                         .and_then(Node::as_str)
                         .unwrap_or("")
-                        .to_owned()
                 };
-                Row::new(Text::Raw(cell(0)), Value::Text(Text::Raw(cell(1))))
+                Ok(Row::new(
+                    written(context, cell(0))?,
+                    Value::Text(written(context, cell(1))?),
+                ))
             })
-            .collect();
+            .collect::<Result<_, Fault>>()?;
         Ok(Card {
             icon: env.icon(None).clone(),
-            title: Text::Raw(credential.id.to_string()),
+            title: written(context, credential.id.as_str())?,
             subtitle: None,
             rows,
         })
@@ -402,8 +407,7 @@ impl<H> AnsweredOption<H> for StandInOption<'_> {
             quote(self.credential.credential().id.as_str()),
             written.join(",")
         );
-        Ok(Presentation::object(&text)
-            .map_err(|e| Fault::caused(FAULT, detail!("presentation"), e))?)
+        Ok(Presentation::object(&text).map_err(|e| caused(detail!("presentation"), e))?)
     }
 }
 
@@ -484,38 +488,29 @@ pub fn wallet(held: &[Holding]) -> Wallet<'_> {
     Wallet::new(held.iter().map(Holding::credential).collect()).expect("wallet")
 }
 
-/// The test app: the core's and the profile's modules in its English and German.
-fn app() -> App {
-    let qes = CrateSource::of::<siros_qes::CrateModule>(ENGLISH_QES, GERMAN_QES);
-    App::of(&[CrateSource::openid4vp(), qes]).expect("the test app")
-}
-
-thread_local! {
-    /// The test app, built once per test thread.
-    static APP: App = app();
-}
-
-/// A text as the test app renders it in a locale.
-pub fn plain(text: &Text, locale: &'static str) -> String {
-    APP.with(|app| app.plain(&env(locale), text).expect("the text renders"))
+/// The test app's English: the context of every test's matching and presentation.
+pub fn english() -> &'static Context {
+    Language::English.shared().expect("the test app")
 }
 
 /// A row as (section, label, value kind: an image or a text, value text).
 pub type ShownRow = (Option<String>, String, Option<&'static str>, Option<String>);
 
-/// The rows of an entry, rendered in English.
+/// The rows of an entry, each text as the test app words it.
 pub fn shown<'r>(rows: impl IntoIterator<Item = &'r Row>) -> Vec<ShownRow> {
-    let plain = |text: &Text| plain(text, "en");
     rows.into_iter()
         .map(|row| {
             (
-                row.section.as_ref().map(plain),
-                plain(&row.label),
+                row.section.as_ref().map(ToString::to_string),
+                row.label.to_string(),
                 row.value.as_ref().map(|value| match value {
                     Value::Image(_) => "image",
                     Value::Text(_) => "text",
                 }),
-                row.value.as_ref().and_then(|value| value.text()).map(plain),
+                row.value
+                    .as_ref()
+                    .and_then(|value| value.text())
+                    .map(ToString::to_string),
             )
         })
         .collect()
@@ -555,10 +550,7 @@ pub fn phase_one(
     let request = Request::parse(&envelope)?;
     let wallet = wallet(held);
     let accepted = Accepted::new(&request, registry)?;
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, env, &rendering).expect("match");
+    let matched = Match::run(&accepted, &wallet, env, english()).expect("match");
     let (first, _) = request.indexed_queries().next().expect("a query");
     let summary = Matched {
         candidates: matched
@@ -594,7 +586,7 @@ pub fn phase_one(
             })
             .collect(),
     };
-    let views = Views::of(&matched, env).expect("views");
+    let views = Views::of(&matched, env, english()).expect("views");
     let viewed = views
         .iter()
         .map(|view| Viewed {
@@ -636,18 +628,16 @@ pub fn approve(
     let wallet = wallet(held);
     let env = env("en");
     let host = TestHost::default();
-    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), profile, &host)
-        .expect("authentic");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
+    let authenticated =
+        siros_testkit::fixtures::authenticate(request.envelope(), profile, english(), &host)
+            .expect("authentic");
     let response = Prepared::prepare(
         &authenticated,
         &ids,
         &wallet,
         profile,
         &env,
-        &rendering,
+        english(),
         &host,
     )?
     .respond(fetch, &host)?;

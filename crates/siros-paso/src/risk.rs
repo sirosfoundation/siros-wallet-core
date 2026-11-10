@@ -6,10 +6,10 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use siros_explain::checked;
 use siros_openid4vp::ids::InvalidId;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::refusal::ReprItem;
+use siros_syntax::checked;
 
 use crate::outcome::NotCompatible;
 
@@ -338,7 +338,9 @@ impl Effective {
             .map(|id| {
                 catalogue
                     .get(id)
-                    .ok_or_else(|| NotCompatible::UnknownRiskProfile(id.as_str().to_owned()))
+                    .ok_or_else(|| NotCompatible::UnknownRiskProfile {
+                        profile: id.as_str().to_owned(),
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut signals: Vec<SignalSpec> = Vec::new();
@@ -352,8 +354,9 @@ impl Effective {
                 .ok_or(NotCompatible::RiskSignalsNotArray)?,
         };
         for entry in listed {
-            let spec = enumerated(entry)
-                .ok_or_else(|| NotCompatible::RiskSignalMalformed(ReprItem::repr(entry)))?;
+            let spec = enumerated(entry).ok_or_else(|| NotCompatible::RiskSignalMalformed {
+                signal: ReprItem::repr(entry),
+            })?;
             merge(&mut signals, spec);
         }
         let encrypted = match metadata.get("encrypted") {

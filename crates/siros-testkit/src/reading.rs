@@ -35,44 +35,37 @@ pub struct ModelHandover {
 
 /// Why a presentation is no DeviceResponse as the port writes one.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "testkit.read")]
 pub enum ReadError {
     /// The presentation is no JSON string.
     #[error("a presentation that is no JSON string")]
+    #[explain(id = "read.not_text")]
     NotText,
     /// The presentation's text is no base64url without padding.
     #[error("a presentation of no base64url")]
-    Base64(
-        #[source]
-        #[explain(skip)]
-        base64::DecodeError,
-    ),
+    #[explain(id = "read.base64")]
+    Base64(#[source] base64::DecodeError),
     /// The CBOR is unreadable.
     #[error("the DeviceResponse's CBOR")]
-    Cbor(
-        #[from]
-        #[explain(name = "cause")]
-        CborError,
-    ),
+    #[explain(id = "read.cbor")]
+    Cbor(#[from] CborError),
     /// A projected object repeats a name.
     #[error("the projected JSON")]
-    Json(
-        #[from]
-        #[explain(name = "cause")]
-        JsonError,
-    ),
+    #[explain(id = "read.json")]
+    Json(#[from] JsonError),
     /// Another shape than the port writes.
-    #[error("{0}")]
-    Shape(#[explain(name = "detail")] String),
+    #[error("{detail}")]
+    #[explain(id = "read.shape")]
+    Shape {
+        /// What breaks the shape.
+        detail: String,
+    },
     /// coset's refusal.
     #[error("coset refuses a COSE structure")]
-    Cose(
-        #[from]
-        #[explain(skip)]
-        coset::CoseError,
-    ),
+    #[explain(id = "read.cose")]
+    Cose(#[from] coset::CoseError),
     /// The device authentication covers other bytes than the rebuilt DeviceAuthentication.
     #[error("deviceAuth {found} covers other bytes than {expected}")]
+    #[explain(id = "read.uncovered")]
     Uncovered {
         /// The stand-in text over the rebuilt bytes.
         expected: String,
@@ -82,7 +75,9 @@ pub enum ReadError {
 }
 
 fn shape(what: impl Into<String>) -> ReadError {
-    ReadError::Shape(what.into())
+    ReadError::Shape {
+        detail: what.into(),
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {

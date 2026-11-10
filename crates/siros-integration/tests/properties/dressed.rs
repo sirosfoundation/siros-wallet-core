@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::common::HaipHost;
 use serde_json::Value;
 use siros_credman::{CredmanEntry, EntryIcon, StandardEntry};
-use siros_explain::Text;
+use siros_i18n::Context;
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::matching::{Accepted, Candidate, Match, StaticEntry, Views, option_items};
@@ -32,7 +32,7 @@ use crate::tally::Tally;
 use crate::{display, outcome};
 
 /// A dressed case as the checks read it: the request, the real registry, the wallet, its
-/// configuration and static entries, each query as its format parsed it.
+/// configuration, context and static entries, each query as its format parsed it.
 pub struct Case<'c> {
     /// The request.
     pub request: &'c Request<'c>,
@@ -42,8 +42,8 @@ pub struct Case<'c> {
     pub wallet: &'c Wallet<'c>,
     /// The wallet's configuration.
     pub env: &'c Env,
-    /// What the core renders the wallet's texts with.
-    pub rendering: &'c siros_openid4vp::rendering::Rendering<'c>,
+    /// The wallet's context, which words its texts.
+    pub context: &'c Context,
     /// The wallet's static entries.
     pub statics: &'c [StaticEntry],
     /// The credentials as the wallet registers them.
@@ -55,7 +55,7 @@ pub struct Case<'c> {
     /// The specifications' tables.
     pub spec: &'c Spec,
     /// Each PaSO entry rendered for each credential.
-    pub renders: &'c [Rendering],
+    pub renders: &'c [RenderedEntry],
 }
 
 /// A query as its format parses it in the context the core gives the format. Each reading runs
@@ -66,6 +66,7 @@ pub struct Parsed<'c> {
     registry: Rc<Registry<HaipHost>>,
     held: &'c [Held],
     env: Env,
+    context: Rc<Context>,
 }
 
 impl Parsed<'_> {
@@ -73,7 +74,8 @@ impl Parsed<'_> {
     fn read<R: 'static>(
         &self,
         credential: &Credential<'_>,
-        read: impl FnOnce(&dyn FormatQuery, &Credential<'_>, &Env, ClientMetadata<'_>) -> R + 'static,
+        read: impl FnOnce(&dyn FormatQuery, &Credential<'_>, &Env, &Context, ClientMetadata<'_>) -> R
+        + 'static,
     ) -> R {
         let held = self
             .held
@@ -83,23 +85,24 @@ impl Parsed<'_> {
             .clone();
         let registry = Rc::clone(&self.registry);
         let env = self.env.clone();
-        read_query(self.request, self.query, move |query, context| {
-            let client = ClientMetadata::parse(context.request().client_metadata())
+        let context = Rc::clone(&self.context);
+        read_query(self.request, self.query, move |query, reading| {
+            let client = ClientMetadata::parse(reading.request().client_metadata())
                 .expect("accepted metadata");
             let format = registry.format(query.format()).expect("a format");
             let parsed = format
-                .query(query, context)
+                .query(query, reading)
                 .map_err(|refusals| format!("{refusals:?}"))
                 .expect("an accepted query parses");
             let credential = held.credential().expect("a credential");
-            read(&*parsed, &credential, &env, client)
+            read(&*parsed, &credential, &env, &context, client)
         })
         .expect("the core reads the query")
     }
 
     /// [`FormatQuery::admits`] under the request's keys.
     fn admits(&self, credential: &Credential<'_>) -> Result<(), NoCandidate> {
-        self.read(credential, |parsed, credential, _, client| {
+        self.read(credential, |parsed, credential, _, _, client| {
             parsed.admits(credential, &client.agreeable_keys())
         })
     }
@@ -107,7 +110,7 @@ impl Parsed<'_> {
     /// [`FormatQuery::carries`].
     fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<Carriage, Fault> {
         let members = members.to_vec();
-        self.read(credential, move |parsed, credential, _, _| {
+        self.read(credential, move |parsed, credential, _, _, _| {
             parsed.carries(credential, &members)
         })
     }
@@ -119,12 +122,12 @@ impl Parsed<'_> {
         provided: &[Member],
     ) -> Result<Vec<OptionIndex>, Fault> {
         let provided = provided.to_vec();
-        self.read(credential, move |parsed, credential, env, _| {
+        self.read(credential, move |parsed, credential, env, _, _| {
             parsed.answerable(credential, env, &provided)
         })
     }
 
-    /// [`FormatQuery::draw`] in the case's configuration.
+    /// [`FormatQuery::draw`] in the case's configuration and context.
     fn draw(
         &self,
         credential: &Credential<'_>,
@@ -132,12 +135,12 @@ impl Parsed<'_> {
         chosen: &[Item],
     ) -> Result<Card, Fault> {
         let (everyone, chosen) = (everyone.to_vec(), chosen.to_vec());
-        self.read(credential, move |parsed, credential, env, _| {
+        self.read(credential, move |parsed, credential, env, context, _| {
             let shown = Shown {
                 everyone: &everyone,
                 chosen: &chosen,
             };
-            parsed.draw(credential, shown, env)
+            parsed.draw(credential, shown, env, context)
         })
     }
 }
@@ -175,7 +178,7 @@ impl<'c> Case<'c> {
 }
 
 /// A PaSO entry rendered for a credential (PaSO's `render`, Core §7.4.2's per-entry step).
-pub struct Rendering {
+pub struct RenderedEntry {
     /// The entry.
     pub entry: EntryIndex,
     /// The credential's id.
@@ -184,15 +187,21 @@ pub struct Rendering {
     pub outcome: Result<Rendered, Outcome>,
 }
 
-/// Each PaSO entry with an object payload rendered for each credential.
-fn renders(request: &Request<'_>, wallet: &Wallet<'_>, env: &Env) -> Vec<Rendering> {
+/// Each PaSO entry with an object payload rendered for each credential, its texts worded by
+/// `context`.
+fn renders(
+    request: &Request<'_>,
+    wallet: &Wallet<'_>,
+    env: &Env,
+    context: &Context,
+) -> Vec<RenderedEntry> {
     let paso = PasoProfile::default();
     let mut out = Vec::new();
     for credential in wallet.credentials() {
         for (index, entry) in request.indexed_entries() {
             let json: Value = serde_json::from_str(entry.decoded()).expect("an entry's JSON");
             if entry.kind().as_str().starts_with("urn:paso:sca:") && json["payload"].is_object() {
-                out.push(Rendering {
+                out.push(RenderedEntry {
                     entry: index,
                     credential: credential.id.to_string(),
                     outcome: paso
@@ -202,6 +211,7 @@ fn renders(request: &Request<'_>, wallet: &Wallet<'_>, env: &Env) -> Vec<Renderi
                             credential,
                             crate::common::placement(&credential.format),
                             env,
+                            context,
                         )
                         .expect("no fault"),
                 });
@@ -252,7 +262,14 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
         .collect();
     let wallet = Wallet::new(credentials).expect("a wallet");
     let env = &dressed.env;
-    let renders = renders(&request, &wallet, env);
+    let context = Rc::new(crate::common::wallet_app(
+        &wallet,
+        &request,
+        env,
+        dressed.amounts,
+        &HaipHost::default(),
+    ));
+    let renders = renders(&request, &wallet, env, &context);
     // The PaSO renderer on every entry for every credential whose metadata lists its type, or
     // that brings its own metadata.
     for rendering in &renders {
@@ -268,15 +285,12 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
             .get(entry.kind().as_str())
             .is_some();
         if json.get("metadata").is_some() || listed {
-            let text = credential
-                .document("paso")
-                .and_then(|bytes| std::str::from_utf8(bytes).ok())
-                .expect("a PaSO document's text");
             outcome::check(
                 &json,
-                (&document, text),
+                &document,
                 &rendering.outcome,
                 env,
+                &context,
                 spec,
                 tally,
             );
@@ -303,17 +317,16 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
                 registry: Rc::clone(&registry),
                 held: &dressed.credentials,
                 env: env.clone(),
+                context: Rc::clone(&context),
             })
         })
         .collect();
-    let app = crate::common::wallet_app(&wallet, &request, env, &HaipHost::default());
-    let rendering = app.rendering().expect("the rendering");
     let case = Case {
         request: &request,
         registry: &registry,
         wallet: &wallet,
         env,
-        rendering: &rendering,
+        context: &context,
         statics: &dressed.statics,
         held: &dressed.credentials,
         unusable: &dressed.unusable,
@@ -321,9 +334,9 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
         spec,
         renders: &renders,
     };
-    let matched = Match::run(&accepted, &wallet, env, &rendering).expect("no fault");
+    let matched = Match::run(&accepted, &wallet, env, &context).expect("no fault");
     bindings(&case, &matched, tally);
-    let views = Views::of(&matched, env).expect("no fault");
+    let views = Views::of(&matched, env, &context).expect("no fault");
     boxes(&case, &accepted, &matched, &views, tally);
     display::check(&case, &matched, &views, tally);
 }
@@ -562,7 +575,8 @@ fn boxes(
             accepted.options(view.pick.query),
             &candidate.options,
             view.pick.option,
-        );
+        )
+        .expect("the candidate's options are the query's");
         // The format's card shows the items in every answerable option, then the option's own.
         let card: Card = parsed
             .draw(candidate.credential, &everyone, &chosen)
@@ -590,7 +604,7 @@ fn boxes(
         if entry.kind().as_str() == siros_qes::TYPE {
             // CSC §6.4: the approval's rows, its statement first as a full-text row, then the
             // card's; no warning; the approval's header.
-            let mut rows: Vec<Row> = bound.overlay.rows.iter().cloned().map(Row::from).collect();
+            let mut rows: Vec<Row> = bound.overlay.rows.clone();
             rows.extend(card.rows.iter().cloned());
             assert_eq!(
                 CredmanEntry::of(&view.entry),
@@ -627,7 +641,7 @@ fn boxes(
             (&t.title, &t.actions.confirm, &t.actions.deny),
             "P-header"
         );
-        let shown: Vec<Row> = t.rows.iter().map(|row| row.row.clone().into()).collect();
+        let shown: Vec<Row> = t.rows.iter().map(|row| row.row.clone()).collect();
         match CredmanEntry::of(&view.entry) {
             CredmanEntry::Payment(payment) => {
                 // View §2: merchant and amount show once, in the payment entry; every other
@@ -647,7 +661,7 @@ fn boxes(
                 assert_eq!(payment.rows, want, "P-proxy rows");
                 assert_eq!(
                     (&payment.merchant, &payment.amount),
-                    (merchant.text(), amount.text()),
+                    (merchant, amount),
                     "P-payment box"
                 );
                 assert_eq!(
@@ -660,8 +674,7 @@ fn boxes(
                     "P-payment method"
                 );
                 assert_eq!(
-                    payment.additional_info,
-                    t.actions.hint.clone().map(Text::from),
+                    payment.additional_info, t.actions.hint,
                     "P-hint on the entry"
                 );
                 tally.add("payment boxes");
@@ -677,11 +690,7 @@ fn boxes(
                     (&card.icon, &card.title, &card.subtitle),
                     "P-card is the identity"
                 );
-                assert_eq!(
-                    standard.warning,
-                    t.actions.hint.clone().map(Text::from),
-                    "P-hint on the entry"
-                );
+                assert_eq!(standard.warning, t.actions.hint, "P-hint on the entry");
                 tally.add("PaSO standard boxes");
             }
         }

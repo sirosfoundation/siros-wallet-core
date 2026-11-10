@@ -9,12 +9,14 @@ use super::{
 };
 use super::{RouteKey, Session, SessionBinding};
 use crate::authenticate::{Authenticated, BoundEndpoint, VerifierId};
+use crate::detail;
 use crate::envelope::Channel;
 use crate::host::{CoreHost, Haip};
 use crate::ids::{ClientId, Nonce, Origin};
 use crate::matching::{CoreRule, UnmetCode};
 use crate::plugins::registry::RegisteredMode;
 use crate::plugins::{Build, Fault, Registry};
+use crate::plugins::{caused, fault};
 use crate::recourse::{DcApiErrors, Reply};
 use crate::refusal::{ErrorCode, ErrorDescription, Refusal, Refused};
 use crate::request::Agreements;
@@ -22,13 +24,12 @@ use crate::routing::{
     Carries, Echo, Encrypting, ModeHost, RoutedMode, VerifierKeys, VerifierMetadata,
 };
 use crate::uri::ResponseUri;
-use crate::{FAULT, detail};
 
 /// A URI request whose `response_mode` names no registered error mode (C5): no error can go
 /// anywhere, and the wallet tells the End-User. A DC API request is always routable: its errors
 /// are A.4's, which the core writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.route")]
+#[explain(id = "route.unroutable")]
 #[error("the request names no response mode the wallet can carry an error in")]
 pub struct Unroutable;
 
@@ -137,12 +138,9 @@ impl<'a, H: CoreHost> Route<'a, H> {
                 let (BoundEndpoint::ResponseUri { uri, .. }, VerifierId::Client(client_id)) =
                     (verifier.endpoint(), verifier.id())
                 else {
-                    return Err(Fault::new(
-                        FAULT,
-                        detail!(
-                            "a URI request authenticated without a response_uri and a client_id"
-                        ),
-                    )
+                    return Err(fault(detail!(
+                        "a URI request authenticated without a response_uri and a client_id"
+                    ))
                     .into());
                 };
                 ChannelRoute::Uri {
@@ -204,7 +202,7 @@ impl<'a, H: CoreHost> Route<'a, H> {
         let first = refused
             .refusals()
             .first()
-            .ok_or_else(|| Fault::new(FAULT, detail!("a refusal without a rule")))?;
+            .ok_or_else(|| fault(detail!("a refusal without a rule")))?;
         let error = ErrorResponse::of(
             first.code(),
             ErrorDescription::sanitized(&first.text()),
@@ -262,10 +260,9 @@ impl<'a, H: CoreHost> Route<'a, H> {
             return Ok(Delivery::DcApi(DcApiData::error(error)));
         };
         let RegisteredMode::Errors(mode) = self.registered(*errors)? else {
-            return Err(Fault::new(
-                FAULT,
-                detail!("the route's error mode is registered for answers"),
-            ));
+            return Err(fault(detail!(
+                "the route's error mode is registered for answers"
+            )));
         };
         let key = self.key();
         let sealed;
@@ -279,10 +276,7 @@ impl<'a, H: CoreHost> Route<'a, H> {
                 ErrorContent::Sealed(&sealed)
             }
             (Some(_), None) => {
-                return Err(Fault::new(
-                    FAULT,
-                    detail!("a key without an answering mode"),
-                ));
+                return Err(fault(detail!("a key without an answering mode")));
             }
         };
         let body = mode.error(&ModeRoute::of(key, self.echo()), &content, host)?;
@@ -395,13 +389,10 @@ fn registered<H: Build>(
         .mode_host(mode.handle())
         .filter(|registered| registered.mode().name() == mode.name())
         .ok_or_else(|| {
-            Fault::new(
-                FAULT,
-                detail!(
-                    "the registry holds no mode {name} at the request's handle",
-                    name = mode.name()
-                ),
-            )
+            fault(detail!(
+                "the registry holds no mode {name} at the request's handle",
+                name = mode.name()
+            ))
         })
 }
 
@@ -471,5 +462,5 @@ fn checked<'a>(
 
 /// The fault of a mode that broke its contract.
 fn breach(cause: RouteBreach) -> Fault {
-    Fault::caused(FAULT, detail!("the routed mode broke its contract"), cause)
+    caused(detail!("the routed mode broke its contract"), cause)
 }

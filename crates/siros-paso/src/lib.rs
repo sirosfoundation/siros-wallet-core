@@ -3,13 +3,20 @@
 //!
 //! - Core §3, §7.1 and §7.4.1: the request rules over PaSO's entries ([`entry`]).
 //! - Core §7.4.2: first match, the first entry in array order that renders for a credential.
-//! - Proof Metadata §3: a type's metadata, its labels held to §3.3 ([`metadata`], [`labels`]);
-//!   §5: ad-hoc metadata JWTs ([`adhoc`]).
+//! - Proof Metadata §3: a type's metadata, its labels held to §3.3 and to a visible character
+//!   ([`metadata`], [`labels`]); §5: ad-hoc metadata JWTs ([`adhoc`]).
 //! - View §2-4: the generic renderer, value types, templates and locale selection
 //!   ([`render`]), the Payment, Generic and Mandate rulebooks ([`rulebook`], [`mandate`]),
 //!   images ([`image`]); what keeps an entry from rendering ([`outcome`]).
 //! - Risk Signals §3-7 ([`risk`]) and Core §6, the response members each format carries
-//!   ([`respond`], with the core's feature `resolve`), with what phase 2 revalidates.
+#![cfg_attr(
+    feature = "resolve",
+    doc = "  ([`respond`], with the feature `resolve`), with what phase 2 revalidates."
+)]
+#![cfg_attr(
+    not(feature = "resolve"),
+    doc = "  (`respond`, with the feature `resolve`), with what phase 2 revalidates."
+)]
 //!
 //! A credential's registration holds its PaSO document under [`document::DOCUMENT`]: the
 //! signed credential metadata the wallet verified at issuance.
@@ -82,22 +89,25 @@ pub mod view;
 
 pub use conform::{ClaimIndex, Placement};
 
-use siros_explain::{Message, Messages, ModuleId};
+use std::error::Error;
+
+use siros_explain::Explain;
+use siros_i18n::Context;
 use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
 use siros_openid4vp::host::Slot;
 use siros_openid4vp::ids::{InvalidId, LocaleTag, TypePrefix};
+use siros_openid4vp::json::Node;
 use siros_openid4vp::media::MediaType;
 use siros_openid4vp::plugins::{
-    Attested, AttestedName, AttestedText, Binding, Bound, BoundEntries, Build, Carriage, Exclude,
-    Fault, FaultDomain, HostedProfile, Member, NoCandidate, Profile, ProfileHandle,
-    RegistryBuilder,
+    Attested, AttestedName, AttestedText, Binding, Bound, BoundEntries, Build, Carriage, Detail,
+    Exclude, Fault, HostedProfile, Member, NoCandidate, Profile, ProfileHandle, RegistryBuilder,
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, Entry, EntryIndex, Request};
 use siros_openid4vp::routing::ChannelKind;
-use siros_openid4vp::rows::{Env, HttpsUrl, Selected};
+use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_openid4vp::sri::Integrity;
 use siros_openid4vp::wallet::Credential;
 #[cfg(feature = "resolve")]
@@ -118,97 +128,35 @@ use crate::rulebook::{PASO, PasoType};
 use crate::rules::BindExcluded;
 use siros_openid4vp::wallet_metadata;
 
-/// The profile's domain, as its fault message.
-pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "paso.fault");
+siros_explain::scope!("paso");
 
-/// The crate's module, `paso`: the messages of the texts the End-User sees. The wallet provides
-/// their text in each of its languages, checked against this declaration when it loads.
-pub struct CrateModule;
-
-impl CrateModule {
-    /// The module's identity.
-    pub const ID: siros_explain::ModuleId =
-        siros_explain::ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "paso"));
+/// The profile's fault: the wallet's data it cannot read, or a module that broke its contract.
+#[derive(Debug, thiserror::Error, Explain)]
+#[error("{detail}")]
+#[explain(id = "fault")]
+struct PasoFault {
+    /// What failed, for the log.
+    #[explain(skip)]
+    detail: Detail,
+    /// The error that caused it.
+    #[source]
+    cause: Option<Box<dyn Error + Send + Sync>>,
 }
 
-impl Messages for CrateModule {
-    fn messages() -> Vec<Message> {
-        [
-            mandate::MandateLabel::messages(),
-            rulebook::Title::messages(),
-            rulebook::Confirm::messages(),
-            rulebook::Section::messages(),
-            frequency::Frequency::messages(),
-        ]
-        .concat()
-    }
+/// The profile's fault, its log line written by `detail`.
+pub(crate) fn fault(detail: Detail) -> Fault {
+    Fault::new(PasoFault {
+        detail,
+        cause: None,
+    })
 }
 
-/// Its request messages: the Mandate rulebook's claim labels, the sections embedded claims sit
-/// in, and the ISO 20022 frequencies, which a transaction's overlay shows.
-impl siros_explain::DeclaredModule for CrateModule {
-    const ID: siros_explain::ModuleId = Self::ID;
-    type Requested = PasoRequested;
-}
-
-/// The texts of the crate's module that a transaction's overlay shows: the module's request
-/// messages, which a registration's package holds compiled (section 4.14 of the design).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, siros_explain::Explain)]
-#[explain(domain = "paso")]
-pub enum PasoRequested {
-    /// A Mandate claim's label.
-    #[explain(transparent)]
-    Mandate(mandate::MandateLabel),
-    /// The section an embedded claim sits in.
-    #[explain(transparent)]
-    Section(rulebook::Section),
-    /// A frequency.
-    #[explain(transparent)]
-    Frequency(frequency::Frequency),
-}
-
-impl siros_explain::Requested for PasoRequested {
-    type Module = CrateModule;
-}
-
-/// The profile's messages: those its error types, rules and exclusions declare, and its fault's.
-pub struct CrateMessages;
-
-impl Messages for CrateMessages {
-    fn messages() -> Vec<Message> {
-        let declared: &[fn() -> Vec<Message>] = &[
-            path::Mismatch::messages,
-            render::BoundTooLow::messages,
-            document::DocumentError::messages,
-            rulebook::NotPasoType::messages,
-            labels::Directional::messages,
-            labels::LabelViolation::messages,
-            value::BadValue::messages,
-            value::Breach::messages,
-            image::ImageFailure::messages,
-            adhoc::AdhocFailure::messages,
-            entry::EntryRule::messages,
-            metadata::ArrayAt::messages,
-            outcome::Outcome::messages,
-            outcome::Unsupported::messages,
-            outcome::NotCompatible::messages,
-            outcome::RenderedAt::messages,
-            outcome::Excluded::messages,
-            rules::PasoRule::messages,
-            rules::BindExcluded::messages,
-            #[cfg(feature = "resolve")]
-            modules::NotRandomId::messages,
-            #[cfg(feature = "resolve")]
-            modules::NotRootCertificate::messages,
-            #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
-            cose::NotSealedCose::messages,
-        ];
-        declared
-            .iter()
-            .flat_map(|messages| messages())
-            .chain([FAULT.message()])
-            .collect()
-    }
+/// The profile's fault caused by an error, its log line written by `detail`.
+pub(crate) fn caused(detail: Detail, cause: impl Error + Send + Sync + 'static) -> Fault {
+    Fault::new(PasoFault {
+        detail,
+        cause: Some(Box::new(cause)),
+    })
 }
 
 mod phase2;
@@ -379,8 +327,18 @@ impl PasoProfile {
     /// module they need). The metadata is the ad-hoc metadata JWT's unless the profile knows the
     /// wallet refused it for the credential: over the DC API read as a signed request is read, in
     /// the URI flow once the wallet verified it for the credential (Proof Metadata §5.3,
-    /// [`PasoProfile::with_verified`]); else the credential's stored metadata for the type. The
-    /// outer error is the wallet's own failure: a document or an entry it cannot read.
+    #[cfg_attr(
+        feature = "resolve",
+        doc = "[`PasoProfile::with_verified`]); else the credential's stored metadata for the type."
+    )]
+    #[cfg_attr(
+        not(feature = "resolve"),
+        doc = "`PasoProfile::with_verified`, with the feature `resolve`); else the credential's stored \
+               metadata for the type."
+    )]
+    /// Every text resolves through `context` (see [`render::Request::render`]). The outer error
+    /// is the wallet's own failure: a document or an entry it cannot read, a text its context
+    /// does not word.
     pub fn render(
         &self,
         entry: &Entry<'_>,
@@ -388,15 +346,16 @@ impl PasoProfile {
         credential: &Credential<'_>,
         placement: Option<wallet_metadata::Placement>,
         env: &Env,
+        context: &Context,
     ) -> Result<Result<Rendered, Outcome>, Fault> {
         let kind = paso_type(entry)?;
         let Some(bytes) = credential.document(DOCUMENT) else {
             return Ok(Err(Unsupported::NoPasoMetadata.into()));
         };
-        let node = PasoDocument::json(bytes)
-            .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
-        let document = PasoDocument::read(&node)
-            .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
+        let node =
+            PasoDocument::json(bytes).map_err(|e| caused(detail!("the PaSO document"), e))?;
+        let document =
+            PasoDocument::read(&node).map_err(|e| caused(detail!("the PaSO document"), e))?;
         let paso = match PasoEntry::read(entry, kind) {
             Ok(paso) => paso,
             Err(refused) => return Ok(Err(refused.into())),
@@ -409,7 +368,7 @@ impl PasoProfile {
             Ok(adhoc) => adhoc,
             Err(refused) => return Ok(Err(refused)),
         };
-        Ok(self.rendered(&paso, adhoc.as_ref(), &document, placement, env))
+        self.rendered(&paso, adhoc.as_ref(), &document, placement, env, context)
     }
 
     /// The ad-hoc metadata JWT the profile relies on for the credential: refused when the profile
@@ -427,7 +386,10 @@ impl PasoProfile {
             .iter()
             .find(|refused| refused.jwt.as_str() == jwt && refused.credential.as_str() == id)
         {
-            return Err(NotCompatible::Adhoc(refused.failure.clone()).into());
+            return Err(NotCompatible::Adhoc {
+                failure: refused.failure.clone(),
+            }
+            .into());
         }
         if channel == ChannelKind::Uri
             && !self
@@ -435,11 +397,16 @@ impl PasoProfile {
                 .iter()
                 .any(|relied| relied.jwt.as_str() == jwt && relied.credential.as_str() == id)
         {
-            return Err(NotCompatible::Adhoc(AdhocFailure::Unverified).into());
+            return Err(NotCompatible::Adhoc {
+                failure: AdhocFailure::Unverified,
+            }
+            .into());
         }
         Ok(adhoc::Read::parse(jwt).map_err(NotCompatible::from)?)
     }
 
+    /// The entry rendered with its metadata: View's rules and the risk signals' decide whether
+    /// it renders, then its texts resolve.
     fn rendered(
         &self,
         paso: &PasoEntry<'_>,
@@ -447,28 +414,54 @@ impl PasoProfile {
         document: &PasoDocument<'_>,
         placement: Option<wallet_metadata::Placement>,
         env: &Env,
-    ) -> Result<Rendered, Outcome> {
+        context: &Context,
+    ) -> Result<Result<Rendered, Outcome>, Fault> {
         let kind = &paso.kind;
         let (given, source) = match adhoc {
             Some(read) => (read.metadata(), Source::Adhoc),
-            None => (
-                document
-                    .metadata(kind)
-                    .ok_or_else(|| Unsupported::NotListed(kind.to_owned_type()))?,
-                Source::Stored {
-                    integrity: document.integrity.clone(),
-                },
-            ),
+            None => match document.metadata(kind) {
+                Some(given) => (
+                    given,
+                    Source::Stored {
+                        integrity: document.integrity.clone(),
+                    },
+                ),
+                None => {
+                    return Ok(Err(Unsupported::NotListed {
+                        kind: kind.to_owned_type(),
+                    }
+                    .into()));
+                }
+            },
         };
-        let view = render::Request {
+        let request = render::Request {
             registered: Registered::of(kind.clone(), given),
             payload: paso.payload,
             env,
+            context,
             bound: self.bound,
             limits: LabelLimits::PASO,
             resolve: &|url: &str| self.resolution(url),
+        };
+        let plan = match request.plan() {
+            Ok(plan) => plan,
+            Err(outcome) => return Ok(Err(outcome)),
+        };
+        if let Err(outcome) = self.signals(given, document, placement) {
+            return Ok(Err(outcome));
         }
-        .render()?;
+        let view = plan.resolve(&request)?;
+        Ok(Ok(Rendered { view, source }))
+    }
+
+    /// Whether the wallet can send the type's risk signals: Risk Signals §7.3, and §7.6 in a
+    /// build phase 2 found without a module they need.
+    fn signals(
+        &self,
+        given: &Node<'_>,
+        document: &PasoDocument<'_>,
+        placement: Option<wallet_metadata::Placement>,
+    ) -> Result<(), Outcome> {
         let signals = Effective::resolve(given, &self.catalogue)?;
         let sealer = self
             .sealer
@@ -480,9 +473,9 @@ impl PasoProfile {
         if let Some(module) = OptionalModule::needed(&signals, placement)
             && self.lacking.contains(&module)
         {
-            return Err(NotCompatible::Lacks(module).into());
+            return Err(NotCompatible::Lacks { module }.into());
         }
-        Ok(Rendered { view, source })
+        Ok(())
     }
 }
 
@@ -490,10 +483,10 @@ impl PasoProfile {
 pub(crate) fn paso_type<'e>(entry: &'e Entry<'e>) -> Result<PasoType<'e>, Fault> {
     let kind = entry.kind().as_str();
     PasoType::parse(kind).map_err(|_| {
-        Fault::new(
-            FAULT,
-            detail!("{kind} is no PaSO type identifier", kind = kind.to_owned()),
-        )
+        fault(detail!(
+            "{kind} is no PaSO type identifier",
+            kind = kind.to_owned()
+        ))
     })
 }
 
@@ -510,7 +503,7 @@ fn attested(locale: &LocaleTag, source: Source) -> Result<Attested, Fault> {
             AttestedText::new(integrity.as_str().to_owned()),
         ));
     }
-    Attested::new(attested).map_err(|e| Fault::caused(FAULT, detail!("the attested display"), e))
+    Attested::new(attested).map_err(|e| caused(detail!("the attested display"), e))
 }
 
 /// What a rendering gives the core: `entries`, which it authorizes, the header, `attested`, and
@@ -529,21 +522,19 @@ pub fn bound(
         .payment_texts()
         .map(|(merchant, amount)| (merchant.clone(), amount.clone()));
     let TransactionView {
-        locale,
-        module,
         title,
         rows,
         actions,
         payment: payment_rows,
+        ..
     } = view;
-    let selected = Selected::new(ModuleId::Defined(module), locale);
     let overlay = match (payment_rows, payment) {
         (Some(heads), Some((merchant, amount))) => {
             let at = |position: RowPosition| rows.get(position.get()).map(|row| row.row.clone());
             let header_rows = [at(heads.merchant()), at(heads.amount())]
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
-                .ok_or_else(|| Fault::new(FAULT, detail!("payment rows the rendering lacks")))?;
+                .ok_or_else(|| fault(detail!("payment rows the rendering lacks")))?;
             Overlay {
                 rows: rows
                     .into_iter()
@@ -574,7 +565,6 @@ pub fn bound(
         },
         attested,
         overlay,
-        selected: Some(selected),
     })
 }
 
@@ -594,7 +584,13 @@ impl Profile for PasoProfile {
     /// Core §7.4.2 steps 2-3: the first entry in array order that renders for the credential;
     /// a locale failure excludes the credential (View §4). A presentation that cannot carry the
     /// SCA response claims supports no PaSO type (OpenID4VP B.2).
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
+    /// Every text resolves through `context`.
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate> {
         if binding.carriage == Carriage::Uncarried {
             return Err(Exclude::new(BindExcluded::Carriage).into());
         }
@@ -602,13 +598,20 @@ impl Profile for PasoProfile {
             let entry = binding
                 .request
                 .entry(*index)
-                .ok_or_else(|| Fault::new(FAULT, detail!("an offered entry the request lacks")))?;
+                .ok_or_else(|| fault(detail!("an offered entry the request lacks")))?;
             let channel = binding.request.envelope().channel().kind();
-            match self.render(entry, channel, binding.credential, binding.placement, env)? {
+            match self.render(
+                entry,
+                channel,
+                binding.credential,
+                binding.placement,
+                env,
+                context,
+            )? {
                 Ok(Rendered { view, source }) => {
                     let attested = attested(&view.locale, source)?;
                     let entries = BoundEntries::select(binding.entries, vec![*index])
-                        .map_err(|e| Fault::caused(FAULT, detail!("the bound entry"), e))?;
+                        .map_err(|e| caused(detail!("the bound entry"), e))?;
                     return Ok(bound(view, attested, entries)?);
                 }
                 Err(Outcome::Excluded(excluded)) => {

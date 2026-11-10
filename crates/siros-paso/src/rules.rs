@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use siros_explain::{Count, Explain, IntoArg, kind};
+use siros_explain::Explain;
 use siros_openid4vp::plugins::{Clause, Exclusion};
 use siros_openid4vp::refusal::{ErrorCode, RequestRule};
 use siros_openid4vp::request::EntryIndex;
@@ -12,24 +12,28 @@ use crate::outcome::Excluded;
 
 /// A rule PaSO sets on a request over its own entries.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.rules")]
 pub enum PasoRule {
     /// Core §3: the request is unsigned.
     #[error("PaSO requests are signed; this one is not (Core §3)")]
+    #[explain(id = "rules.unsigned")]
     Unsigned,
     /// An entry's members break a rule.
     #[error("PaSO entry {entry}: {rule}")]
+    #[explain(id = "rules.entry")]
     Entry {
         /// The entry.
         entry: EntryPosition,
         /// The rule.
+        #[source]
         rule: EntryRule,
     },
     /// Core §7.4.1: the alternatives involving the entries' queries are not transposable.
     #[error("PaSO alternatives involving its transaction data are not transposable (Core §7.4.1)")]
+    #[explain(id = "rules.coupled")]
     Coupled,
     /// Core §7.4.1: the entries' queries sit in more than one credential set.
     #[error("PaSO transaction data names queries of more than one credential set (Core §7.4.1)")]
+    #[explain(id = "rules.sets")]
     Sets,
 }
 
@@ -55,14 +59,6 @@ impl fmt::Display for EntryPosition {
     }
 }
 
-impl IntoArg for EntryPosition {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.get().arg()
-    }
-}
-
 impl RequestRule for PasoRule {
     fn code(&self) -> ErrorCode {
         match self {
@@ -74,13 +70,14 @@ impl RequestRule for PasoRule {
 
 /// Why PaSO's binding excludes a credential, beyond View §4's locale rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.excluded")]
 pub enum BindExcluded {
     /// The presentation cannot carry the SCA response claims.
     #[error("its presentation cannot carry the SCA response claims")]
+    #[explain(id = "excluded.carriage")]
     Carriage,
     /// No entry renders for the credential.
     #[error("no PaSO entry is compatible with the credential")]
+    #[explain(id = "excluded.no_entry")]
     NoEntry,
 }
 

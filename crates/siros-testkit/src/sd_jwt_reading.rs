@@ -14,31 +14,46 @@ use siros_openid4vp::json::{JsonError, Node};
 
 /// Why a text is no SD-JWT presentation a Verifier takes.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "testkit.read_sd_jwt")]
 pub enum SdJwtReadError {
     /// A segment is no base64url of UTF-8 JSON, or a part is no compact JWS.
     #[error("a part of the compact form")]
+    #[explain(id = "read_sd_jwt.compact")]
     Compact,
     /// A JSON value is unreadable.
     #[error(transparent)]
     Json(#[from] JsonError),
     /// `sd_hash` is no hash of what precedes the Key Binding JWT (§7.3 step 4).
     #[error("sd_hash is no hash of the SD-JWT as sent")]
+    #[explain(id = "read_sd_jwt.sd_hash")]
     SdHash,
     /// No digest of the payload or another disclosure references this disclosure (§7.1 step 5).
-    #[error("disclosure {0} is unreferenced")]
-    Unreferenced(#[explain(name = "disclosure")] String),
+    #[error("disclosure {disclosure} is unreferenced")]
+    #[explain(id = "read_sd_jwt.unreferenced")]
+    Unreferenced {
+        /// The disclosure.
+        disclosure: String,
+    },
     /// A digest appears twice, or two disclosures share one (§7.1 step 4).
-    #[error("the digest {0} appears twice")]
-    RepeatedDigest(#[explain(name = "digest")] String),
+    #[error("the digest {digest} appears twice")]
+    #[explain(id = "read_sd_jwt.repeated_digest")]
+    RepeatedDigest {
+        /// The digest.
+        digest: String,
+    },
     /// A digest names a disclosure of the other form (§7.1 steps 3.c.ii.1, 3.c.iii.1).
-    #[error("the digest {0} names a disclosure of the other form")]
-    Misplaced(#[explain(name = "digest")] String),
+    #[error("the digest {digest} names a disclosure of the other form")]
+    #[explain(id = "read_sd_jwt.misplaced")]
+    Misplaced {
+        /// The digest.
+        digest: String,
+    },
     /// `_sd`, `...` or `_sd_alg` appears outside its role (§7.1 step 3.c.ii.2).
     #[error("a reserved claim name outside its role")]
+    #[explain(id = "read_sd_jwt.reserved")]
     Reserved,
     /// The payload names an algorithm other than `sha-256`.
     #[error("an _sd_alg other than sha-256")]
+    #[explain(id = "read_sd_jwt.sd_alg")]
     SdAlg,
 }
 
@@ -158,13 +173,15 @@ pub fn read(text: &str) -> Result<Read, SdJwtReadError> {
     for sent in &disclosures {
         let digest = hash(&sent.encoded);
         if pending.insert(digest.clone(), sent).is_some() {
-            return Err(SdJwtReadError::RepeatedDigest(digest));
+            return Err(SdJwtReadError::RepeatedDigest { digest });
         }
     }
     let mut seen = FxHashSet::default();
     let claims = processed(&payload, &mut pending, &mut seen, true)?;
     if let Some(left) = pending.values().next() {
-        return Err(SdJwtReadError::Unreferenced(left.encoded.clone()));
+        return Err(SdJwtReadError::Unreferenced {
+            disclosure: left.encoded.clone(),
+        });
     }
     Ok(Read {
         issuer_jwt: issuer_jwt.to_owned(),
@@ -223,7 +240,9 @@ fn referenced<'d>(
     seen: &mut FxHashSet<String>,
 ) -> Result<Option<&'d SentDisclosure>, SdJwtReadError> {
     if !seen.insert(digest.to_owned()) {
-        return Err(SdJwtReadError::RepeatedDigest(digest.to_owned()));
+        return Err(SdJwtReadError::RepeatedDigest {
+            digest: digest.to_owned(),
+        });
     }
     Ok(pending.remove(digest))
 }
@@ -250,10 +269,11 @@ fn processed(
                             let Some(disclosed) = referenced(digest, pending, seen)? else {
                                 continue;
                             };
-                            let name = disclosed
-                                .name
-                                .clone()
-                                .ok_or_else(|| SdJwtReadError::Misplaced(digest.to_owned()))?;
+                            let name = disclosed.name.clone().ok_or_else(|| {
+                                SdJwtReadError::Misplaced {
+                                    digest: digest.to_owned(),
+                                }
+                            })?;
                             if matches!(name.as_str(), "_sd" | "..." | "_sd_alg") {
                                 return Err(SdJwtReadError::Reserved);
                             }
@@ -296,9 +316,9 @@ fn element(
     }
     match referenced(digest, pending, seen)? {
         None => Ok(item.clone().into_owned()),
-        Some(disclosed) if disclosed.name.is_some() => {
-            Err(SdJwtReadError::Misplaced(digest.to_owned()))
-        }
+        Some(disclosed) if disclosed.name.is_some() => Err(SdJwtReadError::Misplaced {
+            digest: digest.to_owned(),
+        }),
         Some(disclosed) => processed(&disclosed.value, pending, seen, false),
     }
 }

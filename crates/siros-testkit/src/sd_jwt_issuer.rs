@@ -36,7 +36,7 @@ fn hash(input: &str) -> String {
 fn member<'v>(view: &'v Node<'_>, name: &'static str) -> Result<&'v str, IssueError> {
     view.get(name)
         .and_then(Node::as_str)
-        .ok_or(IssueError::View(name))
+        .ok_or(IssueError::View { member: name })
 }
 
 /// The holder key's curve: `key_curve`, else the one `key_alg` fixes (RFC 7518 §3.4).
@@ -48,7 +48,9 @@ fn key_curve<'v>(view: &'v Node<'_>, alg: &'v str) -> Result<&'v str, IssueError
             "ES384" => Ok("P-384"),
             "ES512" => Ok("P-521"),
             "EdDSA" => Ok("Ed25519"),
-            _ => Err(IssueError::View("key_curve")),
+            _ => Err(IssueError::View {
+                member: "key_curve",
+            }),
         },
     }
 }
@@ -59,7 +61,7 @@ fn confirmation(view: &Node<'_>) -> Result<Option<Node<'static>>, IssueError> {
     let Some(alg) = view.get("key_alg") else {
         return Ok(None);
     };
-    let alg = alg.as_str().ok_or(IssueError::View("key_alg"))?;
+    let alg = alg.as_str().ok_or(IssueError::View { member: "key_alg" })?;
     let curve = key_curve(view, alg)?;
     let size = match curve {
         "P-384" => 48,
@@ -107,7 +109,10 @@ fn permanent(view: &Node<'_>) -> Result<Members, IssueError> {
 ///
 /// The view is no object.
 pub fn without_key(view: &Node<'_>) -> Result<Node<'static>, IssueError> {
-    let members = view.as_object().ok_or(IssueError::View("view"))?.members();
+    let members = view
+        .as_object()
+        .ok_or(IssueError::View { member: "view" })?
+        .members();
     Ok(Node::object(
         members
             .iter()
@@ -147,7 +152,7 @@ impl Issuing {
                 let mut digests = Vec::new();
                 for member in object.members() {
                     if RESERVED.contains(&member.name.as_ref()) {
-                        return Err(IssueError::View("values"));
+                        return Err(IssueError::View { member: "values" });
                     }
                     let at = format!("{path}/{}", member.name);
                     let inner = self.concealed(&at, &member.value)?;
@@ -187,12 +192,12 @@ pub fn issue(view: &Node<'_>) -> Result<String, IssueError> {
     let values = view
         .get("values")
         .filter(|values| values.as_object().is_some())
-        .ok_or(IssueError::View("values"))?;
+        .ok_or(IssueError::View { member: "values" })?;
     let mut issuing = Issuing::default();
     let concealed = issuing.concealed("", values)?;
     let digests = concealed
         .get("_sd")
-        .ok_or(IssueError::View("values"))?
+        .ok_or(IssueError::View { member: "values" })?
         .clone();
     let mut payload = permanent(view)?;
     let collides = |name: &str| payload.iter().any(|(permanent, _)| permanent == name);
@@ -200,7 +205,7 @@ pub fn issue(view: &Node<'_>) -> Result<String, IssueError> {
         .as_object()
         .is_some_and(|values| values.names().any(collides))
     {
-        return Err(IssueError::View("values"));
+        return Err(IssueError::View { member: "values" });
     }
     payload.push(("_sd_alg".into(), text("sha-256")));
     payload.push(("_sd".into(), digests));
@@ -232,7 +237,7 @@ pub fn registered_view(view: &Node<'_>) -> Result<Node<'static>, IssueError> {
     let values = view
         .get("values")
         .and_then(Node::as_object)
-        .ok_or(IssueError::View("values"))?;
+        .ok_or(IssueError::View { member: "values" })?;
     let mut merged = permanent(view)?;
     merged.extend(values.members().iter().map(|member| {
         (

@@ -9,7 +9,7 @@ use fluent_uri::build::{BuildError, Builder};
 use fluent_uri::component::{Host, Scheme};
 use fluent_uri::pct_enc::EStr;
 use fluent_uri::pct_enc::encoder::IRegName;
-use siros_explain::{Explain, IntoArg, kind};
+use siros_explain::Explain;
 
 use crate::text::python_space;
 
@@ -35,6 +35,13 @@ impl fmt::Debug for HttpsUrl {
     }
 }
 
+/// Its ASCII form, which every build shows.
+impl fmt::Display for HttpsUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.ascii.as_str())
+    }
+}
+
 impl PartialEq for HttpsUrl {
     fn eq(&self, other: &Self) -> bool {
         self.ascii == other.ascii
@@ -49,49 +56,37 @@ impl Hash for HttpsUrl {
     }
 }
 
-/// A message names a URL by its ASCII form.
-impl IntoArg for HttpsUrl {
-    type Kind = kind::Raw;
-
-    fn arg(&self) -> &str {
-        self.ascii.as_str()
-    }
-}
-
-/// A boxed URL, for an error's field: named as the URL is.
-impl IntoArg for Box<HttpsUrl> {
-    type Kind = kind::Raw;
-
-    fn arg(&self) -> &str {
-        self.ascii.as_str()
-    }
-}
-
 /// Why a text is no https URL the wallet shows or fetches.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.https_url")]
 pub enum NotHttpsUrl {
     /// No IRI (RFC 3987).
     #[error("no IRI: {0}")]
-    Iri(#[explain(skip)] fluent_uri::ParseError),
+    #[explain(id = "https_url.iri")]
+    Iri(#[source] fluent_uri::ParseError),
     /// Whitespace, which RFC 3987's `ucschar` admits and the display could not delimit.
     #[error("whitespace in the URL")]
+    #[explain(id = "https_url.whitespace")]
     Whitespace,
     /// Another scheme.
     #[error("the scheme is not https")]
+    #[explain(id = "https_url.scheme")]
     Scheme,
     /// No authority, or an empty host (RFC 9110 §4.2.2).
     #[error("no host")]
+    #[explain(id = "https_url.host")]
     Host,
     /// A host label whose Punycode overflows 32-bit arithmetic (RFC 3492 §6.4).
     #[error("a host label overflows Punycode")]
+    #[explain(id = "https_url.label_overflow")]
     LabelOverflow,
     /// The host's ASCII form is no registered name.
     #[error("the host's ASCII form is no registered name")]
+    #[explain(id = "https_url.not_reg_name")]
     NotRegName,
     /// The IRI with the ASCII host does not build.
     #[error("the IRI with the ASCII host does not build: {0}")]
-    Rebuilt(#[explain(skip)] BuildError),
+    #[explain(id = "https_url.rebuilt")]
+    Rebuilt(#[source] BuildError),
 }
 
 /// The capital of a Cherokee letter, the case UTS #46 writes: Cherokee's case folds upward

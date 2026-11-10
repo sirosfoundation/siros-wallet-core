@@ -10,10 +10,9 @@ mod paso_host;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use common::{Card, PAY, annex, en, member, parameters, request_app, section, tables};
+use common::{Card, PAY, annex, en, member, parameters, request_context, section, tables};
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
-use siros_explain::AllOf;
 use siros_openid4vp::effects::{Fetch, Resource};
 use siros_openid4vp::host::{
     AnsweredContext, AnsweredQuery, CoreHost, FormatHost, ProfileHost, Timestamp,
@@ -25,7 +24,7 @@ use siros_openid4vp::plugins::{Format, FormatQuery, HostedProfile, Member, Membe
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Query, Request};
 use siros_openid4vp::resolve::{Outcome as Phase2, Prepared};
-use siros_openid4vp::rows::{Amounts, Choice};
+use siros_openid4vp::rows::Choice;
 use siros_openid4vp::wallet::Wallet;
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::risk::{
@@ -33,6 +32,7 @@ use siros_paso::risk::{
     Sealing, SignalSpec, SignalType,
 };
 use siros_paso::{Measured, PasoProfile, Reading, Signal};
+use siros_syntax::AllOf;
 use siros_testkit::verifier::ISSUER;
 use siros_testkit::{Published, TestFormat, pin_and_device};
 
@@ -165,27 +165,31 @@ fn answer<H: CoreHost>(
     let credential = card.credential();
     let wallet = Wallet::new(vec![credential]).expect("wallet");
     let env = en();
-    let app = request_app(request, &[card], &env);
-    let rendering = app.rendering().expect("the rendering");
+    let matcher = request_context(common::context(&env), request, &[card], &env);
     let accepted = Accepted::new(request, registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env, &matcher).expect("match");
     let consent = Consent::of(&matched).expect("the wallet meets the request");
     let sets = offer(&matched, &consent, Choice::First);
-    let views = Views::of(&matched, &env).expect("views");
+    let views = Views::of(&matched, &env, &matcher).expect("views");
     let shown = display(&sets, &views, &[]).expect("display");
     let ids: Vec<&str> = shown.sets()[0]
         .iter()
         .map(|slot| slot[0].id().as_str())
         .collect();
-    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), registry, host)
-        .expect("authentic");
+    let authenticated = siros_testkit::fixtures::authenticate(
+        request.envelope(),
+        registry,
+        common::context(&env),
+        host,
+    )
+    .expect("authentic");
     Prepared::prepare(
         &authenticated,
         &ids,
         &wallet,
         registry,
         &env,
-        &rendering,
+        common::context(&env),
         host,
     )
     .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
@@ -252,14 +256,12 @@ fn core_a3_the_device_signed_elements_are_the_examples_and_the_hash_a_byte_strin
     );
     let host = PasoHost::at(Timestamp(NOW));
     let authentication = pin_and_device(Timestamp(NOW));
-    let env = common::env(&["de"], Amounts::Formatted);
-    let app = request_app(&request, &[&card], &env);
-    let rendering = app.rendering().expect("the rendering");
+    let env = common::env(&["de"]);
     let members = common::read_card_record(
         &request,
         &card,
         &env,
-        &rendering,
+        common::context(&env),
         |_: &Resource| Fetch::Unfetched,
         &host,
         move |record, host| PasoProfile::default().respond(record.record(), host, &authentication),
@@ -433,6 +435,7 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
                 &card.credential(),
                 crate::common::placement(&card.credential().format),
                 &en(),
+                crate::common::context(&en()),
             )
             .expect("no fault")
             .map(|_| ())
@@ -441,7 +444,9 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
     // Risk Signals §4.1: a profile the wallet does not hold.
     assert!(matches!(
         rendered(&PasoProfile::default()),
-        Err(Outcome::NotCompatible(NotCompatible::UnknownRiskProfile(_)))
+        Err(Outcome::NotCompatible(
+            NotCompatible::UnknownRiskProfile { .. }
+        ))
     ));
 }
 

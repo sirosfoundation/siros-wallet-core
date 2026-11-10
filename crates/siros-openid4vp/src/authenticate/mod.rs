@@ -14,7 +14,11 @@ use std::fmt;
 #[cfg(feature = "signed")]
 use dyn_clone::DynClone;
 use serde_json::value::RawValue;
-use siros_explain::{AllOf, Explain, Explained, IntoArg, Text, kind};
+use siros_explain::Explain;
+use siros_i18n::Text;
+#[cfg(feature = "signed")]
+use siros_i18n::{Context, ResolveError};
+use siros_syntax::AllOf;
 
 #[cfg(feature = "signed")]
 use crate::effects::{Decided, Evaluation};
@@ -38,7 +42,7 @@ pub use pending::{Authenticated, Pending};
 
 /// A Client Identifier Prefix (§5.9.1): the text before the first `:`, one or more characters of
 /// RFC 6749 Appendix A.1's `VSCHAR` other than `:`, and other than the reserved `origin`
-/// (§5.9.3). A plug-in makes its own with `siros_explain::checked!`.
+/// (§5.9.3). A plug-in makes its own with `siros_syntax::checked!`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PrefixName(&'static str);
 
@@ -79,15 +83,6 @@ const ORIGIN: &[u8] = b"origin";
 impl fmt::Display for PrefixName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
-    }
-}
-
-/// A prefix is named by its text in a message.
-impl IntoArg for PrefixName {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
     }
 }
 
@@ -211,11 +206,12 @@ pub enum ClaimChannel<'c> {
 /// A prefix rule a claim breaks: the prefix the core called, and the plug-in's rule (A5). The
 /// core makes one from `PrefixHost::claim`'s refusal.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.authenticate", id = "prefix")]
+#[explain(id = "authenticate.prefix")]
 #[error("{prefix}: {rule}")]
 pub struct PrefixRefusal {
     prefix: PrefixName,
-    rule: Box<dyn Explained>,
+    #[source]
+    rule: Box<dyn Explain>,
 }
 
 impl PrefixRefusal {
@@ -227,7 +223,7 @@ impl PrefixRefusal {
 
     /// The plug-in's rule.
     #[must_use]
-    pub fn rule(&self) -> &dyn Explained {
+    pub fn rule(&self) -> &dyn Explain {
         &*self.rule
     }
 }
@@ -264,7 +260,7 @@ pub trait PrefixHost<H>: ClientPrefix {
         &'c self,
         claim: ClientClaim<'c>,
         host: &H,
-    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>>;
+    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explain>>;
 }
 
 #[cfg(feature = "signed")]
@@ -285,16 +281,18 @@ pub trait PrefixClaim {
     /// The evaluations for the caller, in order.
     fn questions(&self) -> Vec<Evaluation>;
 
-    /// The key and what the framework states, from the decisions at `now` (A6).
+    /// The key and what the framework states, from the decisions at `now` (A6); the
+    /// framework's name for the Verifier as `context` words it.
     ///
     /// # Errors
     ///
-    /// The decisions bind nothing.
+    /// The decisions bind nothing, or `context` words no text of the binding.
     fn bind(
         &self,
         decided: Decided<'_>,
         now: Timestamp,
         skew: Skew,
+        context: &Context,
     ) -> Result<ClientBinding, Unbound>;
 
     /// What vouches for the request's `response_uri` (A12). The core asks it of a URI request
@@ -313,16 +311,22 @@ pub trait PrefixClaim {
 
 #[cfg(feature = "signed")]
 /// Why a claim binds nothing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.authenticate.unbound")]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum Unbound {
     /// A6: a `Deny`, or a decision that binds nothing.
     #[error("the trust framework does not bind the Verifier")]
+    #[explain(id = "authenticate.unbound.denied")]
     Denied,
     /// A12: the decision's `endpoints` omit the `response_uri`, or the prefix's own endpoint
     /// rule refuses it (§5.9.3).
     #[error("the response_uri is none the framework allows")]
+    #[explain(id = "authenticate.unbound.endpoint")]
     Endpoint,
+    /// The wallet's context words no text of the binding: a fault of the wallet, which ends the
+    /// authentication.
+    #[error("a text of the binding: {0}")]
+    #[explain(id = "authenticate.unbound.unworded")]
+    Unworded(#[from] ResolveError),
 }
 
 /// Where answers go, as the core bound it: the platform over the DC API; by URI the request's
@@ -357,7 +361,8 @@ pub enum EndpointBasis {
 pub struct ClientBinding {
     /// The key the signature verifies under.
     pub key: VerificationKey,
-    /// How the trust framework names the Verifier, for the consent: a text the framework wrote.
+    /// How the trust framework names the Verifier, for the consent: the framework's text as the
+    /// wallet's context words it.
     pub name: Option<Text>,
     /// What the trust framework states about the Verifier (its decision's context `facts`), for
     /// the plug-ins that read it.
@@ -402,63 +407,77 @@ pub struct TrustConfig {
 
 /// Why the wallet does not authenticate the Verifier (the A rules).
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.authenticate")]
 pub enum Unauthenticated {
     /// A1: the reserved `origin` prefix (§5.9.3).
     #[error("A1 the origin Client Identifier Prefix is reserved")]
-    #[explain(id = "a1")]
+    #[explain(id = "authenticate.a1")]
     Origin,
     /// A2: a prefix the wallet does not support, or none (a pre-registered client; §5.9.2).
-    #[error("A2 the Client Identifier {0} names no prefix the wallet supports")]
-    #[explain(id = "a2")]
-    UnknownPrefix(#[explain(name = "client_id")] String),
+    #[error("A2 the Client Identifier {client_id} names no prefix the wallet supports")]
+    #[explain(id = "authenticate.a2")]
+    UnknownPrefix {
+        /// The `client_id`.
+        client_id: String,
+    },
     /// A3: a signed DC API request without `client_id` (A.2).
     #[error("A3 a signed request without client_id")]
-    #[explain(id = "a3")]
+    #[explain(id = "authenticate.a3")]
     ClientIdAbsent,
     /// A5: a prefix rule.
     #[error("A5 {0}")]
-    #[explain(id = "a5")]
-    Prefix(#[explain(name = "rule")] PrefixRefusal),
+    #[explain(id = "authenticate.a5")]
+    Prefix(#[source] PrefixRefusal),
     /// A7: the JWS `alg` is none the verifying module states (`Haip::verifies`; RFC 8725 §3.1).
-    #[error("A7 alg {0} is none the wallet verifies")]
-    #[explain(id = "a7")]
-    Algorithm(#[explain(name = "alg")] String),
+    #[error("A7 alg {alg} is none the wallet verifies")]
+    #[explain(id = "authenticate.a7")]
+    Algorithm {
+        /// The `alg`.
+        alg: String,
+    },
     /// A6: the trust framework denies the Verifier.
-    #[error("A6 {0}: the trust framework does not bind the Verifier")]
-    #[explain(id = "a6")]
-    Untrusted(#[explain(name = "client_id")] String),
+    #[error("A6 {client_id}: the trust framework does not bind the Verifier")]
+    #[explain(id = "authenticate.a6")]
+    Untrusted {
+        /// The `client_id`.
+        client_id: String,
+    },
     /// A8: the signature does not verify under the bound key.
     #[error("A8 the signature does not verify")]
-    #[explain(id = "a8")]
+    #[explain(id = "authenticate.a8")]
     Signature,
     /// A9: the Request Object is expired or not yet valid (RFC 7519 §4.1.4, §4.1.5).
     #[error("A9 the Request Object is outside its validity: {0}")]
-    #[explain(id = "a9")]
-    Validity(#[explain(name = "cause")] crate::jose::TimeError),
+    #[explain(id = "authenticate.a9")]
+    Validity(#[source] crate::jose::TimeError),
     /// A10: `aud` names another recipient than `https://self-issued.me/v2` (§5.8, RFC 7519
     /// §4.1.3).
-    #[error("A10 aud {0:?} names another recipient")]
-    #[explain(id = "a10")]
-    Audience(#[explain(name = "aud")] String),
+    #[error("A10 aud {aud:?} names another recipient")]
+    #[explain(id = "authenticate.a10")]
+    Audience {
+        /// The `aud`.
+        aud: String,
+    },
     /// A11: no signature of a multisigned request authenticates; each one's reason.
     #[error("A11 no signature authenticates the Verifier")]
-    #[explain(id = "a11")]
-    NoSignature(#[explain(name = "reasons")] AllOf<Unauthenticated>),
+    #[explain(id = "authenticate.a11")]
+    NoSignature(#[explain(skip)] AllOf<Unauthenticated>),
     /// A12: by URI, no `response_uri`, or one the prefix's binding does not allow: outside the
     /// trust decision's list, or outside the prefix's own endpoint rule (§8.2, §5.9.3).
-    #[error("A12 response_uri {0:?} is none the framework allows")]
-    #[explain(id = "a12")]
-    Endpoint(#[explain(name = "response_uri")] Option<String>),
+    #[error("A12 response_uri {response_uri:?} is none the framework allows")]
+    #[explain(id = "authenticate.a12")]
+    Endpoint {
+        /// The `response_uri`, when the request names one.
+        response_uri: Option<String>,
+    },
     /// A13: a `response_uri` that is no absolute https URI with a host (RFC 9700 §2.6).
     #[error("A13 {0}")]
-    #[explain(id = "a13")]
-    EndpointScheme(#[explain(name = "cause")] crate::uri::NotHttps),
+    #[explain(id = "authenticate.a13")]
+    EndpointScheme(#[source] crate::uri::NotHttps),
     /// A14: a registered `ObjectRule` refuses the Request Object's claims; the code is the
     /// rule's.
     #[error("A14 {0}")]
-    #[explain(id = "a14")]
-    Object(#[explain(name = "rule")] Refusal),
+    #[explain(id = "authenticate.a14")]
+    Object(#[source] Refusal),
 }
 
 impl Unauthenticated {
@@ -467,17 +486,17 @@ impl Unauthenticated {
     pub fn code(&self) -> ErrorCode {
         match self {
             Self::Object(refusal) => refusal.code(),
-            Self::Algorithm(_)
+            Self::Algorithm { .. }
             | Self::Signature
             | Self::Validity(_)
-            | Self::Audience(_)
+            | Self::Audience { .. }
             | Self::NoSignature(_) => ErrorCode::INVALID_REQUEST_OBJECT,
             Self::Origin
-            | Self::UnknownPrefix(_)
+            | Self::UnknownPrefix { .. }
             | Self::ClientIdAbsent
             | Self::Prefix(_)
-            | Self::Untrusted(_)
-            | Self::Endpoint(_)
+            | Self::Untrusted { .. }
+            | Self::Endpoint { .. }
             | Self::EndpointScheme(_) => ErrorCode::INVALID_REQUEST,
         }
     }

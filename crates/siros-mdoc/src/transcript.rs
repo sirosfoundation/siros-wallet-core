@@ -13,8 +13,6 @@ use siros_openid4vp::request::AgreeableKey;
 use siros_openid4vp::session::{Session, SessionBinding};
 use siros_openid4vp::uri::ResponseUri;
 
-use crate::FAULT;
-
 /// A JWK SHA-256 Thumbprint (RFC 7638) of a key. Only [`Thumbprint::of`] makes one, from the key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Thumbprint([u8; 32]);
@@ -110,13 +108,10 @@ impl<'s> Handover<'s> {
         let thumbprint = match session.encrypted_to() {
             None => None,
             Some(sealed) => Some(Thumbprint::of(sealed.key()).ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!(
-                        "the core sealed to a key of type {kty}, which has no RFC 7638 thumbprint here",
-                        kty = sealed.key().kty().as_str().to_owned()
-                    ),
-                )
+                crate::fault(detail!(
+                    "the core sealed to a key of type {kty}, which has no RFC 7638 thumbprint here",
+                    kty = sealed.key().kty().as_str().to_owned()
+                ))
             })?),
         };
         Ok(match session.binding() {
@@ -228,17 +223,14 @@ impl SessionTranscript {
 
 /// Why bytes are no SessionTranscript (ISO/IEC 18013-5 §9.1.5.1).
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "mdoc.transcript")]
 pub enum TranscriptError {
     /// No single CBOR data item the wallet reads.
     #[error("no CBOR data item the wallet reads")]
-    Cbor(
-        #[from]
-        #[explain(name = "cause")]
-        CborError,
-    ),
+    #[explain(id = "transcript.cbor")]
+    Cbor(#[from] CborError),
     /// A data item other than an array of three items.
     #[error("the data item is no array of three items")]
+    #[explain(id = "transcript.items")]
     Items,
 }
 

@@ -12,6 +12,7 @@ publish = false
 [dependencies]
 siros-openid4vp = { workspace = true, features = ["signed", "uri"] }
 siros-explain = { workspace = true }
+siros-syntax = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

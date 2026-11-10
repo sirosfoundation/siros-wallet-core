@@ -5,7 +5,6 @@ use std::borrow::Cow;
 use std::fmt;
 
 use crate::value::{ValueKind, Written, formatted};
-use siros_explain::{Count, IntoArg, kind};
 use siros_openid4vp::claims::{ArrayIndex, ClaimPath, Concrete, ConcretePath, Step};
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::refusal::ReprItem;
@@ -32,14 +31,6 @@ impl ClaimIndex {
 impl fmt::Display for ClaimIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
-    }
-}
-
-impl IntoArg for ClaimIndex {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.0.arg()
     }
 }
 
@@ -117,7 +108,9 @@ pub(crate) fn conforms(kind: ValueKind, value: &Node<'_>) -> Result<(), NotCompa
     match kind {
         ValueKind::Image => match value {
             Node::String(_) => Ok(()),
-            _ => Err(NotCompatible::ImageNotString(ReprItem::repr(value))),
+            _ => Err(NotCompatible::ImageNotString {
+                path: ReprItem::repr(value),
+            }),
         },
         ValueKind::Formatted(kind) => {
             formatted(kind, written(value))
@@ -145,9 +138,9 @@ pub(crate) fn conform(
     for claim in &metadata.claims {
         let found = select(payload.node(), &claim.path)?;
         if claim.mandatory == Mandatory::Yes && found.is_empty() {
-            return Err(NotCompatible::MandatoryAbsent(claim_text(
-                claim.path.steps(),
-            )));
+            return Err(NotCompatible::MandatoryAbsent {
+                claim: claim_text(claim.path.steps()),
+            });
         }
         let Some(display) = &claim.display else {
             continue;
@@ -159,9 +152,9 @@ pub(crate) fn conform(
             match display.value {
                 ValueType::Template(_) => {
                     if value.as_str().is_none() {
-                        return Err(NotCompatible::TemplateNotString(claim_text(
-                            claim.path.steps(),
-                        )));
+                        return Err(NotCompatible::TemplateNotString {
+                            claim: claim_text(claim.path.steps()),
+                        });
                     }
                 }
                 other => {
@@ -217,7 +210,9 @@ impl Coverage<'_, '_> {
                 if nested && self.leads(at) {
                     self.walk(value, at)?;
                 } else {
-                    return Err(NotCompatible::Uncovered(concrete_text(at)));
+                    return Err(NotCompatible::Uncovered {
+                        field: concrete_text(at),
+                    });
                 }
             }
             drop(at.pop());

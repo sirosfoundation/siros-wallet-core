@@ -1,173 +1,220 @@
-//! The registration writer's part inside the workspace (section 4.14 of the design, "DC API
-//! precomputation"): the package the registration carries for the matcher. It holds the compiled
-//! messages of the texts that depend on a request: each app module's request messages, which its
-//! type declares ([`Registered::of`]), and each transaction type's defined module whole; every
-//! card's texts precomputed in each of the package's locales whose modules serve them (the
-//! End-User's priority list with each tag's RFC 4647 truncations and the app's fallback list,
-//! [`RegistrationBuilder::new`]); and what it was built from: the lists, the rendering options,
-//! each credential with its candidate languages, each transaction type with its module. The
-//! registration's bytes are siros-dc-matcher's.
+//! The registration writer, which the wallet links: the bytes of the crate README's "Format",
+//! written once every request's context loads from them into the same messages with siros-i18n's
+//! `nfc` and without it.
 
-use siros_explain::{DeclaredModule, Explain, MessageId, Messages, ModuleId};
-use siros_i18n::{
-    BuiltPackage, CredentialName, DeclaredId, DefinedForm, Formats, Module, PackageError,
-    RegistrationBuilder, RenderError, TransactionKind,
-};
-use siros_openid4vp::consent::Card;
-use siros_openid4vp::ids::{CredentialId, TransactionType};
-use siros_openid4vp::rows::Env;
+use rustc_hash::FxHashSet;
+use siros_explain::Explain;
+use siros_i18n::{Context, LoadError};
+use siros_openid4vp::ids::TransactionType;
+use siros_syntax::{Entry, Keyed};
 
-use crate::emit::held;
+use crate::registration::{Base, COMMA, HEADER, Kind, MAGIC, VERSION, bidi_byte, loaded};
 
-/// Why a registration's package is not written.
-#[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "credman.register")]
+/// A directory entry's bytes beside its name: the kind, the offset, the length and the name's
+/// length.
+const ENTRY: u32 = 11;
+
+/// Why a registration is not written.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum RegisterError {
-    /// The builder refuses a module, a credential or a transaction type.
-    #[error(transparent)]
-    Package(#[from] PackageError),
-    /// A text does not render.
-    #[error(transparent)]
-    Render(#[from] RenderError),
-    /// A module registered as another module's type.
-    #[error("the module {0} is registered as another module's type")]
-    Declared(#[explain(name = "module")] siros_i18n::ModuleName),
+    /// A base source that holds a name, a variant key or a selector literal Unicode
+    /// Normalization Form C changes ([`LoadError::Unnormalized`]).
+    #[error("base source {at} holds a name, a key or a selector literal outside NFC")]
+    #[explain(id = "register.source")]
+    Source {
+        /// Its position in load order, from 0.
+        at: usize,
+        /// The refusal.
+        #[source]
+        cause: LoadError,
+    },
+    /// A transaction type's source that `Context::module_in_nfc` refuses in a clone of the base's
+    /// context, alone or after the sources of the types before it.
+    #[error("the source of the transaction type \"{kind}\" does not load")]
+    #[explain(id = "register.transaction")]
+    Transaction {
+        /// The type.
+        kind: TransactionType<'static>,
+        /// The refusal.
+        #[source]
+        cause: LoadError,
+    },
+    /// A transaction type longer than a name holds.
+    #[error("a transaction type of {length} bytes passes the 65535 a name holds")]
+    #[explain(id = "register.name")]
+    Name {
+        /// The type's bytes.
+        length: usize,
+    },
+    /// More bytes than a u32 offset reaches.
+    #[error("the registration passes the 4294967295 bytes a registration holds")]
+    #[explain(id = "register.size")]
+    Size,
+    /// The registration's bytes find no memory.
+    #[error("the registration's {size} bytes find no memory")]
+    #[explain(id = "register.memory")]
+    Memory {
+        /// The bytes.
+        size: u32,
+    },
 }
 
-/// An app module the registration's package holds, with the messages of its type's request
-/// messages ([`DeclaredModule::Requested`]): the texts that depend on a request draw from those
-/// alone. Only [`Registered::of`] makes one.
-#[derive(Debug, Clone, Copy)]
-pub struct Registered<'r> {
-    module: &'r Module,
-    keys: fn() -> Vec<siros_explain::Message>,
+/// An entry as the directory lists it.
+struct Out<'w> {
+    kind: Kind,
+    name: &'w str,
+    name_length: u16,
+    bytes: &'w [u8],
+    length: u32,
 }
 
-impl<'r> Registered<'r> {
-    /// The loaded module of type `M`.
+impl<'w> Out<'w> {
+    /// The entry of `kind` named `name` holding `bytes`.
     ///
     /// # Errors
     ///
-    /// [`RegisterError::Declared`] for a module whose identity is not `M`'s.
-    pub fn of<M: DeclaredModule>(module: &'r Module) -> Result<Self, RegisterError> {
-        if module.id() == M::ID {
-            Ok(Self {
-                module,
-                keys: <M::Requested as Messages>::messages,
-            })
-        } else {
-            Err(RegisterError::Declared(siros_i18n::ModuleName::of(
-                module.id(),
-            )))
+    /// [`RegisterError::Name`] for a name past 65,535 bytes, and [`RegisterError::Size`] for
+    /// bytes past 4,294,967,295.
+    fn of(kind: Kind, name: &'w str, bytes: &'w [u8]) -> Result<Self, RegisterError> {
+        Ok(Self {
+            kind,
+            name,
+            name_length: u16::try_from(name.len())
+                .map_err(|_| RegisterError::Name { length: name.len() })?,
+            bytes,
+            length: u32::try_from(bytes.len()).map_err(|_| RegisterError::Size)?,
+        })
+    }
+
+    /// Its directory entry's bytes.
+    fn listed(&self) -> u32 {
+        ENTRY + u32::from(self.name_length)
+    }
+}
+
+/// The priority entry's text: the tags in their order, a comma after each but the last.
+fn priority(base: &Base) -> String {
+    let mut text = String::new();
+    for (at, tag) in base.priority().items().iter().enumerate() {
+        if at > 0 {
+            text.push(COMMA);
         }
+        text.push_str(tag.as_str());
     }
-
-    /// The module.
-    #[must_use]
-    pub const fn module(&self) -> &'r Module {
-        self.module
-    }
-
-    /// The identifiers of its request messages.
-    #[must_use]
-    pub fn keys(&self) -> Vec<MessageId> {
-        (self.keys)()
-            .into_iter()
-            .map(|message| message.id())
-            .collect()
-    }
+    text
 }
 
-/// A card a credential shows.
-#[derive(Debug, Clone, Copy)]
-pub struct RegisteredCard<'r> {
-    /// The credential.
-    pub credential: &'r CredentialId<'r>,
-    /// The card.
-    pub card: &'r Card,
-}
-
-/// A transaction type a registration serves.
-#[derive(Debug, Clone, Copy)]
-pub struct RegisteredTransaction<'r> {
-    /// The type.
-    pub kind: &'r TransactionType<'r>,
-    /// The defined module its metadata converts to.
-    pub form: &'r DefinedForm,
-}
-
-/// What a registration serves.
-#[derive(Debug, Clone, Copy)]
-pub struct Registration<'r> {
-    /// The app's modules the package holds, each with its request messages.
-    pub modules: &'r [Registered<'r>],
-    /// The modules every card draws from: the app's main module and its crate modules, as the
-    /// matcher's `Rendering` names them.
-    pub own: &'r [ModuleId],
-    /// Each card a credential shows; a credential may show several.
-    pub credentials: &'r [RegisteredCard<'r>],
-    /// The static entries' cards.
-    pub statics: &'r [&'r Card],
-    /// Each transaction type.
-    pub transactions: &'r [RegisteredTransaction<'r>],
-}
-
-/// The package of a registration under `env`'s lists and options: each app module's request
-/// messages, each transaction type's module whole, each credential and transaction type recorded,
-/// and every card's texts precomputed.
+/// The base's sources loaded again in their order, then each type's source loaded into a clone of
+/// that context alone, and every type's source into one clone in ascending order, each through
+/// `Context::module_in_nfc`, a source byte-equal to an earlier type's once. A request's context
+/// loads the sources of the types it names into a clone of the base's context in that order, so it
+/// loads, and a build without siros-i18n's `nfc` loads it into the same messages.
 ///
 /// # Errors
 ///
-/// [`RegisterError`]: the builder refuses a module (a request message it lacks included), a
-/// credential or a transaction type, or a card's text renders in no tag of the lists.
-pub fn package(
-    registration: &Registration<'_>,
-    env: &Env,
-    formats: &Formats,
-) -> Result<BuiltPackage, RegisterError> {
-    let mut builder = RegistrationBuilder::new(
-        env.priority().to_vec(),
-        env.fallback().to_vec(),
-        env.options(),
+/// [`RegisterError::Source`] for the first base source `Context::module_in_nfc` refuses, then
+/// [`RegisterError::Transaction`] for the first type's source either context refuses.
+fn loads(base: &Base, types: &[&Entry<TransactionType<'_>, String>]) -> Result<(), RegisterError> {
+    let context = loaded(
+        base.bidi(),
+        base.sources(),
+        Context::module_in_nfc,
+        |at, cause| RegisterError::Source { at, cause },
     )?;
-    for registered in registration.modules {
-        let keys: Vec<DeclaredId> = registered.keys().into_iter().map(Into::into).collect();
-        builder.module(registered.module, Some(&keys))?;
-    }
-    let mut credentials: Vec<&str> = registration
-        .credentials
-        .iter()
-        .map(|registered| registered.credential.as_str())
-        .collect();
-    credentials.sort_unstable();
-    credentials.dedup();
-    for credential in credentials {
-        builder.credential(CredentialName::new(credential.to_owned()), registration.own)?;
-    }
-    let mut defined: Vec<&DefinedForm> = Vec::new();
-    for transaction in registration.transactions {
-        let form = transaction.form;
-        if defined.iter().all(|known| known.id() != form.id()) {
-            builder.defined(form)?;
-            defined.push(form);
+    let mut together = context.clone();
+    let mut seen: FxHashSet<&str> = FxHashSet::default();
+    for entry in types {
+        // Types whose metadata is one object convert to one source, which words its ids once.
+        if !seen.insert(entry.value().as_str()) {
+            continue;
         }
-    }
-    for transaction in registration.transactions {
-        builder.transaction(
-            TransactionKind::new(transaction.kind.as_str().to_owned()),
-            ModuleId::Defined(transaction.form.id()),
-        )?;
-    }
-    let mut texts = builder.texts(formats);
-    let cards = registration
-        .credentials
-        .iter()
-        .map(|registered| registered.card)
-        .chain(registration.statics.iter().copied());
-    for card in cards {
-        for text in held(card) {
-            texts.precompute(text, env.options())?;
+        let refused = |cause: LoadError| RegisterError::Transaction {
+            kind: entry.key().clone().into_owned(),
+            cause,
+        };
+        if let Err(cause) = context.clone().module_in_nfc(entry.value()) {
+            return Err(refused(cause));
         }
+        together = together.module_in_nfc(entry.value()).map_err(refused)?;
     }
-    Ok(texts.finish())
+    Ok(())
+}
+
+/// The registration of `base` and of each transaction type's converted View source: the
+/// header, the directory and the entries, in the directory's order (the crate README's
+/// "Format"). Every request's context loads from what it writes, and resolves to the same texts
+/// in a build without siros-i18n's `nfc`.
+///
+/// # Errors
+///
+/// [`RegisterError::Source`] for a base source with a name, a variant key or a selector literal
+/// outside NFC, [`RegisterError::Transaction`] for a type's source that does not load or holds
+/// one, [`RegisterError::Name`] for a transaction type past 65,535 bytes,
+/// [`RegisterError::Size`] for a registration past 4,294,967,295 bytes, and
+/// [`RegisterError::Memory`] for bytes that find no memory.
+pub fn write(
+    base: &Base,
+    transactions: &Keyed<TransactionType<'_>, String>,
+) -> Result<Vec<u8>, RegisterError> {
+    let mut types: Vec<&Entry<TransactionType<'_>, String>> =
+        transactions.entries().iter().collect();
+    types.sort_unstable_by(|a, b| a.key().cmp(b.key()));
+    loads(base, &types)?;
+    let priority = priority(base);
+    let bidi = [bidi_byte(base.bidi())];
+    let entries = [
+        (Kind::Locale, base.locale().as_str().as_bytes()),
+        (Kind::Priority, priority.as_bytes()),
+        (Kind::Bidi, &bidi[..]),
+    ]
+    .into_iter()
+    .map(|(kind, bytes)| Out::of(kind, "", bytes))
+    .chain(
+        base.sources()
+            .items()
+            .iter()
+            .map(|source| Out::of(Kind::Source, "", source.as_bytes())),
+    )
+    .chain(types.iter().map(|entry| {
+        Out::of(
+            Kind::Transaction,
+            entry.key().as_str(),
+            entry.value().as_bytes(),
+        )
+    }))
+    .collect::<Result<Vec<Out<'_>>, RegisterError>>()?;
+    let directory = entries
+        .iter()
+        .try_fold(0_u32, |sum, out| sum.checked_add(out.listed()))
+        .ok_or(RegisterError::Size)?;
+    let start = HEADER.checked_add(directory).ok_or(RegisterError::Size)?;
+    let size = entries
+        .iter()
+        .try_fold(start, |end, out| end.checked_add(out.length))
+        .ok_or(RegisterError::Size)?;
+    let memory = RegisterError::Memory { size };
+    let Ok(count) = usize::try_from(size) else {
+        return Err(memory);
+    };
+    let mut blob = Vec::new();
+    if blob.try_reserve_exact(count).is_err() {
+        return Err(memory);
+    }
+    blob.extend_from_slice(&MAGIC);
+    blob.extend_from_slice(&VERSION.to_le_bytes());
+    blob.extend_from_slice(&directory.to_le_bytes());
+    let mut offset = start;
+    for out in &entries {
+        blob.push(out.kind.code());
+        blob.extend_from_slice(&offset.to_le_bytes());
+        blob.extend_from_slice(&out.length.to_le_bytes());
+        blob.extend_from_slice(&out.name_length.to_le_bytes());
+        blob.extend_from_slice(out.name.as_bytes());
+        // The entries end at `size`, a u32.
+        offset += out.length;
+    }
+    for out in &entries {
+        blob.extend_from_slice(out.bytes);
+    }
+    Ok(blob)
 }

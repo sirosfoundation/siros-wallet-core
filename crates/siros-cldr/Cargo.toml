@@ -11,6 +11,7 @@ publish = false
 
 [dependencies]
 siros-explain = { workspace = true }
+siros-syntax = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 

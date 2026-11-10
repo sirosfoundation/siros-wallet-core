@@ -4,7 +4,7 @@
 
 use std::borrow::Cow;
 
-use siros_explain::Explain;
+use siros_i18n::Message;
 use siros_openid4vp::claims::{ClaimPath, Step};
 use siros_openid4vp::json::Node;
 
@@ -18,33 +18,44 @@ use crate::value::{FormattedKind, ValueKind};
 
 /// A label of the Mandate claims, by the screens of the rulebook's examples: a message of the
 /// crate's module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
-#[explain(domain = "paso.mandate")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Message)]
 pub enum MandateLabel {
     /// The label of the claim `mandate_id`.
+    #[message(id = "mandate.mandate_id")]
     MandateId,
     /// The label of the claims `mandatee.name` and `mandatee.logo`, which draws under it
     /// (Mandate A.2).
+    #[message(id = "mandate.mandatee")]
     Mandatee,
     /// The label of the claim `action`.
+    #[message(id = "mandate.action")]
     Action,
     /// The label of the claim `conditions`.
+    #[message(id = "mandate.conditions")]
     Conditions,
     /// The label of the claim `max_amount`.
+    #[message(id = "mandate.max_amount")]
     MaxAmount,
     /// The label of the claim `max_count`.
+    #[message(id = "mandate.max_count")]
     MaxCount,
     /// The label of the claim `period`.
+    #[message(id = "mandate.period")]
     Period,
     /// The label of the claim `valid_from`.
+    #[message(id = "mandate.valid_from")]
     ValidFrom,
     /// The label of the claim `valid_until`.
+    #[message(id = "mandate.valid_until")]
     ValidUntil,
     /// The label of the claim `payment_payload.amount`, which Payment A.1's metadata labels.
+    #[message(id = "mandate.amount")]
     Amount,
     /// The label of the claim `payment_payload.payee.name`, which Payment A.1's metadata labels.
+    #[message(id = "mandate.payee")]
     Payee,
     /// The label of the claim `payment_payload.payee.logo`, which Payment A.1's metadata labels.
+    #[message(id = "mandate.payee_logo")]
     PayeeLogo,
 }
 

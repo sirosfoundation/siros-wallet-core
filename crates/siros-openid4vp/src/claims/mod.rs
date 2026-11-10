@@ -1,5 +1,12 @@
 //! DCQL claims for the formats that use them: OpenID4VP 1.0 §7 claims path pointers, and the
-//! §6.3-6.4 `claims` and `claim_sets` of a Credential Query. [`kit`] holds what those formats
+#![cfg_attr(
+    feature = "claims",
+    doc = "§6.3-6.4 `claims` and `claim_sets` of a Credential Query. [`kit`] holds what those formats"
+)]
+#![cfg_attr(
+    not(feature = "claims"),
+    doc = "§6.3-6.4 `claims` and `claim_sets` of a Credential Query. `kit`, with the feature `claims`, holds what those formats"
+)]
 //! share beyond matching: the Verifier's algorithms, the card and the rows of a credential, the
 //! elements an option discloses.
 
@@ -13,7 +20,7 @@ use siros_explain::Explain;
 
 use crate::ids::ClaimId;
 use crate::json::{Node, Number};
-use crate::plugins::{OptionItems, Options};
+use crate::plugins::{OptionIndex, OptionItems, Options};
 use crate::request::Item;
 
 /// An index into an array (§7.1).
@@ -89,7 +96,7 @@ pub type ConcretePath<'a> = Vec<Concrete<'a>>;
 /// A path component that does not fit the element it is applied to (§7.1): what it reads, and
 /// its position in the path.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
+#[explain(id = "path_error")]
 #[error("a claims path pointer reads {what} in an element of another kind at component {step}")]
 pub struct PathError {
     what: &'static str,
@@ -102,6 +109,25 @@ impl PathError {
     pub const fn step(&self) -> usize {
         self.step
     }
+}
+
+/// An option or an item another query's options hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+pub enum Foreign {
+    /// The option index is past the query's options.
+    #[error("option {option} is no option of the query")]
+    #[explain(id = "claims.foreign_option")]
+    Option {
+        /// The option's position.
+        option: usize,
+    },
+    /// The item is past the query's claims.
+    #[error("item {item} names no claim of the query")]
+    #[explain(id = "claims.foreign_item")]
+    Item {
+        /// The item's number.
+        item: usize,
+    },
 }
 
 impl<'a> Step<'a> {
@@ -303,28 +329,46 @@ pub struct Claims<'a> {
 
 /// `claims` or `claim_sets` that break §6.3-6.4.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.claims")]
 pub enum ClaimsError {
     /// `claims` is no non-empty array of claims queries.
     #[error("claims is not a non-empty array of objects with a claims path pointer")]
+    #[explain(id = "claims.claims")]
     Claims,
     /// `values` is no non-empty array.
-    #[error("claims[{0}].values is not a non-empty array")]
-    Values(#[explain(name = "claim")] usize),
+    #[error("claims[{claim}].values is not a non-empty array")]
+    #[explain(id = "claims.values")]
+    Values {
+        /// The claim's position.
+        claim: usize,
+    },
     /// `id` is no non-empty string of letters, digits, `_` and `-` (§6.3).
-    #[error("claims[{0}].id is not a non-empty string of letters, digits, _ and -")]
-    Id(#[explain(name = "claim")] usize),
+    #[error("claims[{claim}].id is not a non-empty string of letters, digits, _ and -")]
+    #[explain(id = "claims.id")]
+    Id {
+        /// The claim's position.
+        claim: usize,
+    },
     /// Two claims queries share an `id` (§6.3).
-    #[error("the id {0} names two claims queries")]
-    IdTwice(#[explain(name = "id")] String),
+    #[error("the id {id} names two claims queries")]
+    #[explain(id = "claims.id_twice")]
+    IdTwice {
+        /// The id.
+        id: String,
+    },
     /// A claims query without an `id` beside `claim_sets` (§6.3).
-    #[error("claims[{0}] has no id, which claim_sets requires")]
-    IdAbsent(#[explain(name = "claim")] usize),
+    #[error("claims[{claim}] has no id, which claim_sets requires")]
+    #[explain(id = "claims.id_absent")]
+    IdAbsent {
+        /// The claim's position.
+        claim: usize,
+    },
     /// `claim_sets` without `claims`, or not a non-empty array of non-empty arrays of claim ids.
     #[error("claim_sets is not a non-empty array of non-empty arrays of claim ids")]
+    #[explain(id = "claims.claim_sets")]
     ClaimSets,
     /// More claims than an option can hold.
     #[error("more than 64 claims")]
+    #[explain(id = "claims.too_many")]
     TooMany,
 }
 
@@ -344,14 +388,16 @@ impl<'a> Claims<'a> {
                 .collect::<Result<Vec<_>, _>>()?,
         };
         if let Some(twice) = claims.iter().enumerate().find_map(|(k, claim)| {
-            let before = claims.get(..k)?;
             claim.id.as_ref().filter(|id| {
-                before
+                claims
                     .iter()
+                    .take(k)
                     .any(|earlier| earlier.id.as_ref() == Some(*id))
             })
         }) {
-            return Err(ClaimsError::IdTwice(twice.to_string()));
+            return Err(ClaimsError::IdTwice {
+                id: twice.to_string(),
+            });
         }
         let item = |k: usize| Item::new(k).ok_or(ClaimsError::TooMany);
         let options = match query.get("claim_sets") {
@@ -364,7 +410,7 @@ impl<'a> Claims<'a> {
                     .filter(|sets| !sets.is_empty() && !claims.is_empty())
                     .ok_or(ClaimsError::ClaimSets)?;
                 if let Some(absent) = claims.iter().position(|claim| claim.id.is_none()) {
-                    return Err(ClaimsError::IdAbsent(absent));
+                    return Err(ClaimsError::IdAbsent { claim: absent });
                 }
                 sets.iter()
                     .map(|set| {
@@ -403,9 +449,23 @@ impl<'a> Claims<'a> {
     }
 
     /// The claim of an item.
-    #[must_use]
-    pub fn claim(&self, item: Item) -> Option<&Claim<'a>> {
-        self.claims.get(item.get())
+    ///
+    /// # Errors
+    ///
+    /// [`Foreign::Item`]: the item is another query's.
+    pub fn claim(&self, item: Item) -> Result<&Claim<'a>, Foreign> {
+        self.claims
+            .get(item.get())
+            .ok_or(Foreign::Item { item: item.get() })
+    }
+
+    /// The items of an option.
+    ///
+    /// # Errors
+    ///
+    /// [`Foreign::Option`]: the option is another query's.
+    pub fn items(&self, option: OptionIndex) -> Result<&[Item], Foreign> {
+        self.options.option(option).map(OptionItems::items)
     }
 
     /// The options as claim items.
@@ -424,9 +484,9 @@ impl<'a> Claim<'a> {
         let id = match node.get("id") {
             None => None,
             Some(Node::String(id)) => {
-                Some(ClaimId::parse(id.clone()).map_err(|_| ClaimsError::Id(k))?)
+                Some(ClaimId::parse(id.clone()).map_err(|_| ClaimsError::Id { claim: k })?)
             }
-            Some(_) => return Err(ClaimsError::Id(k)),
+            Some(_) => return Err(ClaimsError::Id { claim: k }),
         };
         let values = node
             .get("values")
@@ -435,7 +495,7 @@ impl<'a> Claim<'a> {
                     .as_array()
                     .filter(|values| !values.is_empty())
                     .map(<[_]>::to_vec)
-                    .ok_or(ClaimsError::Values(k))
+                    .ok_or(ClaimsError::Values { claim: k })
             })
             .transpose()?;
         Ok(Self { id, path, values })

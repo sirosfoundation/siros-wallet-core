@@ -3,7 +3,8 @@
 
 use std::borrow::Cow;
 
-use siros_explain::{AllOf, Text};
+use siros_i18n::{Context, Text};
+use siros_syntax::AllOf;
 
 use super::{BoundEndpoint, OriginPolicy, TrustConfig, Unauthenticated, Verifier, VerifierId};
 #[cfg(feature = "signed")]
@@ -13,6 +14,8 @@ use super::{
 };
 #[cfg(feature = "signed")]
 use crate::arrival::ReceivedForm;
+#[cfg(feature = "signed")]
+use crate::detail;
 #[cfg(feature = "signed")]
 use crate::effects::Decided;
 use crate::effects::{
@@ -31,6 +34,8 @@ use crate::plugins::Build;
 use crate::plugins::Registry;
 #[cfg(feature = "signed")]
 use crate::plugins::registry::HaipAccess;
+#[cfg(feature = "signed")]
+use crate::plugins::{Fault, caused};
 use crate::recourse::{self, ErrorRoute, Rejected};
 use crate::request::MetadataError;
 use crate::routing::VerifierMetadata;
@@ -41,8 +46,8 @@ use crate::uri::ResponseUri;
 const SELF_ISSUED: &str = "https://self-issued.me/v2";
 
 /// The Origin's evaluation: its subject and resource types, and the action.
-const ORIGIN: EntityType = siros_explain::checked!(EntityType, "origin");
-const VERIFIER: ActionName = siros_explain::checked!(ActionName, "credential-verifier");
+const ORIGIN: EntityType = siros_syntax::checked!(EntityType, "origin");
+const VERIFIER: ActionName = siros_syntax::checked!(ActionName, "credential-verifier");
 
 /// A request whose evaluations wait for the caller's decisions: one slot per evaluation, held
 /// with what asked it.
@@ -243,20 +248,24 @@ impl<'e> Envelope<'e> {
                     )
                 };
                 let first = read(signers.first());
-                let rest: Vec<_> = signers.rest().map(read).collect();
-                match first {
-                    Err(first) if rest.iter().all(Result::is_err) => {
-                        let reasons = rest
+                match (first, failures(signers.rest().map(read))) {
+                    (Err(first), Ok(causes)) => {
+                        let reasons = causes
                             .into_iter()
-                            .filter_map(Result::err)
                             .fold(AllOf::one(first), |all, cause| all.and(AllOf::one(cause)));
                         let cause = Unauthenticated::NoSignature(reasons);
                         return Err(reject(cause, self.route()));
                     }
-                    first => Asked::Claims(
-                        Claimed::of(first),
-                        rest.into_iter().map(Claimed::of).collect(),
-                    ),
+                    (first, rest) => {
+                        let rest: Vec<_> = match rest {
+                            Ok(causes) => causes.into_iter().map(Err).collect(),
+                            Err(rest) => rest,
+                        };
+                        Asked::Claims(
+                            Claimed::of(first),
+                            rest.into_iter().map(Claimed::of).collect(),
+                        )
+                    }
                 }
             }
         };
@@ -287,7 +296,9 @@ impl<'e> Envelope<'e> {
             Some((name, _)) => registry.client_prefix(name),
             None => None,
         }
-        .ok_or_else(|| Unauthenticated::UnknownPrefix(client_id.to_string()))?;
+        .ok_or_else(|| Unauthenticated::UnknownPrefix {
+            client_id: client_id.to_string(),
+        })?;
         let channel = match self.received().form() {
             ReceivedForm::DcApi { origin, .. } => ClaimChannel::DcApi(origin),
             ReceivedForm::Uri { uri, .. } => ClaimChannel::Uri {
@@ -311,7 +322,9 @@ impl<'e> Envelope<'e> {
         })?;
         let alg = signed.header().alg();
         if !haip(host).verifies().accepts(alg) {
-            return Err(Unauthenticated::Algorithm(alg.as_str().to_owned()));
+            return Err(Unauthenticated::Algorithm {
+                alg: alg.as_str().to_owned(),
+            });
         }
         Ok(Pieces {
             client_id,
@@ -346,7 +359,9 @@ struct Pieces<'e, H> {
 fn unclaimed(client_id: &ClientId<'_>) -> Unauthenticated {
     match client_id.prefixed() {
         Some(("origin", _)) => Unauthenticated::Origin,
-        _ => Unauthenticated::UnknownPrefix(client_id.to_string()),
+        _ => Unauthenticated::UnknownPrefix {
+            client_id: client_id.to_string(),
+        },
     }
 }
 
@@ -398,25 +413,35 @@ impl<'e, H: CoreHost> Pending<'e, H> {
     /// The authenticated request. `decide` answers every evaluation of `questions`, once, in
     /// order, and each claim reads the decisions on its own evaluations. Then the first claim, in
     /// the signatures' order, whose binding holds (A6), whose endpoint holds by URI (A12: no
-    /// `response_uri`, or [`PrefixClaim::endpoint`] refusing it), whose signature verifies under
+    #[cfg_attr(
+        feature = "signed",
+        doc = "`response_uri`, or [`PrefixClaim::endpoint`] refusing it), whose signature verifies under"
+    )]
+    #[cfg_attr(
+        not(feature = "signed"),
+        doc = "`response_uri`, or `PrefixClaim::endpoint` refusing it), whose signature verifies under"
+    )]
     /// the bound key (A8), with the Request Object inside its validity (A9) and its `aud` absent
     /// or `https://self-issued.me/v2` (A10). A11 lists each signature's reason when none does. A
-    /// refusal carries the route [`Rejected`] describes.
+    /// refusal carries the route [`Rejected`] describes. The bound claim words the framework's
+    /// name for the Verifier through `context`.
     ///
     /// # Errors
     ///
-    /// The A rule the request breaks.
+    /// The A rule the request breaks, or a fault of the wallet: `context` words no text of a
+    /// binding.
     #[cfg_attr(
         not(feature = "signed"),
         expect(
             unused_variables,
-            reason = "the claims read the configuration and the host"
+            reason = "the claims read the configuration, the context and the host"
         )
     )]
     pub fn authenticate(
         self,
         decide: impl FnMut(&Evaluation) -> Decision,
         config: &TrustConfig,
+        context: &Context,
         host: &H,
     ) -> Result<Authenticated<'e>, Box<Rejected<'e>>> {
         let Self {
@@ -456,7 +481,9 @@ impl<'e, H: CoreHost> Pending<'e, H> {
                         BoundEndpoint::DcApi,
                     ))
                 } else {
-                    let cause = Unauthenticated::Untrusted(origin.to_string());
+                    let cause = Unauthenticated::Untrusted {
+                        client_id: origin.to_string(),
+                    };
                     Err(Box::new(Rejected::of(cause, envelope.route())))
                 }
             }
@@ -469,11 +496,12 @@ impl<'e, H: CoreHost> Pending<'e, H> {
                     rules,
                     response_uri: response_uri.as_ref(),
                     config,
+                    context,
                     now: host.get::<dyn Platform>().now(),
                 };
                 let mut decide = decide;
                 let mut checked = |claimed: Claimed<'e, H>| match claimed {
-                    Claimed::Refused(cause) => Err(Failed::of(cause, envelope.route())),
+                    Claimed::Refused(cause) => Err(Failed::rule(cause, envelope.route())),
                     Claimed::Read {
                         client_id,
                         signed,
@@ -499,18 +527,24 @@ impl<'e, H: CoreHost> Pending<'e, H> {
                             })
                     }
                 };
-                let Failed { cause, route } = match checked(first) {
+                let (cause, route) = match checked(first).map_err(|failed| *failed) {
                     Ok(authenticated) => return Ok(authenticated),
-                    Err(failed) => *failed,
+                    Err(Failed::Rule { cause, route }) => (cause, route),
+                    Err(Failed::Fault(fault)) => return Err(Box::new(Rejected::of(fault, None))),
                 };
                 let Signatures::Many(_) = envelope.signatures() else {
                     return Err(Box::new(Rejected::of(cause, route)));
                 };
                 let mut reasons = AllOf::one(cause);
                 for claimed in rest {
-                    match checked(claimed) {
+                    match checked(claimed).map_err(|failed| *failed) {
                         Ok(authenticated) => return Ok(authenticated),
-                        Err(failed) => reasons = reasons.and(AllOf::one(failed.cause)),
+                        Err(Failed::Rule { cause, .. }) => {
+                            reasons = reasons.and(AllOf::one(cause));
+                        }
+                        Err(Failed::Fault(fault)) => {
+                            return Err(Box::new(Rejected::of(fault, None)));
+                        }
                     }
                 }
                 let cause = Unauthenticated::NoSignature(reasons);
@@ -524,27 +558,56 @@ impl<'e, H: CoreHost> Pending<'e, H> {
 type Named = (Option<Text>, Option<Object<'static>>);
 
 #[cfg(feature = "signed")]
-/// A claim refused, with the route its error takes.
-struct Failed<'e> {
-    cause: Unauthenticated,
-    route: Option<ErrorRoute<'e>>,
+/// Each error of `results` when every result failed, else every result.
+fn failures<T, E>(
+    mut results: impl Iterator<Item = Result<T, E>>,
+) -> Result<Vec<E>, Vec<Result<T, E>>> {
+    let mut causes = Vec::new();
+    while let Some(result) = results.next() {
+        match result {
+            Err(cause) => causes.push(cause),
+            Ok(found) => {
+                return Err(causes
+                    .into_iter()
+                    .map(Err)
+                    .chain([Ok(found)])
+                    .chain(results)
+                    .collect());
+            }
+        }
+    }
+    Ok(causes)
+}
+
+#[cfg(feature = "signed")]
+/// Why a claim does not authenticate the Verifier: an A rule it breaks, with the route its error
+/// takes, or a fault of the wallet, which ends the authentication.
+enum Failed<'e> {
+    /// The A rule.
+    Rule {
+        cause: Unauthenticated,
+        route: Option<ErrorRoute<'e>>,
+    },
+    /// The fault, which the End-User alone hears of.
+    Fault(Fault),
 }
 
 #[cfg(feature = "signed")]
 impl<'e> Failed<'e> {
-    fn of(cause: Unauthenticated, route: Option<ErrorRoute<'e>>) -> Box<Self> {
-        Box::new(Self { cause, route })
+    fn rule(cause: Unauthenticated, route: Option<ErrorRoute<'e>>) -> Box<Self> {
+        Box::new(Self::Rule { cause, route })
     }
 }
 
 #[cfg(feature = "signed")]
 /// What checking a claim reads: the envelope, the decisions, the `response_uri` as parsed, the
-/// configuration and the platform's clock.
+/// configuration, the context that words the binding and the platform's clock.
 struct Check<'c, 'e> {
     envelope: &'e Envelope<'e>,
     rules: &'e [Box<dyn ObjectRule>],
     response_uri: Option<&'c ResponseUri>,
     config: &'c TrustConfig,
+    context: &'c Context,
     now: crate::host::Timestamp,
 }
 
@@ -562,17 +625,20 @@ impl<'e> Check<'_, 'e> {
     ) -> Result<(ClientBinding, BoundEndpoint), Box<Failed<'e>>> {
         let unverified = || self.envelope.route();
         let binding = claim
-            .bind(decided, self.now, self.config.skew)
-            .map_err(|unbound| Failed::of(self.unbound(client_id, unbound), unverified()))?;
+            .bind(decided, self.now, self.config.skew, self.context)
+            .map_err(|unbound| self.unbound(client_id, unbound, unverified()))?;
         let endpoint = match self.envelope.channel() {
             Channel::DcApi(_) => BoundEndpoint::DcApi,
             Channel::Uri => {
-                let uri = self
-                    .response_uri
-                    .ok_or_else(|| Failed::of(Unauthenticated::Endpoint(None), unverified()))?;
-                let basis = claim.endpoint(decided, uri).map_err(|unbound| {
-                    Failed::of(self.unbound(client_id, unbound), unverified())
+                let uri = self.response_uri.ok_or_else(|| {
+                    Failed::rule(
+                        Unauthenticated::Endpoint { response_uri: None },
+                        unverified(),
+                    )
                 })?;
+                let basis = claim
+                    .endpoint(decided, uri)
+                    .map_err(|unbound| self.unbound(client_id, unbound, unverified()))?;
                 BoundEndpoint::ResponseUri {
                     uri: uri.clone(),
                     basis,
@@ -593,13 +659,13 @@ impl<'e> Check<'_, 'e> {
             }
             | BoundEndpoint::DcApi => unverified(),
         };
-        let failed = |cause| Failed::of(cause, route.clone());
+        let failed = |cause| Failed::rule(cause, route.clone());
         haip.verify(&binding.key, signed)
             .map_err(|_| failed(Unauthenticated::Signature))?;
         self.validity()
             .map_err(|cause| failed(Unauthenticated::Validity(cause)))?;
         self.audience()
-            .map_err(|aud| failed(Unauthenticated::Audience(aud)))?;
+            .map_err(|aud| failed(Unauthenticated::Audience { aud }))?;
         if let Some(refusal) = self
             .rules
             .iter()
@@ -610,13 +676,31 @@ impl<'e> Check<'_, 'e> {
         Ok((binding, endpoint))
     }
 
-    /// A6 for a decision that binds nothing; A12 for an endpoint the decision omits.
-    fn unbound(&self, client_id: &ClientId<'_>, unbound: Unbound) -> Unauthenticated {
+    /// A6 for a decision that binds nothing and A12 for an endpoint the decision omits, on
+    /// `route`; the wallet's fault for a binding its context does not word.
+    fn unbound(
+        &self,
+        client_id: &ClientId<'_>,
+        unbound: Unbound,
+        route: Option<ErrorRoute<'e>>,
+    ) -> Box<Failed<'e>> {
         match unbound {
-            Unbound::Denied => Unauthenticated::Untrusted(client_id.to_string()),
-            Unbound::Endpoint => {
-                Unauthenticated::Endpoint(self.response_uri.map(|uri| uri.as_str().to_owned()))
-            }
+            Unbound::Denied => Failed::rule(
+                Unauthenticated::Untrusted {
+                    client_id: client_id.to_string(),
+                },
+                route,
+            ),
+            Unbound::Endpoint => Failed::rule(
+                Unauthenticated::Endpoint {
+                    response_uri: self.response_uri.map(|uri| uri.as_str().to_owned()),
+                },
+                route,
+            ),
+            unworded @ Unbound::Unworded(_) => Box::new(Failed::Fault(caused(
+                detail!("{client_id}: binding", client_id = client_id.to_string()),
+                unworded,
+            ))),
         }
     }
 

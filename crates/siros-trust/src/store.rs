@@ -105,7 +105,7 @@ impl StoreError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::Json(JsonError::Syntax(_)) => "trust_store_json",
-            Self::Json(JsonError::DuplicateMember(_)) => "trust_store_member_repeated",
+            Self::Json(JsonError::DuplicateMember { .. }) => "trust_store_member_repeated",
             Self::NotArray => "trust_store_not_array",
             Self::Entry { error, .. } => error.code(),
             Self::Repeated(_) => "trust_store_entry_repeated",

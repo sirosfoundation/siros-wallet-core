@@ -1,18 +1,14 @@
 //! CLDR plural rules (Unicode TR35 Part 3, "Language Plural Rules"): parsed from a module's text
-//! when it loads, written into a compiled placeholder, and evaluated on a formatted number's
-//! operands when it renders.
+//! when it loads, and evaluated on a formatted number's operands when a message resolves.
 
 use std::num::{NonZeroU64, NonZeroU128};
 use std::ops::Rem;
 
-use crate::bytes::Reader;
-#[cfg(feature = "load")]
-use crate::bytes::Writer;
-use crate::error::RenderError;
+use crate::digit::Digit;
 use crate::numeric::decimal::Fixed;
 
 /// A plural category.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Category {
     Zero,
     One,
@@ -47,15 +43,6 @@ impl Category {
     /// The category of a keyword.
     pub(crate) fn of_keyword(keyword: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|c| c.keyword() == keyword)
-    }
-
-    fn of_code(code: u8) -> Option<Self> {
-        Self::ALL.get(usize::from(code)).copied()
-    }
-
-    #[cfg(feature = "load")]
-    fn code(self) -> u8 {
-        self as u8
     }
 }
 
@@ -92,7 +79,6 @@ impl Operand {
         Self::E,
     ];
 
-    #[cfg(feature = "load")]
     fn named(name: &str) -> Option<Self> {
         let names = ["n", "i", "v", "w", "f", "t", "c", "e"];
         names
@@ -105,42 +91,39 @@ impl Operand {
 /// An operand's value: the digits of its integer part, without leading zeros, and whether its
 /// fraction is nonzero.
 struct Value {
-    int: Vec<u8>,
+    int: Vec<Digit>,
     fraction: bool,
 }
 
 impl Value {
-    fn of(digits: &[u8], fraction: bool) -> Self {
-        let int = digits.iter().copied().skip_while(|&d| d == 0).collect();
+    fn of(digits: &[Digit], fraction: bool) -> Self {
+        let int = digits
+            .iter()
+            .copied()
+            .skip_while(|&d| d == Digit::Zero)
+            .collect();
         Self { int, fraction }
     }
 
     fn count(count: usize) -> Self {
-        Self::of(
-            &count
-                .to_string()
-                .bytes()
-                .map(|b| b - b'0')
-                .collect::<Vec<_>>(),
-            false,
-        )
+        Self::of(&Digit::of_integer(count as u128), false)
     }
 
     /// The value's integer part, when it fits a `u64`.
     fn word(&self) -> Option<u64> {
-        self.int.iter().try_fold(0u64, |value, &d| {
-            value.checked_mul(10)?.checked_add(u64::from(d))
+        self.int.iter().try_fold(0u64, |value, d| {
+            value.checked_mul(10)?.checked_add(u64::from(d.value()))
         })
     }
 
     /// The value modulo `modulus`, its fraction kept.
     fn modulo(&self, modulus: NonZeroU64) -> Self {
         let modulus = NonZeroU128::from(modulus);
-        let rest = self.int.iter().fold(0u128, |rest, &d| {
-            Rem::rem(rest * 10 + u128::from(d), modulus)
+        let rest = self.int.iter().fold(0u128, |rest, d| {
+            Rem::rem(rest * 10 + u128::from(d.value()), modulus)
         });
         Self {
-            int: rest.to_string().bytes().map(|b| b - b'0').collect(),
+            int: Digit::of_integer(rest),
             fraction: self.fraction,
         }
     }
@@ -171,8 +154,7 @@ impl<'a> Operands<'a> {
 
     fn value(&self, operand: Operand) -> Value {
         let frac = &self.fixed.frac;
-        let trimmed = frac.len() - frac.iter().rev().take_while(|&&d| d == 0).count();
-        let without = frac.get(..trimmed).unwrap_or_default();
+        let without = without_trailing_zeros(frac);
         match operand {
             Operand::N => Value::of(&self.fixed.int, !without.is_empty()),
             Operand::I => Value::of(&self.fixed.int, false),
@@ -185,81 +167,70 @@ impl<'a> Operands<'a> {
     }
 }
 
-/// Reads compiled plural rules and gives a number's category.
-pub(crate) fn category(
-    reader: &mut Reader<'_>,
-    operands: &Operands<'_>,
-) -> Result<Category, RenderError> {
-    let mut chosen = None;
-    for _ in 0..reader.count()? {
-        let keyword = Category::of_code(reader.byte()?).ok_or(reader.malformed())?;
-        let mut any = false;
-        for _ in 0..reader.count()? {
-            let mut all = true;
-            for _ in 0..reader.count()? {
-                all &= relation(reader, operands)?;
-            }
-            any |= all;
-        }
-        if any && chosen.is_none() {
-            chosen = Some(keyword);
-        }
+/// `digits` without their trailing zeros.
+fn without_trailing_zeros(mut digits: &[Digit]) -> &[Digit] {
+    while let [rest @ .., Digit::Zero] = digits {
+        digits = rest;
     }
-    Ok(chosen.unwrap_or(Category::Other))
-}
-
-/// Reads one relation and evaluates it.
-fn relation(reader: &mut Reader<'_>, operands: &Operands<'_>) -> Result<bool, RenderError> {
-    let head = reader.byte()?;
-    let operand = Operand::ALL
-        .get(usize::from(head & 0x0f))
-        .copied()
-        .ok_or(reader.malformed())?;
-    let (negated, within) = (head & 0x10 != 0, head & 0x20 != 0);
-    let modulus = reader.number()?;
-    let mut value = operands.value(operand);
-    if let Some(modulus) = NonZeroU64::new(modulus) {
-        value = value.modulo(modulus);
-    }
-    let mut matched = false;
-    for _ in 0..reader.count()? {
-        let (low, high) = (reader.number()?, reader.number()?);
-        matched |= if within {
-            value.within(low, high)
-        } else {
-            value.among(low, high)
-        };
-    }
-    Ok(matched != negated)
+    digits
 }
 
 /// Rules as a module writes them: one `<keyword>: <condition>` per line, samples after `@`
 /// ignored.
-#[cfg(feature = "load")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Rules {
     rules: Vec<Rule>,
 }
 
-#[cfg(feature = "load")]
+/// A category's rule: a disjunction of conjunctions of relations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Rule {
     category: Category,
     condition: Vec<Vec<Relation>>,
 }
 
-#[cfg(feature = "load")]
+/// A relation: an operand, modulo `modulus` when it gives one, in or within the ranges, or not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Relation {
     operand: Operand,
-    modulus: u64,
+    modulus: Option<NonZeroU64>,
     negated: bool,
     within: bool,
     ranges: Vec<(u64, u64)>,
 }
 
-#[cfg(feature = "load")]
+impl Relation {
+    /// Whether the operands satisfy it.
+    fn holds(&self, operands: &Operands<'_>) -> bool {
+        let mut value = operands.value(self.operand);
+        if let Some(modulus) = self.modulus {
+            value = value.modulo(modulus);
+        }
+        let matched = self.ranges.iter().any(|&(low, high)| {
+            if self.within {
+                value.within(low, high)
+            } else {
+                value.among(low, high)
+            }
+        });
+        matched != self.negated
+    }
+}
+
 impl Rules {
+    /// The category of a formatted number: the first rule's whose condition holds, `other` when
+    /// none does.
+    pub(crate) fn category(&self, operands: &Operands<'_>) -> Category {
+        self.rules
+            .iter()
+            .find(|rule| {
+                rule.condition
+                    .iter()
+                    .any(|and| and.iter().all(|relation| relation.holds(operands)))
+            })
+            .map_or(Category::Other, |rule| rule.category)
+    }
+
     /// The rules a text writes; `None` for a text outside the grammar, a keyword given twice, or
     /// a rule for `other`.
     pub(crate) fn parse(text: &str) -> Option<Self> {
@@ -270,7 +241,10 @@ impl Rules {
             if category == Category::Other || rules.iter().any(|r| r.category == category) {
                 return None;
             }
-            let condition = condition.split('@').next().unwrap_or_default();
+            let condition = match condition.split_once('@') {
+                Some((condition, _samples)) => condition,
+                None => condition,
+            };
             rules.push(Rule {
                 category,
                 condition: or_condition(condition)?,
@@ -278,34 +252,9 @@ impl Rules {
         }
         Some(Self { rules })
     }
-
-    /// Writes the rules.
-    pub(crate) fn write(&self, writer: &mut Writer) {
-        writer.count(self.rules.len());
-        for rule in &self.rules {
-            writer.byte(rule.category.code());
-            writer.count(rule.condition.len());
-            for and in &rule.condition {
-                writer.count(and.len());
-                for relation in and {
-                    let head = relation.operand as u8
-                        | if relation.negated { 0x10 } else { 0 }
-                        | if relation.within { 0x20 } else { 0 };
-                    writer.byte(head);
-                    writer.number(relation.modulus);
-                    writer.count(relation.ranges.len());
-                    for &(low, high) in &relation.ranges {
-                        writer.number(low);
-                        writer.number(high);
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// `condition = and_condition ('or' and_condition)*`.
-#[cfg(feature = "load")]
 fn or_condition(text: &str) -> Option<Vec<Vec<Relation>>> {
     let words: Vec<&str> = text.split_whitespace().collect();
     if words.is_empty() {
@@ -318,17 +267,16 @@ fn or_condition(text: &str) -> Option<Vec<Vec<Relation>>> {
 }
 
 /// `relation = expr ('is' 'not'? | 'not'? 'in' | 'not'? 'within' | '=' | '!=') range_list`.
-#[cfg(feature = "load")]
 fn relation_of(words: &[&str]) -> Option<Relation> {
     let (&operand, rest) = words.split_first()?;
     let operand = Operand::named(operand)?;
     let (modulus, rest) = match rest {
         [m, value, rest @ ..] if *m == "mod" || *m == "%" => {
-            (value.parse().ok().filter(|&m: &u64| m > 0)?, rest)
+            (Some(value.parse::<NonZeroU64>().ok()?), rest)
         }
-        rest => (0, rest),
+        rest => (None, rest),
     };
-    if modulus == 0 && rest.first().is_some_and(|&w| w == "mod" || w == "%") {
+    if modulus.is_none() && rest.first().is_some_and(|&w| w == "mod" || w == "%") {
         return None;
     }
     let (negated, within, rest) = match rest {

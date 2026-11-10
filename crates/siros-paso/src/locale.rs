@@ -110,11 +110,3 @@ pub(crate) fn selectable(
     }
     out
 }
-
-/// The tag among `tags` RFC 4647 §3.4's Lookup finds for `range`.
-pub(crate) fn lookup<'t>(range: &LocaleTag, tags: &'t [LocaleTag]) -> Option<&'t LocaleTag> {
-    range
-        .truncations()
-        .into_iter()
-        .find_map(|truncated| tags.iter().find(|tag| **tag == truncated))
-}

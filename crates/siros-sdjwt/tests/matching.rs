@@ -13,6 +13,7 @@ use siros_openid4vp::wallet::{Holder, Wallet};
 use siros_sdjwt::{HolderBindingWaived, SdJwtRule, SdJwtVc};
 use siros_testkit::TestHost;
 use siros_testkit::fixtures::{Held, env, parameters, request_of, unsigned};
+use siros_testkit::render::Language;
 use siros_testkit::{Binds, TestProfile, verifier};
 
 /// An SD-JWT VC of a type and values, ES256 on P-256, its key ES256 on P-256.
@@ -52,14 +53,11 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Answers, Exclusions) {
     )
     .expect("wallet");
     let accepted = Accepted::new(request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
     let matched = Match::run(
         &accepted,
         &wallet,
         &env(&["en"], Vec::new()).expect("env"),
-        &rendering,
+        Language::English.shared().expect("the test app"),
     )
     .expect("match");
     let answers = request

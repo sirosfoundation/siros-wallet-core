@@ -4,15 +4,19 @@
 
 mod common;
 
-use siros_explain::{ArgValue, Explain};
-use siros_openid4vp::claims::kit::ClaimsQuery;
+use std::error::Error;
+
+use siros_explain::Explain;
+use siros_openid4vp::claims::kit::{ClaimsQuery, ClaimsView, KitRule};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::request::{Request, SetNeed, factor, project};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Binds;
 
-use common::{ClaimsTest, Held, PASO_A5, env, parameters, registry, request_of, unsigned, vector};
+use common::{
+    ClaimsTest, Held, PASO_A5, env, parameters, registry, request_of, unsigned, vector, viewed,
+};
 
 /// Each block with its options, as sorted query ids.
 fn shape(request: &Request<'_>) -> Vec<(Vec<String>, Vec<Vec<String>>)> {
@@ -153,7 +157,8 @@ fn answered(
         .filter_map(|(id, kind, values)| {
             let view_text =
                 format!(r#"{{"type": "{kind}", "metadata": {{}}, "values": {values}}}"#);
-            let view = Node::parse(&view_text).expect("view");
+            let credential = viewed(&view_text);
+            let view = ClaimsView::read(&credential).expect("view");
             let options: Vec<usize> = query
                 .answerable(&format, &view, &[])
                 .expect("the view's types")
@@ -276,9 +281,10 @@ fn a_json_boolean_is_no_integer() {
     };
     let query = ClaimsQuery::parse(&format, &request.queries()[0], None).expect("query");
     let answers = |values: &str| {
-        let view = format!(r#"{{"type": "t", "values": {values}}}"#);
+        let view = format!(r#"{{"type": "t", "metadata": {{}}, "values": {values}}}"#);
+        let credential = viewed(&view);
         query
-            .answerable(&format, &Node::parse(&view).expect("view"), &[])
+            .answerable(&format, &ClaimsView::read(&credential).expect("view"), &[])
             .expect("the view's types")
     };
     assert_eq!(answers(r#"{"age_over_18": true}"#), []);
@@ -304,14 +310,10 @@ fn a_claims_format_refuses_a_query_without_its_meta() {
     let refusals = ClaimsQuery::parse(&format, &bare.queries()[0], None).expect_err("refused");
     let refusal = &refusals.items()[0];
     let rule = refusal
-        .args()
-        .as_slice()
-        .iter()
-        .find_map(|named| match named.arg().value() {
-            ArgValue::Message(rule) => Some(rule.id().as_str()),
-            _ => None,
-        });
-    assert_eq!(rule, Some("openid4vp.claims_kit.meta"));
+        .source()
+        .and_then(|rule| rule.downcast_ref::<KitRule>())
+        .map(Explain::id);
+    assert_eq!(rule, Some("err.openid4vp.claims_kit.meta"));
 }
 
 #[test]
@@ -338,10 +340,10 @@ fn trusted_authorities_take_a_value_of_one_of_the_querys_types() {
     ])
     .expect("wallet");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env("en"), &rendering).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env("en"), context).expect("match");
     let ids: Vec<&str> = matched
         .candidates(request.indexed_queries().next().expect("q").0)
         .iter()

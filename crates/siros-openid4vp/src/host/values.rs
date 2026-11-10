@@ -59,7 +59,7 @@ pub struct Presentation(String);
 
 /// A presentation's value that is no JSON object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.presentation")]
+#[explain(id = "presentation.not_presentation")]
 #[error("the presentation is no JSON object")]
 pub struct NotPresentation;
 

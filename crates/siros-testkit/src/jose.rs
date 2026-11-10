@@ -21,7 +21,7 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::request::{ContentEncryption, Curve, KeyAgreement};
 
-use crate::FAULT;
+use crate::{caused, fault};
 
 /// P-256's group order n (SEC 2 §2.4.2), big-endian.
 const ORDER: [u8; 32] = [
@@ -98,8 +98,7 @@ const VERIFIER_EPHEMERAL: P256Scalar = fixed!([
 ]);
 
 fn secret(scalar: &P256Scalar) -> Result<SecretKey, Fault> {
-    SecretKey::from_slice(scalar.octets())
-        .map_err(|e| Fault::caused(FAULT, detail!("a test scalar"), e))
+    SecretKey::from_slice(scalar.octets()).map_err(|e| caused(detail!("a test scalar"), e))
 }
 
 /// The public JWK of a P-256 key: `kty` `EC`, `crv` `P-256`, `x`, `y` (RFC 7518 §6.2.1).
@@ -110,10 +109,7 @@ fn secret(scalar: &P256Scalar) -> Result<SecretKey, Fault> {
 pub fn p256_jwk(public: &PublicKey) -> Result<PublicJwk, Fault> {
     let point = public.to_sec1_point(false);
     let Coordinates::Uncompressed { x, y } = point.coordinates() else {
-        return Err(Fault::new(
-            FAULT,
-            detail!("the key's point has no coordinates"),
-        ));
+        return Err(fault(detail!("the key's point has no coordinates")));
     };
     let text = |value: String| Node::String(Cow::Owned(value));
     let jwk = Node::object([
@@ -122,8 +118,8 @@ pub fn p256_jwk(public: &PublicKey) -> Result<PublicJwk, Fault> {
         (Cow::Borrowed("x"), text(URL_SAFE_NO_PAD.encode(x))),
         (Cow::Borrowed("y"), text(URL_SAFE_NO_PAD.encode(y))),
     ])
-    .map_err(|e| Fault::caused(FAULT, detail!("a P-256 JWK"), e))?;
-    PublicJwk::parse(jwk).map_err(|e| Fault::caused(FAULT, detail!("a P-256 JWK"), e))
+    .map_err(|e| caused(detail!("a P-256 JWK"), e))?;
+    PublicJwk::parse(jwk).map_err(|e| caused(detail!("a P-256 JWK"), e))
 }
 
 /// The public JWK of the P-256 scalar of 32 octets of one value: a key the tests did not post.
@@ -133,7 +129,7 @@ pub fn p256_jwk(public: &PublicKey) -> Result<PublicJwk, Fault> {
 /// The octets are no scalar of P-256.
 pub fn scalar_jwk(octet: u8) -> Result<Node<'static>, Fault> {
     let scalar = P256Scalar::new([octet; 32])
-        .ok_or_else(|| Fault::new(FAULT, detail!("the octets are no scalar of P-256")))?;
+        .ok_or_else(|| fault(detail!("the octets are no scalar of P-256")))?;
     key_jwk(&scalar)
 }
 
@@ -366,12 +362,12 @@ pub(crate) fn seal(
     zip: Zip,
     plaintext: &[u8],
 ) -> Result<String, Fault> {
-    let fault = |what: &'static str| Fault::new(FAULT, detail!("the JWE's {what}", what = what));
-    let recipient = p256_point(jwk).ok_or_else(|| fault("key"))?;
+    let refused = |what: &'static str| fault(detail!("the JWE's {what}", what = what));
+    let recipient = p256_point(jwk).ok_or_else(|| refused("key"))?;
     let ephemeral = secret(&VERIFIER_EPHEMERAL)?;
     let point = ephemeral.public_key().to_sec1_point(false);
     let Coordinates::Uncompressed { x, y } = point.coordinates() else {
-        return Err(fault("ephemeral key"));
+        return Err(refused("ephemeral key"));
     };
     let text = |value: String| Node::String(Cow::Owned(value));
     let epk = Node::object([
@@ -380,7 +376,7 @@ pub(crate) fn seal(
         (Cow::Borrowed("x"), text(URL_SAFE_NO_PAD.encode(x))),
         (Cow::Borrowed("y"), text(URL_SAFE_NO_PAD.encode(y))),
     ])
-    .map_err(|_| fault("epk"))?;
+    .map_err(|e| caused(detail!("the JWE's epk"), e))?;
     let mut members = vec![
         (Cow::Borrowed("alg"), text("ECDH-ES".to_owned())),
         (Cow::Borrowed("enc"), text(enc.to_owned())),
@@ -392,10 +388,10 @@ pub(crate) fn seal(
     if zip == Zip::Def {
         members.push((Cow::Borrowed("zip"), text("DEF".to_owned())));
     }
-    let header = Node::object(members).map_err(|_| fault("header"))?;
+    let header = Node::object(members).map_err(|e| caused(detail!("the JWE's header"), e))?;
     let protected = URL_SAFE_NO_PAD.encode(header.json_compact().to_string());
     let content_key =
-        concat_kdf(&ephemeral, &recipient, enc, &[], &[]).ok_or_else(|| fault("content key"))?;
+        concat_kdf(&ephemeral, &recipient, enc, &[], &[]).ok_or_else(|| refused("content key"))?;
     let compressed;
     let message = if zip == Zip::Def {
         compressed = miniz_oxide::deflate::compress_to_vec(plaintext, 6);
@@ -410,17 +406,17 @@ pub(crate) fn seal(
     };
     let sealed = match enc {
         "A128GCM" => Aes128Gcm::new_from_slice(&content_key)
-            .map_err(|_| fault("content key"))?
+            .map_err(|_| refused("content key"))?
             .encrypt(&iv.into(), payload),
         "A256GCM" => Aes256Gcm::new_from_slice(&content_key)
-            .map_err(|_| fault("content key"))?
+            .map_err(|_| refused("content key"))?
             .encrypt(&iv.into(), payload),
-        _ => return Err(fault("enc")),
+        _ => return Err(refused("enc")),
     }
-    .map_err(|_| fault("ciphertext"))?;
+    .map_err(|_| refused("ciphertext"))?;
     let (ciphertext, tag) = sealed
         .split_at_checked(sealed.len().saturating_sub(16))
-        .ok_or_else(|| fault("ciphertext"))?;
+        .ok_or_else(|| refused("ciphertext"))?;
     Ok(format!(
         "{protected}..{}.{}.{}",
         URL_SAFE_NO_PAD.encode(iv),

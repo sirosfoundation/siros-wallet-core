@@ -20,47 +20,61 @@ pub const TYP: &str = "adhoc-transaction-metadata+jwt";
 /// Why an entry's ad-hoc metadata JWT is not relied on: it does not read (§5.2), or it fails a
 /// §5.3 step.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.adhoc")]
 pub enum AdhocFailure {
     /// No compact JWS (RFC 7515 §7.1).
     #[error(transparent)]
     Jws(#[from] JwsError),
     /// The payload is no JSON object with unique member names.
     #[error("the payload is not a JSON object")]
+    #[explain(id = "adhoc.not_object")]
     NotObject,
     /// §5.2: the payload's `metadata` is no object.
     #[error("the payload holds no metadata object")]
+    #[explain(id = "adhoc.metadata")]
     Metadata,
     /// Step 1: the `typ`.
-    #[error("typ {0:?}")]
-    Typ(#[explain(name = "typ")] Option<String>),
+    #[error("typ {typ:?}")]
+    #[explain(id = "adhoc.typ")]
+    Typ {
+        /// The `typ` as written, when present.
+        typ: Option<String>,
+    },
     /// Step 2: the signature, or an `alg` the verifying module does not verify.
     #[error("the signature does not verify")]
+    #[explain(id = "adhoc.signature")]
     Signature,
     /// Step 3, x5c-based keys: no `x5c` chain, a `kid`, or a chain without a path to the
     /// wallet's trust store.
     #[error("no x5c chain to the wallet's trust store")]
+    #[explain(id = "adhoc.untrusted")]
     Untrusted,
     /// Step 3, key-set keys: no `kid` of the credential issuer's key set, or a chain.
     #[error("signed by no key of the credential issuer's key set")]
+    #[explain(id = "adhoc.unknown_key")]
     UnknownKey,
     /// Step 4: `iss`.
     #[error("iss is not the credential's issuer")]
+    #[explain(id = "adhoc.issuer")]
     Issuer,
     /// Step 5: `exp` passed, or no integer `exp` (§5.2).
     #[error("expired, or no integer exp")]
+    #[explain(id = "adhoc.expired")]
     Expired,
     /// Step 6: `sub` and `format`.
     #[error("sub and format are not the credential's type and format")]
+    #[explain(id = "adhoc.binding")]
     Binding,
     /// Step 6, x5c-based keys: the chain's root or its leaf's subject is not the credential's.
     #[error("the chain's root or leaf subject is not the credential's")]
+    #[explain(id = "adhoc.foreign_chain")]
     ForeignChain,
     /// Step 7: `transaction_data_type`.
     #[error("transaction_data_type is not the entry's type")]
+    #[explain(id = "adhoc.transaction_type")]
     TransactionType,
     /// A request of the URI flow whose JWT the wallet has not verified for the credential.
     #[error("not verified for the credential")]
+    #[explain(id = "adhoc.unverified")]
     Unverified,
 }
 
@@ -199,8 +213,8 @@ impl<'r> Carried<'r> {
 
 /// A request of the URI flow given to the matcher's reading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.adhoc_channel")]
 #[error("a request of the URI flow: its ad-hoc metadata is verified before it converts")]
+#[explain(id = "adhoc_channel.uri_flow")]
 pub struct UriFlow;
 
 /// An ad-hoc metadata JWT the wallet verified for a credential (§5.3).
@@ -225,7 +239,7 @@ mod verify {
     use siros_x509::X5c;
 
     use super::{AdhocFailure, AdhocJwt, AdhocRefusal, Jwts, Read, Relied, TYP, jwts};
-    use crate::FAULT;
+    use crate::caused;
     use crate::document::{DOCUMENT, Issuer, PasoDocument};
     use crate::modules::IssuerTrust;
     use crate::rulebook::PasoType;
@@ -272,9 +286,9 @@ mod verify {
         ) -> Result<(), AdhocFailure> {
             let header = self.jws.header();
             if header.typ().map(|typ| typ.as_str()) != Some(TYP) {
-                return Err(AdhocFailure::Typ(
-                    header.typ().map(|typ| typ.as_str().to_owned()),
-                ));
+                return Err(AdhocFailure::Typ {
+                    typ: header.typ().map(|typ| typ.as_str().to_owned()),
+                });
             }
             let x5c = header.member("x5c").is_some();
             let kid = header.kid();
@@ -381,9 +395,9 @@ mod verify {
                         continue;
                     };
                     let node = PasoDocument::json(bytes)
-                        .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
+                        .map_err(|e| caused(detail!("the PaSO document"), e))?;
                     let document = PasoDocument::read(&node)
-                        .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
+                        .map_err(|e| caused(detail!("the PaSO document"), e))?;
                     let binding = Binding {
                         document: &document,
                         format: &credential.format,

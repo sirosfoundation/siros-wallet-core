@@ -61,5 +61,5 @@ fn a_cose_encrypt_of_another_form_or_encryption_is_refused() {
 fn a_root_certificate_is_a_der_certificate() {
     // RFC 5280 §4.1: a SEQUENCE holding an INTEGER is no Certificate.
     assert!(RootCertificate::parse(&[0x30, 0x03, 0x02, 0x01, 0x01]).is_err());
-    assert!(RootCertificate::parse(&siros_testkit::x509::root()).is_ok());
+    assert!(RootCertificate::parse(&siros_testkit::x509::root().expect("the root")).is_ok());
 }

@@ -38,6 +38,11 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo test --locked --workspace --all-features
+      # siros-i18n as the matchers build it, without `nfc`: alone, siros-paso's and siros-ts12's
+      # tests compile it with `currency`, `date`, `derive` and `number`. The workspace run above
+      # holds the `nfc` half.
+      - name: siros-paso and siros-ts12 over siros-i18n without nfc
+        run: cargo test --locked -p siros-paso -p siros-ts12 --all-features
 
   fmt:
     name: Format
@@ -46,7 +51,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/rust-toolchain
       - run: cargo fmt --all -- --check
-      - name: Tests outside the source files, no message source in the crates
+      - name: Tests outside the source files, no message source in the crates, errors and statements (I27, I28)
         run: cargo xtask layout
 
   clippy:
@@ -75,8 +80,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      # Each build of the design's section 4.11 compiles none of the crates its row excludes
-      # (I39); each crate builds alone and names the workspace crates its row gives (I25).
+      # Each build of the design's section 4.11 compiles none of the crates and crate features
+      # its row excludes (I39), and siros-i18n with exactly the functions its wording calls, with
+      # `nfc` in each wallet and without it in each matcher; each crate builds alone, documents
+      # alone with rustdoc's warnings denied, both with and without its default features, and
+      # names the workspace crates its row gives (I25).
       # `xtask builds` reads each probe's tree offline over the workspace's Cargo.lock, so the
       # locked crates are downloaded first.
       - run: cargo fetch --locked
@@ -85,8 +93,9 @@ jobs:
 
   per-merge:
     name: Per-merge tier
-    # The ignored tests: ICU4X's renderings (I35, I36), the integration properties and the
-    # route's I2 at the model's size, and I5 at 1,000 replays.
+    # The ignored tests: siros-i18n's differentials against ICU4X (I35's dates, times and
+    # years, I36's numbers, plural categories and amounts), the integration's dressed run and
+    # the route's I2 at the model's size, and I5 at 1,000 replays.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:

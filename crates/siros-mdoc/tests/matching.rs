@@ -7,6 +7,7 @@
 
 use std::error::Error;
 
+use siros_i18n::Context;
 use siros_mdoc::{Mdoc, MdocRule};
 use siros_openid4vp::claims::kit::{KitRule, QueryRule};
 use siros_openid4vp::matching::{Accepted, Match};
@@ -17,7 +18,7 @@ use siros_openid4vp::rows::BooleanText;
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, env, icon, parameters};
 use siros_testkit::probe::read_parsed;
-use siros_testkit::render::written;
+use siros_testkit::render::Language;
 
 /// An mdoc of a docType and values; IssuerAuth ES256 on P-256, the device key `device_alg` on
 /// `device_curve`; the KeyAuthorizations given.
@@ -48,9 +49,9 @@ siros_testkit::test_host! {
     }
 }
 
-/// A text the issuer or the credential wrote, as written; another text as the value it holds.
-fn as_written(text: &siros_explain::Text) -> String {
-    written(text).map_or_else(|| format!("{text:?}"), str::to_owned)
+/// The test app's English context, whose wording writes a label and a text value as written.
+fn english() -> &'static Context {
+    Language::English.shared().expect("the test app")
 }
 
 fn registry() -> Registry<MdocHost> {
@@ -70,14 +71,11 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Vec<(String, Vec<usize>)>, 
     )
     .expect("wallet");
     let accepted = Accepted::new(request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
     let matched = Match::run(
         &accepted,
         &wallet,
         &env(&["en"], Vec::new()).expect("env"),
-        &rendering,
+        english(),
     )
     .expect("match");
     let (index, _) = request.indexed_queries().next().expect("query");
@@ -169,6 +167,7 @@ fn the_openid4vci_example_draws_its_card() {
                             chosen: &[],
                         },
                         &env,
+                        english(),
                     )
                     .expect("card");
                 let rows: Vec<(String, String)> = card
@@ -176,16 +175,19 @@ fn the_openid4vci_example_draws_its_card() {
                     .iter()
                     .map(|row| {
                         let value = row.value.as_ref().and_then(|v| v.text()).expect("value");
-                        (as_written(&row.label), as_written(value))
+                        (row.label.to_string(), value.to_string())
                     })
                     .collect();
                 (
-                    as_written(&card.title),
+                    card.title.to_string(),
                     card.icon.reference.as_str().to_owned(),
                     rows,
                 )
             };
-            let yes = as_written(&siros_explain::Text::of(&BooleanText::Yes));
+            let yes = english()
+                .resolve(&BooleanText::Yes)
+                .expect("the test app words yes")
+                .to_string();
             let rows = |labels: [&str; 4]| -> Vec<(String, String)> {
                 labels
                     .iter()
@@ -203,9 +205,9 @@ fn the_openid4vci_example_draws_its_card() {
                     rows(["Given Name", "Surname", "birth_date", "organ_donor"])
                 )
             );
-            // de, then ja-JP (the wallet's own strings take the first locale, which its table serves):
-            // no entry for de, the card's and given_name's for ja-JP; family_name has neither and
-            // shows its data element identifier.
+            // de, then ja-JP: no entry for de, the card's and given_name's for ja-JP; family_name
+            // has neither and shows its data element identifier. The wallet's own texts are its
+            // context's.
             let (title, _, ja) = card(&["de", "ja-JP"]);
             assert_eq!(
                 (title.as_str(), ja),
@@ -706,7 +708,7 @@ fn an_element_the_transaction_writes_answers_the_claim_naming_it() {
                 };
                 (
                     !answered.is_empty(),
-                    query.draw(&credential, shown, &env).is_ok(),
+                    query.draw(&credential, shown, &env, english()).is_ok(),
                 )
             };
             assert_eq!(drawn("{}"), (true, true));

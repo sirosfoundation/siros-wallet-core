@@ -3,14 +3,14 @@
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use serde_json::{Value, json};
-use siros_explain::Text;
+use siros_i18n::{Context, Text};
 use siros_openid4vp::arrival::{DcApiProtocol, Received};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::matching::StaticEntry;
-use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, ImageMedia, RenderOptions, Row};
+use siros_openid4vp::rows::{Choice, ClaimText, Env, Icon, ImageMedia, Row};
 use siros_openid4vp::wallet::Holder;
-use siros_testkit::fixtures::{self, Held, OPTIONS, ORIGIN, with_generic_forms};
+use siros_testkit::fixtures::{self, Held, ORIGIN, with_generic_forms};
 use siros_testkit::verifier::{self, ISSUER};
 use std::borrow::Cow;
 use std::num::NonZeroU32;
@@ -21,9 +21,10 @@ use super::{
     ENC_KEY, FORMATS, LOGOS, MDOC_TYPE, Obj, QUALIFIERS, SD_JWT_TYPE, TYPE_POOL, pick, sample,
     string,
 };
+use crate::common::{Amounts, own_modules};
 
-/// A dressed case: the request as received, the wallet, its configuration and static entries, and
-/// the credentials the host says can no longer be presented.
+/// A dressed case: the request as received, the wallet, its configuration, its wording of amounts
+/// and its static entries, and the credentials the host says can no longer be presented.
 pub struct Dressed {
     /// The DC API protocol.
     pub protocol: DcApiProtocol,
@@ -35,6 +36,8 @@ pub struct Dressed {
     pub credentials: Vec<Held>,
     /// The wallet's configuration.
     pub env: Env,
+    /// How the wallet words an amount.
+    pub amounts: Amounts,
     /// The wallet's static entries.
     pub statics: Vec<StaticEntry>,
     /// The credentials no longer valid.
@@ -205,8 +208,15 @@ pub(super) fn icons() -> Vec<(String, Icon)> {
         .collect()
 }
 
-/// A static entry the wallet adds to every set.
-pub(super) fn static_entry(k: usize) -> StaticEntry {
+/// A text the wallet writes as given, worded by `context`.
+fn written(context: &Context, value: String) -> Text {
+    context
+        .resolve(&ClaimText::Text { value })
+        .expect("the test app words a written text")
+}
+
+/// A static entry the wallet adds to every set, its texts worded by `context`.
+pub(super) fn static_entry(context: &Context, k: usize) -> StaticEntry {
     StaticEntry {
         id: siros_openid4vp::ids::StaticEntryId::parse(format!("static:{k}"))
             .expect("a static entry id"),
@@ -218,9 +228,12 @@ pub(super) fn static_entry(k: usize) -> StaticEntry {
                 media: ImageMedia::PNG,
                 size: NonZeroU32::new(1024).expect("a size"),
             },
-            title: Text::Raw(format!("Notice {k}")),
+            title: written(context, format!("Notice {k}")),
             subtitle: None,
-            rows: vec![Row::full_text(Text::Raw(format!("Wallet notice {k}")))],
+            rows: vec![Row::full_text(written(
+                context,
+                format!("Wallet notice {k}"),
+            ))],
         },
     }
 }
@@ -387,14 +400,8 @@ pub(super) fn dress(
     } else {
         Amounts::Written
     };
-    let env = Env::new(
-        with_generic_forms(&locales),
-        Vec::new(),
-        RenderOptions { amounts, ..OPTIONS },
-        icons(),
-        Choice::First,
-    )
-    .expect("the configuration");
+    let env =
+        Env::new(with_generic_forms(&locales), icons(), Choice::First).expect("the configuration");
     let formats: Vec<(String, &'static str)> = request
         .queries
         .iter()
@@ -468,7 +475,10 @@ pub(super) fn dress(
         .iter()
         .map(|credential| dress_credential(rng, credential, &formats, &types))
         .collect();
-    let statics = (0..pick(rng, &[0, 0, 1, 2])).map(static_entry).collect();
+    let own = own_modules(&env, amounts);
+    let statics = (0..pick(rng, &[0, 0, 1, 2]))
+        .map(|k| static_entry(own, k))
+        .collect();
     let metadata = client_metadata(rng);
     let unusable = credentials
         .iter()
@@ -508,6 +518,7 @@ pub(super) fn dress(
         parameters,
         credentials,
         env,
+        amounts,
         statics,
         unusable,
     }

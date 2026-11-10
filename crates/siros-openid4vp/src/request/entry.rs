@@ -22,29 +22,30 @@ const BASE64URL: GeneralPurpose = GeneralPurpose::new(
 
 /// A `transaction_data` string that is no entry (rule C0, `invalid_transaction_data`).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.entry")]
 pub enum Malformed {
     /// Characters outside base64url, or a length no base64url text has.
     #[error("not base64url without padding")]
+    #[explain(id = "entry.not_base64_url")]
     NotBase64Url,
     /// The decoded bytes are no UTF-8.
     #[error("not base64url-encoded UTF-8")]
+    #[explain(id = "entry.not_utf8")]
     NotUtf8,
     /// The decoded text is no JSON with unique member names.
     #[error("{0}")]
-    Json(
-        #[from]
-        #[explain(name = "cause")]
-        crate::json::JsonError,
-    ),
+    #[explain(id = "entry.json")]
+    Json(#[from] crate::json::JsonError),
     /// The JSON is no object.
     #[error("not a JSON object")]
+    #[explain(id = "entry.not_object")]
     NotObject,
     /// `type` is no string.
     #[error("type is not a string")]
+    #[explain(id = "entry.type")]
     Type,
     /// `credential_ids` is no non-empty array of strings.
     #[error("credential_ids is not a non-empty array of strings")]
+    #[explain(id = "entry.credential_ids")]
     CredentialIds,
 }
 

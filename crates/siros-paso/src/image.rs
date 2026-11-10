@@ -34,37 +34,49 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(
 
 /// An image the rules refuse.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.image")]
 pub enum ImageFailure {
     /// A Data URL over 512 KiB encoded.
     #[error("over 512 KiB encoded")]
+    #[explain(id = "image.encoded_too_large")]
     EncodedTooLarge,
     /// A Data URL whose base64 does not decode.
     #[error("bad base64")]
+    #[explain(id = "image.bad_base64")]
     BadBase64,
     /// An https image without a string `#integrity` sibling.
     #[error("no #integrity sibling")]
+    #[explain(id = "image.no_integrity")]
     NoIntegrity,
     /// The image could not be fetched, with the reason the wallet recorded.
     #[error("{0}")]
+    #[explain(id = "image.fetch")]
     Fetch(#[explain(skip)] String),
     /// Fetched content over 512 KiB.
     #[error("over 512 KiB")]
+    #[explain(id = "image.too_large")]
     TooLarge,
     /// Fetched content its `#integrity` does not verify.
     #[error("the content does not match its #integrity")]
+    #[explain(id = "image.integrity_mismatch")]
     IntegrityMismatch,
     /// Fetched content of a media type other than PNG, JPEG or SVG.
-    #[error("media type {0}")]
-    MediaType(#[explain(name = "media_type")] MediaType),
+    #[error("media type {media_type}")]
+    #[explain(id = "image.media_type")]
+    MediaType {
+        /// The fetched media type.
+        media_type: MediaType,
+    },
     /// Neither a Data URL of a supported image nor an https URL.
     #[error("neither a Data URL nor https")]
+    #[explain(id = "image.neither_data_nor_https")]
     NeitherDataNorHttps,
     /// Content that is no image of its media type, or without a size.
     #[error("unreadable image")]
+    #[explain(id = "image.unreadable")]
     Unreadable,
     /// More than 2048 pixels one way.
     #[error("{width}x{height} exceeds 2048 pixels")]
+    #[explain(id = "image.oversized")]
     Oversized {
         /// The width.
         width: u64,
@@ -178,8 +190,14 @@ pub fn resolve<'r>(
             if !sri::matches(content, &integrity) {
                 return Err(refuse(shown, ImageFailure::IntegrityMismatch));
             }
-            let media = Media::of(media.essence())
-                .ok_or_else(|| refuse(shown, ImageFailure::MediaType(media.clone())))?;
+            let media = Media::of(media.essence()).ok_or_else(|| {
+                refuse(
+                    shown,
+                    ImageFailure::MediaType {
+                        media_type: media.clone(),
+                    },
+                )
+            })?;
             (Cow::Borrowed(content), media, Some(https))
         }
     };
@@ -225,40 +243,58 @@ impl Size {
 
     /// The signature, then `IHDR` at byte 12 and the width and height after it.
     fn png(content: &[u8]) -> Option<Self> {
-        let signature = content.get(..8)? == b"\x89PNG\r\n\x1a\n";
-        let header = content.get(12..16)? == b"IHDR";
-        let word = |at: usize| -> Option<u64> {
-            let bytes: [u8; 4] = content.get(at..at + 4)?.try_into().ok()?;
-            Some(u64::from(u32::from_be_bytes(bytes)))
-        };
-        (signature && header).then_some(())?;
-        Some(Self {
-            width: word(16)?,
-            height: word(20)?,
-        })
+        match content {
+            [
+                0x89,
+                b'P',
+                b'N',
+                b'G',
+                b'\r',
+                b'\n',
+                0x1a,
+                b'\n',
+                _,
+                _,
+                _,
+                _,
+                b'I',
+                b'H',
+                b'D',
+                b'R',
+                w0,
+                w1,
+                w2,
+                w3,
+                h0,
+                h1,
+                h2,
+                h3,
+                ..,
+            ] => Some(Self {
+                width: u64::from(u32::from_be_bytes([*w0, *w1, *w2, *w3])),
+                height: u64::from(u32::from_be_bytes([*h0, *h1, *h2, *h3])),
+            }),
+            _ => None,
+        }
     }
 
     /// The start of image, then the segments up to the first start of frame (SOF0 to SOF15
     /// but DHT, JPG and DAC), whose height and width it gives.
     fn jpeg(content: &[u8]) -> Option<Self> {
-        (content.get(..2)? == b"\xff\xd8").then_some(())?;
-        let half = |at: usize| -> Option<u64> {
-            let bytes: [u8; 2] = content.get(at..at + 2)?.try_into().ok()?;
-            Some(u64::from(u16::from_be_bytes(bytes)))
-        };
-        let mut at = 2usize;
-        while at + 9 < content.len() {
-            if *content.get(at)? != 0xFF {
-                return None;
-            }
-            let marker = *content.get(at + 1)?;
-            if (0xC0..=0xCF).contains(&marker) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
+        let mut segments = content.strip_prefix(b"\xff\xd8")?.iter();
+        // A segment: 0xFF, its marker, its length, then for a start of frame its precision,
+        // height and width; ten bytes at least.
+        while let [0xFF, marker, l0, l1, _, h0, h1, w0, w1, _, ..] = segments.as_slice() {
+            if (0xC0..=0xCF).contains(marker) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
                 return Some(Self {
-                    height: half(at + 5)?,
-                    width: half(at + 7)?,
+                    height: u64::from(u16::from_be_bytes([*h0, *h1])),
+                    width: u64::from(u16::from_be_bytes([*w0, *w1])),
                 });
             }
-            at += 2 + usize::try_from(half(at + 2)?).ok()?;
+            skip(
+                &mut segments,
+                2 + usize::from(u16::from_be_bytes([*l0, *l1])),
+            );
         }
         None
     }
@@ -345,6 +381,17 @@ fn python_float(text: &str) -> Option<f64> {
     Some(if negative { -magnitude } else { magnitude })
 }
 
+/// Advances `bytes` past `count` bytes.
+fn skip(bytes: &mut std::slice::Iter<'_, u8>, count: usize) {
+    for _ in bytes.by_ref().take(count) {}
+}
+
+/// Advances `bytes` past the bytes `skipped` holds for.
+fn skip_while(bytes: &mut std::slice::Iter<'_, u8>, skipped: impl Fn(&&u8) -> bool) {
+    let count = bytes.clone().take_while(skipped).count();
+    skip(bytes, count);
+}
+
 /// The `name="value"` attributes of the first `<svg ...>` tag, the last of a name winning.
 struct Attributes(Vec<(String, String)>);
 
@@ -352,50 +399,48 @@ impl Attributes {
     /// The root tag: `<svg` at a word boundary, then everything up to the first `>`.
     fn of_root(content: &[u8]) -> Option<Self> {
         let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
-        let tag = (0..content.len()).find_map(|start| {
-            let rest = content.get(start..)?;
+        let suffixes = std::iter::successors(Some(content), |rest| {
+            rest.split_first().map(|(_, tail)| tail)
+        });
+        let tag: Vec<u8> = suffixes.into_iter().find_map(|rest| {
             let after = rest.strip_prefix(b"<svg")?;
-            if after.first().copied().is_some_and(word) {
+            if after.first().copied().is_some_and(word) || !after.contains(&b'>') {
                 return None;
             }
-            let end = after.iter().position(|b| *b == b'>')?;
-            after.get(..end)
+            Some(after.iter().take_while(|b| **b != b'>').copied().collect())
         })?;
-        Self::parse(tag)
+        Self::parse(&tag)
     }
 
     /// Each `[\w:-]+\s*=\s*"[^"]*"` in order, as UTF-8.
     fn parse(tag: &[u8]) -> Option<Self> {
-        let name_byte = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b':' | b'-');
-        let space = |b: u8| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c');
+        let name_byte = |b: &&u8| b.is_ascii_alphanumeric() || matches!(**b, b'_' | b':' | b'-');
+        let space = |b: &&u8| matches!(**b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c');
         let mut out = Vec::new();
-        let mut at = 0;
-        while at < tag.len() {
-            let name_len = tag.get(at..)?.iter().take_while(|b| name_byte(**b)).count();
-            if name_len == 0 {
-                at += 1;
+        let mut rest = tag.iter();
+        loop {
+            let name: Vec<u8> = rest.clone().take_while(name_byte).copied().collect();
+            if name.is_empty() {
+                if rest.next().is_none() {
+                    break;
+                }
                 continue;
             }
-            let mut k = at + name_len;
-            k += tag.get(k..)?.iter().take_while(|b| space(**b)).count();
-            let quoted = tag.get(k) == Some(&b'=') && {
-                k += 1;
-                k += tag.get(k..)?.iter().take_while(|b| space(**b)).count();
-                tag.get(k) == Some(&b'"')
+            skip(&mut rest, name.len());
+            let mut probe = rest.clone();
+            skip_while(&mut probe, space);
+            let quoted = probe.next() == Some(&b'=') && {
+                skip_while(&mut probe, space);
+                probe.next() == Some(&b'"')
             };
-            let close = if quoted {
-                tag.get(k + 1..)?.iter().position(|b| *b == b'"')
-            } else {
-                None
-            };
-            match close {
-                Some(close) => {
-                    let name = std::str::from_utf8(tag.get(at..at + name_len)?).ok()?;
-                    let value = std::str::from_utf8(tag.get(k + 1..k + 1 + close)?).ok()?;
-                    out.push((name.to_owned(), value.to_owned()));
-                    at = k + 2 + close;
-                }
-                None => at += name_len,
+            let value: Vec<u8> = probe.clone().take_while(|b| **b != b'"').copied().collect();
+            skip(&mut probe, value.len());
+            if quoted && probe.next() == Some(&b'"') {
+                out.push((
+                    String::from_utf8(name).ok()?,
+                    String::from_utf8(value).ok()?,
+                ));
+                rest = probe;
             }
         }
         Some(Self(out))

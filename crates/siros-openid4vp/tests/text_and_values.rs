@@ -5,7 +5,6 @@
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::rows::{Choice, Env, EnvError, HttpsUrl, NotHttpsUrl};
 use siros_openid4vp::text::{DisplayText, TextError, lookup};
-use siros_testkit::fixtures::OPTIONS;
 
 fn tag(text: &'static str) -> LocaleTag {
     LocaleTag::parse(text).expect("tag")
@@ -42,7 +41,7 @@ fn a_range_matches_an_equal_tag_else_the_first_extending_it() {
 #[test]
 fn a_configuration_that_cannot_exist_is_refused() {
     assert_eq!(
-        Env::new(Vec::new(), Vec::new(), OPTIONS, Vec::new(), Choice::First),
+        Env::new(Vec::new(), Vec::new(), Choice::First),
         Err(EnvError::NoLocale)
     );
 }
@@ -163,10 +162,9 @@ impl Writer {
 
 /// RFC 8259 §6's numbers keep their JSON text in what a message or a template names, where a
 /// double would show another value; a rule's text keeps Python's `repr` of `json.loads("1e400")`,
-/// and a value the request left out is an absent argument.
+/// and a value the request left out is an empty argument.
 #[test]
 fn a_named_value_keeps_its_numbers_as_written() {
-    use siros_explain::IntoArg;
     use siros_openid4vp::json::Node;
     use siros_openid4vp::refusal::{ReprItem, ReprOption};
     for (text, spaced, compact) in [
@@ -183,12 +181,12 @@ fn a_named_value_keeps_its_numbers_as_written() {
     }
     let beyond = Node::parse("1e400").expect("json");
     let item = ReprItem::repr(&beyond);
-    assert_eq!(item.to_string(), "inf");
-    assert_eq!(IntoArg::arg(&item), "1e400");
-    assert_eq!(IntoArg::arg(&ReprOption::of(Some(&beyond))), Some("1e400"));
+    assert_eq!(item.repr_text(), "inf");
+    assert_eq!(item.to_string(), "1e400");
+    assert_eq!(ReprOption::of(Some(&beyond)).to_string(), "1e400");
     let absent = ReprOption::of(None);
-    assert_eq!(absent.to_string(), "None");
-    assert_eq!(IntoArg::arg(&absent), None);
+    assert_eq!(absent.repr_text(), "None");
+    assert_eq!(absent.to_string(), "");
 }
 
 #[test]

@@ -4,7 +4,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::Value as Json;
-use siros_explain::AllOf;
+use siros_i18n::Context;
 use siros_openid4vp::authenticate::PrefixName;
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::detail;
@@ -24,7 +24,7 @@ use siros_openid4vp::resolve::Delivery;
 use siros_openid4vp::rows::Env;
 use siros_openid4vp::session::{Session, SessionBinding};
 use siros_openid4vp::wallet::{Credential, Wallet};
-use siros_testkit::FAULT;
+use siros_syntax::AllOf;
 use siros_testkit::probe::{Redirect, read_redirect_session};
 use siros_testkit::{
     Binds, JweHaip, TestChoice, TestFormat, TestHost, TestPlatform, TestRequestDecryption,
@@ -132,8 +132,9 @@ impl<H> FormatQuery for RecorderQuery<'_, H> {
         credential: &Credential<'_>,
         shown: Shown<'_>,
         env: &Env,
+        context: &Context,
     ) -> Result<Card, Fault> {
-        self.0.draw(credential, shown, env)
+        self.0.draw(credential, shown, env, context)
     }
 }
 
@@ -171,14 +172,14 @@ impl<H> AnsweredOption<H> for RecorderOption {
         _: &H,
     ) -> Result<Presentation, PresentError> {
         let SessionBinding::DcApi { origin } = session.binding() else {
-            return Err(Fault::new(FAULT, detail!("a redirect binding")).into());
+            return Err(siros_testkit::fault(detail!("a redirect binding")).into());
         };
         let sealed = session
             .encrypted_to()
             .map(|key| [key.key().kid().as_str(), key.enc().as_str()]);
         let text = serde_json::json!({"aud": session.audience().as_str(), "origin": origin.as_str(), "nonce": session.nonce().as_str(), "sealed": sealed});
         Ok(Presentation::object(&text.to_string())
-            .map_err(|e| Fault::caused(FAULT, detail!("recorded"), e))?)
+            .map_err(|e| siros_testkit::caused(detail!("recorded"), e))?)
     }
 }
 
@@ -230,7 +231,7 @@ fn a_dc_api_session_binds_the_origin_the_nonce_and_the_key_the_core_sealed_to() 
             nonce: "n-0S6_WzA2Mj",
             client_metadata: "{}",
         },
-        siros_explain::checked!(PrefixName, "x509_san_dns"),
+        siros_syntax::checked!(PrefixName, "x509_san_dns"),
         TestChoice::Plain,
         |redirect| redirect.audience(),
     )

@@ -67,6 +67,8 @@
     clippy::disallowed_methods
 )]
 
+siros_explain::scope!("openid4vp");
+
 pub mod arrival;
 pub mod claims;
 pub mod consent;
@@ -91,165 +93,6 @@ pub mod uri;
 pub mod wallet;
 pub mod wallet_metadata;
 
-/// The core's domain, as its fault message.
-pub(crate) const FAULT: plugins::FaultDomain =
-    siros_explain::checked!(plugins::FaultDomain, "openid4vp.fault");
-
-/// The crate's module, `openid4vp`: the messages of the texts the End-User sees. The wallet
-/// provides their text in each of its languages, checked against this declaration when it loads.
-pub struct CrateModule;
-
-impl CrateModule {
-    /// The module's identity.
-    pub const ID: siros_explain::ModuleId =
-        siros_explain::ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "openid4vp"));
-}
-
-impl siros_explain::Messages for CrateModule {
-    fn messages() -> Vec<siros_explain::Message> {
-        [
-            rows::WalletText::messages(),
-            rows::ClaimText::messages(),
-            rows::BooleanText::messages(),
-        ]
-        .concat()
-    }
-}
-
-/// Its request messages are a boolean's text, which a transaction's overlay shows.
-impl siros_explain::DeclaredModule for CrateModule {
-    const ID: siros_explain::ModuleId = Self::ID;
-    type Requested = rows::BooleanText;
-}
-
-/// The core's messages: those its error types declare, and its fault's. A transparent variant
-/// declares its cause's messages too.
-pub struct CrateMessages;
-
-impl siros_explain::Messages for CrateMessages {
-    fn messages() -> Vec<siros_explain::Message> {
-        let declared: &[fn() -> Vec<siros_explain::Message>] = &[
-            ids::InvalidId::messages,
-            text::TextError::messages,
-            wallet::RegistrationError::messages,
-            json::JsonError::messages,
-            json::RepeatedName::messages,
-            claims::PathError::messages,
-            claims::ClaimsError::messages,
-            #[cfg(feature = "claims")]
-            claims::kit::CardError::messages,
-            #[cfg(feature = "claims")]
-            claims::kit::MergeError::messages,
-            #[cfg(feature = "claims")]
-            claims::kit::KitRule::messages,
-            #[cfg(feature = "claims")]
-            claims::kit::QueryRule::<claims::kit::KitRule>::messages,
-            #[cfg(feature = "claims")]
-            claims::kit::NoAlgorithm::messages,
-            #[cfg(feature = "claims")]
-            claims::kit::RefusedText::messages,
-            request::Malformed::messages,
-            request::MetadataError::messages,
-            request::StructureRule::messages,
-            request::UndecodedEntry::messages,
-            request::DcqlRule::messages,
-            refusal::Refused::messages,
-            plugins::RegistryError::messages,
-            plugins::MemberTwice::messages,
-            plugins::NoCandidate::messages,
-            plugins::NotOffered::messages,
-            plugins::AttestedTwice::messages,
-            rows::EnvError::messages,
-            rows::NotImageMedia::messages,
-            media::NotMediaType::messages,
-            rows::NotHttpsUrl::messages,
-            #[cfg(feature = "transaction-data")]
-            hash::HashesAlgRule::messages,
-            arrival::Unreadable::messages,
-            arrival::DataShape::messages,
-            arrival::UriError::messages,
-            arrival::FetchFailure::messages,
-            jose::JwsError::messages,
-            jose::JweError::messages,
-            #[cfg(feature = "resolve")]
-            jose::NotPublicJwk::messages,
-            #[cfg(feature = "resolve")]
-            jose::SkewTooLarge::messages,
-            #[cfg(feature = "resolve")]
-            jose::TimeError::messages,
-            routing::RoutingRule::messages,
-            modes::KeyRule::messages,
-            #[cfg(feature = "match")]
-            matching::CoreRule::messages,
-            #[cfg(feature = "match")]
-            matching::ReservedCredential::messages,
-            #[cfg(feature = "match")]
-            matching::RecordError::messages,
-            #[cfg(feature = "match")]
-            matching::SelectionError::messages,
-            #[cfg(feature = "resolve")]
-            plugins::InformError::messages,
-            #[cfg(all(feature = "transaction-data", feature = "resolve"))]
-            hash::HashesError::messages,
-            #[cfg(feature = "resolve")]
-            host::NotSealed::messages,
-            #[cfg(feature = "resolve")]
-            host::NotPresentation::messages,
-            #[cfg(feature = "resolve")]
-            host::SignFailed::messages,
-            #[cfg(feature = "resolve")]
-            host::SignatureInvalid::messages,
-            #[cfg(feature = "request-decryption")]
-            host::DecryptFailed::messages,
-            #[cfg(feature = "resolve")]
-            host::PresentError::messages,
-            #[cfg(feature = "cbor")]
-            cbor::CborError::messages,
-            #[cfg(feature = "cbor")]
-            cbor::cose::CoseShape::messages,
-            #[cfg(feature = "resolve")]
-            resolve::Rejection::messages,
-            #[cfg(feature = "resolve")]
-            resolve::RouteBreach::messages,
-            #[cfg(feature = "resolve")]
-            resolve::ParameterBreach::messages,
-            #[cfg(feature = "resolve")]
-            resolve::UndeclaredMember::messages,
-            #[cfg(feature = "resolve")]
-            resolve::FormMedia::messages,
-            #[cfg(feature = "resolve")]
-            resolve::NotObject::messages,
-            #[cfg(feature = "resolve")]
-            authenticate::Unauthenticated::messages,
-            #[cfg(feature = "resolve")]
-            authenticate::PrefixRefusal::messages,
-            #[cfg(feature = "signed")]
-            authenticate::Unbound::messages,
-            #[cfg(feature = "resolve")]
-            recourse::Failure::messages,
-            uri::NotHttps::messages,
-            uri::NotUri::messages,
-            #[cfg(feature = "uri")]
-            uri::NoFetch::messages,
-            #[cfg(feature = "uri")]
-            uri::AnswerError::messages,
-            #[cfg(feature = "uri")]
-            uri::NotForm::messages,
-            #[cfg(feature = "uri")]
-            wallet_metadata::MetadataRefused::messages,
-            #[cfg(feature = "resolve")]
-            resolve::Outcome::messages,
-            #[cfg(feature = "match")]
-            rendering::Unrendered::messages,
-        ];
-        declared
-            .iter()
-            .flat_map(|messages| messages())
-            .chain([FAULT.message()])
-            .collect()
-    }
-}
-
 #[cfg(feature = "resolve")]
 pub mod authenticate;
 #[cfg(feature = "cbor")]
@@ -262,8 +105,6 @@ pub mod host;
 pub mod matching;
 #[cfg(feature = "resolve")]
 pub mod recourse;
-#[cfg(feature = "match")]
-pub mod rendering;
 #[cfg(feature = "resolve")]
 pub mod resolve;
 #[cfg(feature = "resolve")]

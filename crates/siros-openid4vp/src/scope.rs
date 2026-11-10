@@ -15,7 +15,7 @@ use crate::json::RawObject;
 use crate::request::Query;
 
 /// A scope value (RFC 6749 §3.3's `scope-token`): one or more of %x21, %x23-5B, %x5D-7E. A plug-in
-/// makes its own with `siros_explain::checked!`.
+/// makes its own with `siros_syntax::checked!`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeValue(&'static str);
 
@@ -46,15 +46,6 @@ impl ScopeValue {
 impl fmt::Display for ScopeValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
-    }
-}
-
-/// A scope value is named by its text in a message.
-impl siros_explain::IntoArg for ScopeValue {
-    type Kind = siros_explain::kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
     }
 }
 
@@ -96,14 +87,12 @@ impl ScopeEntry {
         let raw: &'static RawValue = serde_json::from_str(query.query()).ok()?;
         let queries = Query::read_all(raw).ok()?;
         let object = RawObject::parse(raw.get()).ok()?;
-        let list = |name: &str| -> Option<Vec<&'static RawValue>> {
-            object
-                .get(name)
-                .map(|value| serde_json::from_str(value.get()).ok())
-                .unwrap_or(Some(Vec::new()))
-        };
-        let credentials = list("credentials")?;
-        let sets = list("credential_sets")?;
+        let credentials: Vec<&'static RawValue> =
+            serde_json::from_str(object.get("credentials")?.get()).ok()?;
+        let sets: Vec<&'static RawValue> = object
+            .get("credential_sets")
+            .map(|sets| serde_json::from_str(sets.get()).ok())
+            .unwrap_or(Some(Vec::new()))?;
         let mut ids: Vec<String> = queries.iter().map(|query| query.id().to_string()).collect();
         for credential in &credentials {
             let claims = RawObject::parse(credential.get())

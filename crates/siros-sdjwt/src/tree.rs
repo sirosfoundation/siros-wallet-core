@@ -4,8 +4,8 @@
 //! among them, is an [`Element::Withheld`] at its position.
 
 use std::borrow::Cow;
+use std::fmt;
 
-use siros_explain::{IntoArg, Kind};
 use siros_openid4vp::json::{self, Distinct, Named, Node, Number, RepeatedName};
 
 use crate::alg::Digest;
@@ -142,11 +142,10 @@ impl DisclosureId {
     }
 }
 
-impl IntoArg for DisclosureId {
-    type Kind = <usize as IntoArg>::Kind;
-
-    fn arg(&self) -> <Self::Kind as Kind>::Of<'_> {
-        self.0.arg()
+/// Its position.
+impl fmt::Display for DisclosureId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 

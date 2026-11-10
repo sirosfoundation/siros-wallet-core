@@ -2,7 +2,8 @@
 //! the modules it calls, and the registry takes the plug-in only when the build's host meets
 //! them.
 
-use siros_explain::{AllOf, Explain, Explained};
+use siros_explain::Explain;
+use siros_syntax::AllOf;
 
 use super::{Authentication, AuthenticationNeed, Presentation, SignFailed, Usable};
 use crate::plugins::{
@@ -129,16 +130,17 @@ pub trait AnsweredOption<H> {
 /// Why a format made no presentation: its contract broken, or a step that failed without a bug,
 /// such as a cancelled key prompt.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.present")]
 pub enum PresentError {
     /// The plug-in broke its contract.
     #[error(transparent)]
     Fault(#[from] Fault),
     /// A step failed: a cancelled key prompt.
     #[error("the presentation failed: {reason}")]
+    #[explain(id = "present.failed")]
     Failed {
         /// The plug-in's own error.
-        reason: Box<dyn Explained>,
+        #[source]
+        reason: Box<dyn Explain>,
     },
 }
 

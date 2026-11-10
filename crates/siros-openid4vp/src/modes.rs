@@ -10,6 +10,8 @@ use siros_explain::Explain;
 use std::borrow::Cow;
 
 #[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
+use crate::detail;
+#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::host::SealedJwe;
 #[cfg(feature = "uri")]
 use crate::json::Node;
@@ -17,6 +19,8 @@ use crate::json::Node;
 use crate::json::quote;
 #[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::plugins::Fault;
+#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
+use crate::plugins::{caused, fault};
 #[cfg(feature = "uri")]
 use crate::refusal::ErrorDescription;
 #[cfg(any(feature = "dc-api", feature = "uri"))]
@@ -44,8 +48,6 @@ use crate::uri::FormBody;
 use crate::wallet_metadata::MetadataMember;
 #[cfg(any(feature = "dc-api", feature = "uri"))]
 use crate::wallet_metadata::ParameterName;
-#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
-use crate::{FAULT, detail};
 
 pub use crate::routing::KeyChoice;
 
@@ -117,18 +119,17 @@ impl<'a> ErrorForm<'a> {
 /// C7: a JWE mode's key rule accepts no key, or no `enc` (§8.3, HAIP §5; reading 25). Both keep
 /// the text the reference model writes.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.modes")]
 pub enum KeyRule {
     /// No key of `client_metadata.jwks` the rule accepts.
     #[error("C7 {mode}: client_metadata offers no key and content encryption the wallet supports")]
-    #[explain(id = "c7_key")]
+    #[explain(id = "modes.c7_key")]
     Key {
         /// The mode.
         mode: ModeName,
     },
     /// No `enc` of `encrypted_response_enc_values_supported` the rule accepts.
     #[error("C7 {mode}: client_metadata offers no key and content encryption the wallet supports")]
-    #[explain(id = "c7_enc")]
+    #[explain(id = "modes.c7_enc")]
     Enc {
         /// The mode.
         mode: ModeName,
@@ -151,11 +152,11 @@ pub const KEY_RULE: Agreements = Agreements::new(
 #[cfg(feature = "uri")]
 /// The `wallet_metadata` members `direct_post.jwt` writes (JARM §4's names, as §5.10 uses them).
 const JWE_NAMES: [ParameterName; 2] = [
-    siros_explain::checked!(
+    siros_syntax::checked!(
         ParameterName,
         "authorization_encryption_alg_values_supported"
     ),
-    siros_explain::checked!(
+    siros_syntax::checked!(
         ParameterName,
         "authorization_encryption_enc_values_supported"
     ),
@@ -227,7 +228,7 @@ fn encrypting<'k>(
 fn data(text: String) -> Result<Body, Fault> {
     DcApiData::of(text)
         .map(Body::DcApi)
-        .map_err(|e| Fault::caused(FAULT, detail!("the DC API data"), e))
+        .map_err(|e| caused(detail!("the DC API data"), e))
 }
 
 /// The JWE a JWE mode wraps. A clear answer on its route is a `Fault`.
@@ -235,10 +236,7 @@ fn data(text: String) -> Result<Body, Fault> {
 fn sealed<'a>(mode: ModeName, content: &AnswerContent<'a>) -> Result<&'a SealedJwe, Fault> {
     match content {
         AnswerContent::Sealed(jwe) => Ok(jwe),
-        AnswerContent::Clear(_) => Err(Fault::new(
-            FAULT,
-            detail!("{name}'s route holds a key", name = mode),
-        )),
+        AnswerContent::Clear(_) => Err(fault(detail!("{name}'s route holds a key", name = mode))),
     }
 }
 
@@ -247,13 +245,13 @@ fn sealed<'a>(mode: ModeName, content: &AnswerContent<'a>) -> Result<&'a SealedJ
 fn form(members: &impl serde::Serialize) -> Result<PostBody, Fault> {
     FormBody::of(members)
         .map(PostBody::form)
-        .map_err(|e| Fault::caused(FAULT, detail!("a mode's form body"), e))
+        .map_err(|e| caused(detail!("a mode's form body"), e))
 }
 
 #[cfg(feature = "dc-api")]
 impl Mode for DcApi {
     fn name(&self) -> ModeName {
-        siros_explain::checked!(ModeName, "dc_api")
+        siros_syntax::checked!(ModeName, "dc_api")
     }
 
     fn channel(&self) -> ChannelKind {
@@ -272,7 +270,7 @@ impl Mode for DcApi {
 #[cfg(feature = "dc-api")]
 impl Mode for DcApiJwt {
     fn name(&self) -> ModeName {
-        siros_explain::checked!(ModeName, "dc_api.jwt")
+        siros_syntax::checked!(ModeName, "dc_api.jwt")
     }
 
     fn channel(&self) -> ChannelKind {
@@ -291,7 +289,7 @@ impl Mode for DcApiJwt {
 #[cfg(feature = "uri")]
 impl Mode for DirectPostJwt {
     fn name(&self) -> ModeName {
-        siros_explain::checked!(ModeName, "direct_post.jwt")
+        siros_syntax::checked!(ModeName, "direct_post.jwt")
     }
 
     fn channel(&self) -> ChannelKind {
@@ -310,7 +308,7 @@ impl Mode for DirectPostJwt {
 #[cfg(feature = "uri")]
 impl Mode for DirectPost {
     fn name(&self) -> ModeName {
-        siros_explain::checked!(ModeName, "direct_post")
+        siros_syntax::checked!(ModeName, "direct_post")
     }
 
     fn channel(&self) -> ChannelKind {
@@ -355,9 +353,7 @@ impl<H> ModeHost<H> for DcApi {
     ) -> Result<Body, Fault> {
         match content {
             AnswerContent::Clear(response) => data(response.json()),
-            AnswerContent::Sealed(_) => {
-                Err(Fault::new(FAULT, detail!("dc_api's route is in the clear")))
-            }
+            AnswerContent::Sealed(_) => Err(fault(detail!("dc_api's route is in the clear"))),
         }
     }
 }
@@ -463,10 +459,7 @@ impl<H> ErrorModeHost<H> for DirectPost {
     ) -> Result<PostBody, Fault> {
         match content {
             ErrorContent::Clear(error) => form(&ErrorForm::of(error)),
-            ErrorContent::Sealed(_) => Err(Fault::new(
-                FAULT,
-                detail!("direct_post's route is in the clear"),
-            )),
+            ErrorContent::Sealed(_) => Err(fault(detail!("direct_post's route is in the clear"))),
         }
     }
 }

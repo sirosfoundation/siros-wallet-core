@@ -1,7 +1,22 @@
-# The test app's own module in English: the test format's texts a transaction profile words.
+# The test app's English wording of the test doubles.
 @locale en
 @dir ltr
 ---
 
-[format]
+[testkit.format]
 monthly = monthly
+written = {$text}
+date = {$value :siros:date}
+time = {$value :siros:time}
+date_time = {$value :siros:datetime}
+currency = {$code}
+amount = {$value :currency currency=$currency}
+
+[testkit.profile]
+reference = Reference
+section = Section
+logo = Logo
+merchant = Merchant
+confirm = Confirm
+entries = entries {$reference}
+hint = hint {$reference}

@@ -4,7 +4,7 @@
 use std::fmt;
 use std::num::NonZeroU32;
 
-use siros_explain::{AllOf, Count, IntoArg, kind};
+use siros_syntax::AllOf;
 
 use super::Timestamp;
 
@@ -190,15 +190,6 @@ impl fmt::Display for AuthenticationNeed {
     }
 }
 
-/// A need is named by its strength in a message.
-impl IntoArg for AuthenticationNeed {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.name()
-    }
-}
-
 /// The PSD2 categories (Art. 4(30)) an authentication's factors cover: a set of knowledge,
 /// possession and inherence. Only [`Categories::of`] makes one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -231,14 +222,5 @@ impl Categories {
 impl fmt::Display for Categories {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.count())
-    }
-}
-
-/// The categories are named by their count in a message.
-impl IntoArg for Categories {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        Count::of(self.count() as u64)
     }
 }

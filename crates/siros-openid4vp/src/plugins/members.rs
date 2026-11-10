@@ -114,7 +114,7 @@ pub struct Members(Vec<(Member, MemberValue)>);
 
 /// A member written twice into one presentation.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
+#[explain(id = "member_twice")]
 #[error("the member {0} is written twice")]
 pub struct MemberTwice(#[explain(skip)] pub Member);
 
@@ -123,8 +123,10 @@ impl Members {
     pub fn new(members: Vec<(Member, MemberValue)>) -> Result<Self, MemberTwice> {
         if let Some((twice, _)) = members.iter().enumerate().find_map(|(k, (m, v))| {
             members
-                .get(..k)
-                .and_then(|before| before.iter().any(|(n, _)| n == m).then_some((m, v)))
+                .iter()
+                .take(k)
+                .any(|(n, _)| n == m)
+                .then_some((m, v))
         }) {
             return Err(MemberTwice(twice.clone()));
         }

@@ -10,13 +10,13 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
-use siros_explain::{ModuleId, Text};
-use siros_i18n::{DefinedForm, Formatted, Selected};
+use siros_i18n::Bidi;
+use siros_i18n::{Context, Text};
 use siros_openid4vp::ids::{CredentialId, DocumentKey, FormatId, LocaleTag};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Exclude;
 use siros_openid4vp::request::Entry;
-use siros_openid4vp::rows::{Amounts, Choice, Env, RenderOptions, Row, Value};
+use siros_openid4vp::rows::{Choice, Env, Row, Value};
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder};
 use siros_paso::Rendered;
 use siros_paso::labels::LabelLimits;
@@ -25,10 +25,7 @@ use siros_paso::render::{Registered, TransactionView, ViewRow};
 use siros_paso::rulebook::PasoType;
 use siros_paso::rules::BindExcluded;
 use siros_paso::value::ValueKind;
-use siros_testkit::fixtures::{OPTIONS, with_generic_forms};
-use siros_testkit::render::{
-    App, CrateSource, ENGLISH_PASO, GERMAN_PASO, main_locales, main_module,
-};
+use siros_testkit::render::{ENGLISH_PASO, GERMAN_PASO, Language};
 use siros_testkit::verifier;
 
 /// The rule that excluded a credential, read from its type.
@@ -130,24 +127,82 @@ pub fn entry(json: &str) -> Entry<'static> {
     Entry::decode(Cow::Owned(verifier::encode(json).expect("entry"))).expect("decodes")
 }
 
-/// The wallet's configuration: a priority list and an amounts mode.
-pub fn env(locales: &[&str], amounts: Amounts) -> Env {
+/// The wallet's configuration: a priority list.
+pub fn env(locales: &[&str]) -> Env {
     Env::new(
         locales
             .iter()
             .map(|tag| LocaleTag::parse(tag).expect("tag"))
             .collect(),
         Vec::new(),
-        RenderOptions { amounts, ..OPTIONS },
-        Vec::new(),
         Choice::First,
     )
     .expect("env")
 }
 
-/// English, amounts formatted.
+/// English.
 pub fn en() -> Env {
-    env(&["en"], Amounts::Formatted)
+    env(&["en"])
+}
+
+/// The language of the first tag of `env`'s list whose language the test app speaks, English
+/// when it speaks none: the language a wallet presents in.
+pub fn language(env: &Env) -> Language {
+    env.priority()
+        .iter()
+        .find_map(|tag| {
+            let primary = tag.as_str().split('-').next()?;
+            Language::ALL
+                .into_iter()
+                .find(|language| language.tag().eq_ignore_ascii_case(primary))
+        })
+        .unwrap_or(Language::English)
+}
+
+/// The test app's context in `env`'s [`language`].
+pub fn context(env: &Env) -> &'static Context {
+    language(env).shared().expect("the test app's context")
+}
+
+/// The test app's wording of PaSO's amount: the number formatted in the currency.
+const AMOUNT_FORMATTED: &str = "amount = {$value :currency currency=$currency}";
+/// A wording of PaSO's amount as written: the number, a space, the code.
+const AMOUNT_WRITTEN: &str = "amount = {$value} {$currency}";
+
+thread_local! {
+    /// The contexts of [`amounts_written`], English then German, loaded once per thread.
+    static WRITTEN: [&'static Context; 2] = Language::ALL.map(|language| {
+        let source = match language {
+            Language::English => ENGLISH_PASO,
+            Language::German => GERMAN_PASO,
+        };
+        assert!(source.contains(AMOUNT_FORMATTED), "the test app's amount wording");
+        let context = language
+            .sources()
+            .into_iter()
+            .map(|module| {
+                if module == source {
+                    module.replace(AMOUNT_FORMATTED, AMOUNT_WRITTEN)
+                } else {
+                    module.to_owned()
+                }
+            })
+            .try_fold(Context::new().bidi(Bidi::None), |context, module| {
+                context.module(&module)
+            })
+            .expect("the test app's sources");
+        &*Box::leak(Box::new(context))
+    });
+}
+
+/// The test app's context in `env`'s [`language`], its amounts worded as written: a wallet's
+/// choice (View §3 MAY).
+pub fn amounts_written(env: &Env) -> &'static Context {
+    let at = match language(env) {
+        Language::English => 0,
+        Language::German => 1,
+    };
+    WRITTEN.with(|contexts| contexts[at])
 }
 
 /// Signed request parameters: `dc_api`, the model's nonce, the DCQL query, the entries
@@ -297,161 +352,98 @@ pub fn shown(label: &str, value: Option<(&'static str, &str)>) -> Shown {
     )
 }
 
-/// The profile's module as the test app loads it.
-pub fn paso_module() -> CrateSource {
-    CrateSource::of::<siros_paso::CrateModule>(ENGLISH_PASO, GERMAN_PASO)
-}
-
-/// The module a type's metadata converts to for a priority list, over the test app's main
-/// module.
-pub fn defined(kind: &str, meta: &str, priority: &[LocaleTag]) -> DefinedForm {
-    converted(kind, meta, priority).expect("converts")
-}
-
-/// The module a type's metadata converts to for a priority list, over the test app's main
-/// module; `None` for metadata that does not convert, whose entries do not render.
-pub fn converted(kind: &str, meta: &str, priority: &[LocaleTag]) -> Option<DefinedForm> {
+/// The source a type's metadata converts to for a priority list in a context; `None` for
+/// metadata that does not convert, whose entries do not render.
+pub fn converted(
+    kind: &str,
+    meta: &str,
+    context: &Context,
+    priority: &[LocaleTag],
+) -> Option<String> {
     let given = Node::parse(meta).expect("the metadata");
-    let main = main_locales().expect("the main module");
     let registered = Registered::of(PasoType::parse(kind).ok()?, &given);
-    siros_paso::view::convert(&registered, LabelLimits::PASO, &main, priority).ok()
+    siros_paso::view::convert(&registered, LabelLimits::PASO, context, priority).ok()
 }
 
-/// The test app as the matcher renders a request for an `Env`, and the wallet in phase 2: the
-/// main module, the core's and the profile's modules, the module each type of each card's PaSO
-/// document converts to, and the modules of the ad-hoc metadata each entry of the request
-/// carries, read unverified (`siros_paso::view::carried`).
-pub fn request_app(
-    request: &siros_openid4vp::request::Request<'_>,
-    cards: &[&Card],
-    env: &Env,
-) -> App {
-    let main = main_locales().expect("the main module");
-    let read = siros_paso::adhoc::Carried::read(request).expect("a DC API request");
-    let carried =
-        siros_paso::view::carried(&read, &main, env.priority()).expect("the main module's formats");
-    app_with(cards, carried, env)
-}
-
-/// The test app of the main module, the core's and the profile's modules, each card's converted
-/// modules and `further`.
-fn app_with(cards: &[&Card], further: Vec<DefinedForm>, env: &Env) -> App {
-    let modules = [
-        main_module().expect("the main module"),
-        CrateSource::openid4vp().load().expect("the core's module"),
-        paso_module().load().expect("the profile's module"),
-    ];
-    let mut defined: Vec<DefinedForm> = Vec::new();
+/// The wallet's `base` context with the source each type of each card's PaSO document converts
+/// to, as the registration carries it.
+pub fn registered(base: &Context, cards: &[&Card], env: &Env) -> Context {
+    let mut context = base.clone();
+    let mut loaded: Vec<String> = Vec::new();
     for card in cards {
         let node = siros_paso::document::PasoDocument::json(card.document.as_bytes())
             .expect("the document");
         let document = siros_paso::document::PasoDocument::read(&node).expect("the document");
         for (kind, meta) in document.types() {
             let meta = meta.json_compact().to_string();
-            if let Some(module) = self::converted(kind.as_str(), &meta, env.priority())
-                && defined.iter().all(|known| known.id() != module.id())
+            if let Some(source) = converted(kind.as_str(), &meta, &context, env.priority())
+                && !loaded.contains(&source)
             {
-                defined.push(module);
+                context = context.module(&source).expect("a converted source loads");
+                loaded.push(source);
             }
         }
     }
-    for module in further {
-        if defined.iter().all(|known| known.id() != module.id()) {
-            defined.push(module);
-        }
+    context
+}
+
+/// The matcher's context for a request: the [`registered`] context, with the sources of the
+/// ad-hoc metadata the request's entries carry, read unverified (`siros_paso::view::carried`).
+pub fn request_context(
+    base: &Context,
+    request: &siros_openid4vp::request::Request<'_>,
+    cards: &[&Card],
+    env: &Env,
+) -> Context {
+    let mut context = registered(base, cards, env);
+    let read = siros_paso::adhoc::Carried::read(request).expect("a DC API request");
+    for source in siros_paso::view::carried(&read, &context, env.priority())
+        .expect("the carried metadata's sources load")
+    {
+        context = context.module(&source).expect("a carried source loads");
     }
-    App::new(
-        &modules.iter().collect::<Vec<_>>(),
-        &defined.iter().collect::<Vec<_>>(),
+    context
+}
+
+/// A text as plain text.
+pub fn plain(text: &Text) -> String {
+    text.to_string()
+}
+
+/// A row as [`Shown`] reads it; an image's value text is `<image>`.
+pub fn row(row: &ViewRow) -> Shown {
+    let value = row.row.value.as_ref().map(|value| {
+        (
+            row.kind.map_or("<none>", ValueKind::as_str),
+            value.text().map_or_else(|| "<image>".to_owned(), plain),
+        )
+    });
+    (
+        plain(&row.row.label),
+        value,
+        row.row.section.as_ref().map(plain),
     )
-    .expect("the package")
 }
 
-/// The test app of a type's renderings in an `Env`: the main module, the core's and the
-/// profile's modules, and the module the type's metadata converts to.
-pub struct Screen {
-    app: App,
-    env: Env,
+/// The rows of a rendering, as [`Shown`] reads them.
+pub fn rows(view: &TransactionView) -> Vec<Shown> {
+    view.rows.iter().map(row).collect()
 }
 
-impl Screen {
-    /// The screen of a type whose metadata the card gives as `meta`, converted for `env`'s
-    /// priority list: the converted module in the locale View §4 selected, the others in the
-    /// language the app's practice list chooses, `env`'s list with each tag's generic form.
-    pub fn of(kind: &str, meta: &str, env: &Env, locale: &LocaleTag) -> Self {
-        let converted = defined(kind, meta, env.priority());
-        let selected = Selected::new(ModuleId::Defined(converted.id()), locale.clone());
-        let modules = [
-            main_module().expect("the main module"),
-            CrateSource::openid4vp().load().expect("the core's module"),
-            paso_module().load().expect("the profile's module"),
-        ];
-        Self {
-            app: App::new(&modules.iter().collect::<Vec<_>>(), &[&converted])
-                .expect("the package")
-                .selecting(selected),
-            env: Env::new(
-                with_generic_forms(env.priority()),
-                env.fallback().to_vec(),
-                env.options(),
-                Vec::new(),
-                Choice::First,
-            )
-            .expect("env"),
-        }
-    }
-
-    /// A text as plain text.
-    pub fn plain(&self, text: &Text) -> String {
-        self.app.plain(&self.env, text).expect("the text renders")
-    }
-
-    /// A text as formatted text.
-    pub fn formatted(&self, text: &Text) -> Formatted {
-        self.app
-            .formatted(&self.env, text)
-            .expect("the text renders")
-    }
-
-    /// A row as [`Shown`] reads it; an image's value text is `<image>`.
-    pub fn row(&self, row: &ViewRow) -> Shown {
-        let value = row.row.value.as_ref().map(|value| {
-            (
-                row.kind.map_or("<none>", ValueKind::as_str),
-                value
-                    .text()
-                    .map_or_else(|| "<image>".to_owned(), |text| self.plain(text)),
-            )
-        });
-        (
-            self.plain(&row.row.label),
-            value,
-            row.row.section.as_ref().map(|section| self.plain(section)),
-        )
-    }
-
-    /// The rows of a rendering, as [`Shown`] reads them.
-    pub fn rows(&self, view: &TransactionView) -> Vec<Shown> {
-        view.rows.iter().map(|row| self.row(row)).collect()
-    }
-
-    /// A rendering's title, confirm and deny actions, and hint.
-    pub fn actions(&self, view: &TransactionView) -> (String, String, String, Option<String>) {
-        (
-            self.plain(&view.title),
-            self.plain(&view.actions.confirm),
-            self.plain(&view.actions.deny),
-            view.actions.hint.as_ref().map(|hint| self.plain(hint)),
-        )
-    }
+/// A rendering's title, confirm and deny actions, and hint.
+pub fn actions(view: &TransactionView) -> (String, String, String, Option<String>) {
+    (
+        plain(&view.title),
+        plain(&view.actions.confirm),
+        plain(&view.actions.deny),
+        view.actions.hint.as_ref().map(plain),
+    )
 }
 
-/// A rendering and the test app's screen of its type, which renders its texts.
+/// A rendering's texts as plain text.
 pub struct Seen {
     /// The rendering.
     pub rendered: Rendered,
-    /// The screen of its type.
-    pub screen: Screen,
 }
 
 impl std::ops::Deref for Seen {
@@ -465,35 +457,23 @@ impl std::ops::Deref for Seen {
 impl Seen {
     /// The title, the confirm and deny actions, the hint.
     pub fn text(&self) -> (String, String, String, Option<String>) {
-        self.screen.actions(&self.rendered.view)
+        actions(&self.rendered.view)
     }
 
     /// The rows.
     pub fn rows(&self) -> Vec<Shown> {
-        self.screen.rows(&self.rendered.view)
-    }
-
-    /// A text of the rendering.
-    pub fn plain(&self, text: &Text) -> String {
-        self.screen.plain(text)
+        rows(&self.rendered.view)
     }
 
     /// The payment's merchant and amount.
     pub fn payment(&self) -> Option<(String, String)> {
         let (merchant, amount) = self.view.payment_texts()?;
-        Some((self.plain(merchant), self.plain(amount)))
+        Some((plain(merchant), plain(amount)))
     }
 
     /// The rows' labels.
     pub fn labels(&self) -> Vec<String> {
         self.rows().into_iter().map(|row| row.0).collect()
-    }
-}
-
-impl Seen {
-    /// A text of the rendering, formatted.
-    pub fn formatted(&self, text: &Text) -> Formatted {
-        self.screen.formatted(text)
     }
 }
 
@@ -509,7 +489,7 @@ pub fn read_card_record<H, R>(
     request: &siros_openid4vp::request::Request<'_>,
     card: &Card,
     env: &Env,
-    rendering: &siros_openid4vp::rendering::Rendering<'_>,
+    context: &Context,
     fetch: impl FnMut(&siros_openid4vp::effects::Resource) -> siros_openid4vp::effects::Fetch,
     host: &H,
     read: impl for<'a> FnOnce(siros_openid4vp::plugins::FetchedRecord<'a>, &'a H) -> R + 'static,
@@ -543,7 +523,7 @@ where
             wallet: &wallet,
             registry: &registry,
             env,
-            rendering,
+            context,
         },
         fetch,
         host,

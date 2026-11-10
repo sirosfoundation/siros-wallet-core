@@ -97,9 +97,20 @@ engine core. Keep changes small and protocol-specific.
 ## Wording
 
 - **The core gets no say on what gets said.** A crate ships no End-User text in
-  any language. It declares its messages (keys, typed arguments, the situation
-  each reports), and the wallet implementation provides every text. `#[error]`
-  templates stay English, for logs and the Verifier's `error_description`.
+  any language. It declares its errors (`#[derive(Explain)]`) and its statements
+  (`#[derive(Message)]`): each an id under the crate's one `scope!` and named
+  arguments, each argument's value its `Display`, with a doc comment naming the
+  situation it reports and its arguments. The wallet's MessageFormat 2 sources
+  give every text, and the wallet's test of `Context::check` (siros-i18n's
+  `check` feature) proves them complete. `#[error]` templates stay English, for
+  logs and the Verifier's `error_description`.
+- **An id is stable.** A message whose meaning changes takes a new id.
+- **A secret stays out of every message.** A secret type implements no
+  `Display`, so the derive cannot take it as an argument (E0277).
+- **The test app words every statement.** A new statement takes its English
+  and German text in siros-testkit's `locales/`: siros-integration's `texts.rs`
+  refuses a statement the test app does not word. The test words each error
+  row itself.
 
 ## Read first
 

@@ -94,7 +94,6 @@ digits =
   RWF 0
   SEK 2
   SLE 2
-  SLL 0
   SOS 0
   SYP 0
   TND 3
@@ -159,7 +158,6 @@ narrow =
   CNY ¥
   COP $
   CRC ₡
-  CUC Cub$
   CUP $
   CZK Kč
   DKK kr
@@ -177,7 +175,6 @@ narrow =
   GYD $
   HKD $
   HNL L
-  HRK kn
   HUF Ft
   IDR Rp
   ILS ₪
@@ -239,480 +236,291 @@ narrow =
   ZAR R
   ZMW K
 names =
-  AED display VAE-Dirham
   AED other VAE-Dirham
-  AFN display Afghanischer Afghani
   AFN one Afghanischer Afghani
   AFN other Afghanische Afghani
-  ALL display Albanischer Lek
   ALL one Albanischer Lek
   ALL other Albanische Lek
-  AMD display Armenischer Dram
   AMD one Armenischer Dram
   AMD other Armenische Dram
-  AOA display Angolanischer Kwanza
   AOA one Angolanischer Kwanza
   AOA other Angolanische Kwanza
-  ARS display Argentinischer Peso
   ARS one Argentinischer Peso
   ARS other Argentinische Pesos
-  AUD display Australischer Dollar
   AUD one Australischer Dollar
   AUD other Australische Dollar
-  AWG display Aruba-Florin
   AWG other Aruba-Florin
-  AZN display Aserbaidschan-Manat
   AZN other Aserbaidschan-Manat
-  BAM display Konvertible Mark Bosnien und Herzegowina
   BAM other Konvertible Mark Bosnien und Herzegowina
-  BBD display Barbados-Dollar
   BBD other Barbados-Dollar
-  BDT display Bangladesch-Taka
   BDT other Bangladesch-Taka
-  BGN display Bulgarischer Lew
-  BGN one Bulgarischer Lew
-  BGN other Bulgarische Lew
-  BHD display Bahrain-Dinar
   BHD other Bahrain-Dinar
-  BIF display Burundi-Franc
   BIF one Burundi-Franc
   BIF other Burundi-Francs
-  BMD display Bermuda-Dollar
   BMD other Bermuda-Dollar
-  BND display Brunei-Dollar
   BND other Brunei-Dollar
-  BOB display Bolivianischer Boliviano
   BOB one Bolivianischer Boliviano
   BOB other Bolivianische Bolivianos
-  BOV display Boliviansiche Mvdol
   BOV one Boliviansiche Mvdol
   BOV other Bolivianische Mvdol
-  BRL display Brasilianischer Real
   BRL one Brasilianischer Real
   BRL other Brasilianische Real
-  BSD display Bahamas-Dollar
   BSD other Bahamas-Dollar
-  BTN display Bhutan-Ngultrum
   BTN other Bhutan-Ngultrum
-  BWP display Botswanischer Pula
   BWP one Botswanischer Pula
   BWP other Botswanische Pula
-  BYN display Weißrussischer Rubel
   BYN one Weißrussischer Rubel
   BYN other Weißrussische Rubel
-  BZD display Belize-Dollar
   BZD other Belize-Dollar
-  CAD display Kanadischer Dollar
   CAD one Kanadischer Dollar
   CAD other Kanadische Dollar
-  CDF display Kongo-Franc
   CDF one Kongo-Franc
   CDF other Kongo-Francs
-  CHE display WIR-Euro
   CHE other WIR-Euro
-  CHF display Schweizer Franken
   CHF other Schweizer Franken
-  CHW display WIR Franken
   CHW other WIR Franken
-  CLF display Chilenische Unidades de Fomento
   CLF other Chilenische Unidades de Fomento
-  CLP display Chilenischer Peso
   CLP one Chilenischer Peso
   CLP other Chilenische Pesos
-  CNY display Renminbi Yuan
   CNY one Chinesischer Yuan
   CNY other Renminbi Yuan
-  COP display Kolumbianischer Peso
   COP one Kolumbianischer Peso
   COP other Kolumbianische Pesos
-  COU display Kolumbianische Unidades de valor real
   COU one Kolumbianische Unidad de valor real
   COU other Kolumbianische Unidades de valor real
-  CRC display Costa-Rica-Colón
   CRC other Costa-Rica-Colón
-  CUC display Kubanischer Peso (konvertibel)
-  CUC one Kubanischer Peso (konvertibel)
-  CUC other Kubanische Pesos (konvertibel)
-  CUP display Kubanischer Peso
   CUP one Kubanischer Peso
   CUP other Kubanische Pesos
-  CVE display Cabo-Verde-Escudo
   CVE one Cabo-Verde-Escudo
   CVE other Cabo-Verde-Escudos
-  CZK display Tschechische Krone
   CZK one Tschechische Krone
   CZK other Tschechische Kronen
-  DJF display Dschibuti-Franc
   DJF other Dschibuti-Franc
-  DKK display Dänische Krone
   DKK one Dänische Krone
   DKK other Dänische Kronen
-  DOP display Dominikanischer Peso
   DOP one Dominikanischer Peso
   DOP other Dominikanische Pesos
-  DZD display Algerischer Dinar
   DZD one Algerischer Dinar
   DZD other Algerische Dinar
-  EGP display Ägyptisches Pfund
   EGP one Ägyptisches Pfund
   EGP other Ägyptische Pfund
-  ERN display Eritreischer Nakfa
   ERN one Eritreischer Nakfa
   ERN other Eritreische Nakfa
-  ETB display Äthiopischer Birr
   ETB one Äthiopischer Birr
   ETB other Äthiopische Birr
-  EUR display Euro
   EUR other Euro
-  FJD display Fidschi-Dollar
   FJD other Fidschi-Dollar
-  FKP display Falkland-Pfund
   FKP other Falkland-Pfund
-  GBP display Britisches Pfund
   GBP one Britisches Pfund
   GBP other Britische Pfund
-  GEL display Georgischer Lari
   GEL one Georgischer Lari
   GEL other Georgische Lari
-  GHS display Ghanaischer Cedi
   GHS one Ghanaischer Cedi
   GHS other Ghanaische Cedi
-  GIP display Gibraltar-Pfund
   GIP other Gibraltar-Pfund
-  GMD display Gambia-Dalasi
   GMD other Gambia-Dalasi
-  GNF display Guinea-Franc
   GNF other Guinea-Franc
-  GTQ display Guatemaltekischer Quetzal
   GTQ one Guatemaltekischer Quetzal
   GTQ other Guatemaltekische Quetzales
-  GYD display Guyana-Dollar
   GYD other Guyana-Dollar
-  HKD display Hongkong-Dollar
   HKD other Hongkong-Dollar
-  HNL display Honduras-Lempira
   HNL other Honduras-Lempira
-  HRK display Kroatischer Kuna
-  HRK one Kroatischer Kuna
-  HRK other Kroatische Kuna
-  HTG display Haitianische Gourde
   HTG one Haitianische Gourde
   HTG other Haitianische Gourdes
-  HUF display Ungarischer Forint
   HUF one Ungarischer Forint
   HUF other Ungarische Forint
-  IDR display Indonesische Rupiah
   IDR other Indonesische Rupiah
-  ILS display Israelischer Neuer Schekel
   ILS one Israelischer Neuer Schekel
   ILS other Israelische Neue Schekel
-  INR display Indische Rupie
   INR one Indische Rupie
   INR other Indische Rupien
-  IQD display Irakischer Dinar
   IQD one Irakischer Dinar
   IQD other Irakische Dinar
-  IRR display Iranischer Rial
   IRR one Iranischer Rial
   IRR other Iranische Rial
-  ISK display Isländische Krone
   ISK one Isländische Krone
   ISK other Isländische Kronen
-  JMD display Jamaika-Dollar
   JMD other Jamaika-Dollar
-  JOD display Jordanischer Dinar
   JOD one Jordanischer Dinar
   JOD other Jordanische Dinar
-  JPY display Japanischer Yen
   JPY one Japanischer Yen
   JPY other Japanische Yen
-  KES display Kenia-Schilling
   KES other Kenia-Schilling
-  KGS display Kirgisischer Som
   KGS one Kirgisischer Som
   KGS other Kirgisische Som
-  KHR display Kambodschanischer Riel
   KHR one Kambodschanischer Riel
   KHR other Kambodschanische Riel
-  KMF display Komoren-Franc
   KMF one Komoren-Franc
   KMF other Komoren-Francs
-  KPW display Nordkoreanischer Won
   KPW one Nordkoreanischer Won
   KPW other Nordkoreanische Won
-  KRW display Südkoreanischer Won
   KRW one Südkoreanischer Won
   KRW other Südkoreanische Won
-  KWD display Kuwait-Dinar
   KWD other Kuwait-Dinar
-  KYD display Kaiman-Dollar
   KYD other Kaiman-Dollar
-  KZT display Kasachischer Tenge
   KZT one Kasachischer Tenge
   KZT other Kasachische Tenge
-  LAK display Laotischer Kip
   LAK one Laotischer Kip
   LAK other Laotische Kip
-  LBP display Libanesisches Pfund
   LBP one Libanesisches Pfund
   LBP other Libanesische Pfund
-  LKR display Sri-Lanka-Rupie
   LKR one Sri-Lanka-Rupie
   LKR other Sri-Lanka-Rupien
-  LRD display Liberianischer Dollar
   LRD one Liberianischer Dollar
   LRD other Liberianische Dollar
-  LSL display Loti
   LSL other Loti
-  LYD display Libyscher Dinar
   LYD one Libyscher Dinar
   LYD other Libysche Dinar
-  MAD display Marokkanischer Dirham
   MAD one Marokkanischer Dirham
   MAD other Marokkanische Dirham
-  MDL display Moldau-Leu
   MDL other Moldau-Leu
-  MGA display Madagaskar-Ariary
   MGA other Madagaskar-Ariary
-  MKD display Mazedonischer Denar
   MKD one Mazedonischer Denar
   MKD other Mazedonische Denari
-  MMK display Myanmarischer Kyat
   MMK one Myanmarischer Kyat
   MMK other Myanmarische Kyat
-  MNT display Mongolischer Tögrög
   MNT one Mongolischer Tögrög
   MNT other Mongolische Tögrög
-  MOP display Macao-Pataca
   MOP other Macao-Pataca
-  MRU display Mauretanischer Ouguiya
   MRU one Mauretanischer Ouguiya
   MRU other Mauretanische Ouguiya
-  MUR display Mauritius-Rupie
   MUR one Mauritius-Rupie
   MUR other Mauritius-Rupien
-  MVR display Malediven-Rufiyaa
   MVR other Malediven-Rufiyaa
-  MWK display Malawi-Kwacha
   MWK other Malawi-Kwacha
-  MXN display Mexikanischer Peso
   MXN one Mexikanischer Peso
   MXN other Mexikanische Pesos
-  MXV display Mexicanischer Unidad de Inversion (UDI)
   MXV one Mexicanischer Unidad de Inversion (UDI)
   MXV other Mexikanische Unidad de Inversion (UDI)
-  MYR display Malaysischer Ringgit
   MYR one Malaysischer Ringgit
   MYR other Malaysische Ringgit
-  MZN display Mosambikanischer Metical
   MZN one Mosambikanischer Metical
   MZN other Mosambikanische Meticais
-  NAD display Namibia-Dollar
   NAD other Namibia-Dollar
-  NGN display Nigerianischer Naira
   NGN one Nigerianischer Naira
   NGN other Nigerianische Naira
-  NIO display Nicaragua-Córdoba
   NIO one Nicaragua-Córdoba
   NIO other Nicaragua-Córdobas
-  NOK display Norwegische Krone
   NOK one Norwegische Krone
   NOK other Norwegische Kronen
-  NPR display Nepalesische Rupie
   NPR one Nepalesische Rupie
   NPR other Nepalesische Rupien
-  NZD display Neuseeland-Dollar
   NZD other Neuseeland-Dollar
-  OMR display Omanischer Rial
   OMR one Omanischer Rial
   OMR other Omanische Rials
-  PAB display Panamaischer Balboa
   PAB one Panamaischer Balboa
   PAB other Panamaische Balboas
-  PEN display Peruanischer Sol
   PEN one Peruanischer Sol
   PEN other Peruanische Sol
-  PGK display Papua-neuguineischer Kina
   PGK other Papua-neuguineischer Kina
-  PHP display Philippinischer Peso
   PHP one Philippinischer Peso
   PHP other Philippinische Pesos
-  PKR display Pakistanische Rupie
   PKR one Pakistanische Rupie
   PKR other Pakistanische Rupien
-  PLN display Polnischer Złoty
   PLN one Polnischer Złoty
   PLN other Polnische Złoty
-  PYG display Paraguayischer Guaraní
   PYG one Paraguayischer Guaraní
   PYG other Paraguayische Guaraníes
-  QAR display Katar-Riyal
   QAR other Katar-Riyal
-  RON display Rumänischer Leu
   RON one Rumänischer Leu
   RON other Rumänische Leu
-  RSD display Serbischer Dinar
   RSD one Serbischer Dinar
   RSD other Serbische Dinaren
-  RUB display Russischer Rubel
   RUB one Russischer Rubel
   RUB other Russische Rubel
-  RWF display Ruanda-Franc
   RWF one Ruanda-Franc
   RWF other Ruanda-Francs
-  SAR display Saudi-Rial
   SAR other Saudi-Rial
-  SBD display Salomonen-Dollar
   SBD other Salomonen-Dollar
-  SCR display Seychellen-Rupie
   SCR one Seychellen-Rupie
   SCR other Seychellen-Rupien
-  SDG display Sudanesisches Pfund
   SDG one Sudanesisches Pfund
   SDG other Sudanesische Pfund
-  SEK display Schwedische Krone
   SEK one Schwedische Krone
   SEK other Schwedische Kronen
-  SGD display Singapur-Dollar
   SGD other Singapur-Dollar
-  SHP display St.-Helena-Pfund
   SHP other St.-Helena-Pfund
-  SLE display Sierra-leonischer Leone
   SLE one Sierra-leonischer Leone
   SLE other Sierra-leonische Leones
-  SLL display Sierra-leonischer Leone (1964–2022)
-  SLL one Sierra-leonischer Leone (1964–2022)
-  SLL other Sierra-leonische Leones (1964–2022)
-  SOS display Somalia-Schilling
   SOS other Somalia-Schilling
-  SRD display Suriname-Dollar
   SRD other Suriname-Dollar
-  SSP display Südsudanesisches Pfund
   SSP one Südsudanesisches Pfund
   SSP other Südsudanesische Pfund
-  STN display São-toméischer Dobra
   STN one São-toméischer Dobra
   STN other São-toméische Dobras
-  SVC display El Salvador Colon
   SVC one El Salvador-Colon
   SVC other El Salvador-Colon
-  SYP display Syrisches Pfund
   SYP one Syrisches Pfund
   SYP other Syrische Pfund
-  SZL display Swasiländischer Lilangeni
   SZL one Swasiländischer Lilangeni
   SZL other Swasiländische Emalangeni
-  THB display Thailändischer Baht
   THB one Thailändischer Baht
   THB other Thailändische Baht
-  TJS display Tadschikistan-Somoni
   TJS other Tadschikistan-Somoni
-  TMT display Turkmenistan-Manat
   TMT other Turkmenistan-Manat
-  TND display Tunesischer Dinar
   TND one Tunesischer Dinar
   TND other Tunesische Dinar
-  TOP display Tongaischer Paʻanga
   TOP one Tongaischer Paʻanga
   TOP other Tongaische Paʻanga
-  TRY display Türkische Lira
   TRY other Türkische Lira
-  TTD display Trinidad-und-Tobago-Dollar
   TTD other Trinidad-und-Tobago-Dollar
-  TWD display Neuer Taiwan-Dollar
   TWD one Neuer Taiwan-Dollar
   TWD other Neue Taiwan-Dollar
-  TZS display Tansania-Schilling
   TZS other Tansania-Schilling
-  UAH display Ukrainische Hrywnja
   UAH one Ukrainische Hrywnja
   UAH other Ukrainische Hrywen
-  UGX display Uganda-Schilling
   UGX other Uganda-Schilling
-  USD display US-Dollar
   USD other US-Dollar
-  USN display US Dollar (Nächster Tag)
   USN one US-Dollar (Nächster Tag)
   USN other US-Dollar (Nächster Tag)
-  UYI display Uruguayischer Peso (Indexierte Rechnungseinheiten)
   UYI one Uruguayischer Peso (Indexierte Rechnungseinheiten)
   UYI other Uruguayische Pesos (Indexierte Rechnungseinheiten)
-  UYU display Uruguayischer Peso
   UYU one Uruguayischer Peso
   UYU other Uruguayische Pesos
-  UZS display Usbekistan-Sum
   UZS other Usbekistan-Sum
-  VES display Venezolanischer Bolívar
   VES one Venezolanischer Bolívar
   VES other Venezolanische Bolívares
-  VND display Vietnamesischer Dong
   VND one Vietnamesischer Dong
   VND other Vietnamesische Dong
-  VUV display Vanuatu-Vatu
   VUV other Vanuatu-Vatu
-  WST display Samoanischer Tala
   WST one Samoanischer Tala
   WST other Samoanische Tala
-  XAF display CFA-Franc (BEAC)
   XAF other CFA-Franc (BEAC)
-  XAG display Unze Silber
   XAG one Unze Silber
   XAG other Unzen Silber
-  XAU display Unze Gold
   XAU one Unze Gold
   XAU other Unzen Gold
-  XBA display Europäische Rechnungseinheit
   XBA one Europäische Rechnungseinheiten
   XBA other Europäische Rechnungseinheiten
-  XBB display Europäische Währungseinheit (XBB)
   XBB one Europäische Währungseinheiten (XBB)
   XBB other Europäische Währungseinheiten (XBB)
-  XBC display Europäische Rechnungseinheit (XBC)
   XBC one Europäische Rechnungseinheiten (XBC)
   XBC other Europäische Rechnungseinheiten (XBC)
-  XBD display Europäische Rechnungseinheit (XBD)
   XBD one Europäische Rechnungseinheiten (XBD)
   XBD other Europäische Rechnungseinheiten (XBD)
-  XCD display Ostkaribischer Dollar
   XCD one Ostkaribischer Dollar
   XCD other Ostkaribische Dollar
-  XCG display Karibischer Gulden
   XCG one Karibischer Gulden
   XCG other Karibische Gulden
-  XDR display Sonderziehungsrechte
   XDR other Sonderziehungsrechte
-  XOF display CFA-Franc (BCEAO)
   XOF one CFA-Franc (BCEAO)
   XOF other CFA-Francs (BCEAO)
-  XPD display Unze Palladium
   XPD one Unze Palladium
   XPD other Unzen Palladium
-  XPF display CFP-Franc
   XPF other CFP-Franc
-  XPT display Unze Platin
   XPT one Unze Platin
   XPT other Unzen Platin
-  XSU display SUCRE
   XSU other SUCRE
-  XTS display Testwährung
   XTS other Testwährung
-  XUA display Rechnungseinheit der AfEB
   XUA one Rechnungseinheit der AfEB
   XUA other Rechnungseinheiten der AfEB
-  XXX display Unbekannte Währung
   XXX one (unbekannte Währung)
   XXX other (unbekannte Währung)
-  YER display Jemen-Rial
   YER other Jemen-Rial
-  ZAR display Südafrikanischer Rand
   ZAR one Südafrikanischer Rand
   ZAR other Südafrikanische Rand
-  ZMW display Kwacha
   ZMW other Kwacha
-  ZWG display Simbabwe-Gold
   ZWG other Simbabwe-Gold
-  ZWL display Simbabwe-Dollar (2009)
-  ZWL other Simbabwe-Dollar (2009)
 
 [formats.date]
 zero = 0
@@ -779,15 +587,3 @@ year-era = y G
 eras =
   v. Chr.
   n. Chr.
-
-[formats.list]
-and-start = {0}, {1}
-and-middle = {0}, {1}
-and-end = {0} und {1}
-and-pair = {0} und {1}
-and-special =
-or-start = {0}, {1}
-or-middle = {0}, {1}
-or-end = {0} oder {1}
-or-pair = {0} oder {1}
-or-special =

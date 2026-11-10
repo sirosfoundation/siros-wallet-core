@@ -11,7 +11,6 @@ mod refusal_cases;
 mod support;
 
 use serde_json::{json, Value};
-use siros_explain::MessageId;
 use siros_openid4vp::cbor::Value as Cbor;
 use siros_openid4vp::ids::{ClientId, Origin};
 use siros_trust::Certificate;
@@ -43,7 +42,7 @@ use zeroize::Zeroizing;
 /// What a fixture gives.
 #[derive(Debug, PartialEq)]
 enum Got {
-    Dcql(MessageId),
+    Dcql(&'static str),
     Invalid(InvalidRequest),
     Unsupported(PairRefusal<Unsupported>),
     Credential(Vec<CredentialCode>),

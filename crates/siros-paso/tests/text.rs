@@ -1,9 +1,10 @@
-//! Label text against Proof Metadata §3.3.
+//! Label text against Proof Metadata §3.3 and the visible-character rule.
 
 use siros_paso::labels::{Directional, LabelLimits, LabelText, LabelViolation};
 
 /// Proof Metadata §3.3 on single labels: the length in clusters, C0 and C1 controls, the
-/// embeddings and overrides, an isolate left open; a closed isolate and white space alone pass.
+/// embeddings and overrides, an isolate left open; a closed isolate passes. A label with no
+/// visible character is refused, a `mini_markdown` label by the text of its spans.
 #[test]
 fn single_labels_meet_section_3_3_as_it_states() {
     let claim = LabelLimits::PASO.claim_name;
@@ -37,8 +38,15 @@ fn single_labels_meet_section_3_3_as_it_states() {
         ))
     ));
     assert!(LabelText::parse("a\u{2066}b\u{2069}", claim).is_ok());
-    // §3.3 holds no rule on white space.
-    assert!(LabelText::parse(" \u{3000}", claim).is_ok());
+    assert_eq!(
+        LabelText::parse(" \u{3000}", claim),
+        Err(LabelViolation::Invisible)
+    );
+    // `**` is markup: the one span's text is U+200B.
+    assert_eq!(
+        LabelText::markdown("**\u{200b}**", claim),
+        Err(LabelViolation::Invisible)
+    );
     assert_eq!(
         LabelText::parse(&"x".repeat(41), LabelLimits::PASO.affirmative),
         Err(LabelViolation::TooLong {

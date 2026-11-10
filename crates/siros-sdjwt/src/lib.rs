@@ -7,16 +7,23 @@
 //! `curve`, the Issuer-signed JWT's algorithm and key curve; `key_alg` and `key_curve`, the holder
 //! key's; `extends`, when its type extends another, each type the chain the wallet resolved at
 //! registration names, nearest first (§6.4); `validity`, `not_before` and `not_after` from `nbf`
-//! and `exp`. `vct_values` matches the credential's `vct` or one of them (B.3.5). [`Registered`]
-//! builds the view from the issued SD-JWT, held as the [`DOCUMENT`] document phase 2 presents
-//! from, and gives its `Facts::holder`; `values` is its processed payload at the issued array
+//! and `exp`. `vct_values` matches the credential's `vct` or one of them (B.3.5).
+#![cfg_attr(
+    feature = "resolve",
+    doc = "[`Registered`] builds the view from the issued SD-JWT, held as the [`DOCUMENT`] \
+           document phase 2 presents from,"
+)]
+#![cfg_attr(
+    not(feature = "resolve"),
+    doc = "`Registered`, with the feature `resolve`, builds the view from the issued SD-JWT, held \
+           as the `DOCUMENT` document phase 2 presents from,"
+)]
+//! and gives its `Facts::holder`; `values` is its processed payload at the issued array
 //! positions, `{"...": digest}` where it holds no value.
 //!
 //! [`type_metadata`] gives the effective Type Metadata of a type that extends another, which the
-//! wallet registers the view's `metadata` from, and converts a document's `display` into a defined
-//! module (section 4.14 of the design). A view whose `display_module` names that module, by the
-//! document's SHA-256, shows the module's texts: they take one language with the entry's other
-//! modules.
+//! wallet registers the view's `metadata` from. The claims kit shows its display texts as written,
+//! each entry picked by the End-User's language priority.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -59,21 +66,24 @@ mod select;
 #[cfg(feature = "resolve")]
 mod tree;
 
-use siros_explain::{AllOf, DefinedKey, DefinedModule, Explain, Explained, Message, Messages};
+use std::error::Error;
+
+use siros_explain::Explain;
 use siros_openid4vp::claims::kit::{
-    self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, DisplayItem, VpFormatsMember,
+    self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, VpFormatsMember,
 };
 use siros_openid4vp::claims::{Claim, ClaimPath};
 use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId, QueryId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
-    Carriage, Clause, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
+    Carriage, Clause, Detail, Fault, Format, FormatQuery, Member, ViewAdditions,
 };
 use siros_openid4vp::refusal::{ErrorCode, Refusal, RequestRule};
 use siros_openid4vp::request::{AgreeableKey, HolderBinding, Query};
 use siros_openid4vp::routing::EntryNaming;
 use siros_openid4vp::wallet::{Credential, Holder};
 use siros_openid4vp::wallet_metadata::Placement;
+use siros_syntax::AllOf;
 
 use view::SdJwtMembers;
 
@@ -90,32 +100,58 @@ pub use {
         Presentation, SdJwtKb,
     },
     process::MAX_DEPTH,
-    registration::{DOCUMENT, DisplayModule, Registered, Resolved},
+    registration::{DOCUMENT, Registered, Resolved},
     sd_jwt::{IssuerJwt, JwtType, SdJwt},
     tree::{ClaimValue, Disclosure, DisclosureId, Element, IssuedClaim, Object},
 };
 
+siros_explain::scope!("sdjwt");
+
 /// The Credential Format Identifier.
-const NAME: FormatName = siros_explain::checked!(FormatName, "dc+sd-jwt");
+const NAME: FormatName = siros_syntax::checked!(FormatName, "dc+sd-jwt");
 const ID: &str = NAME.as_str();
 /// The claim display member holding the label (SD-JWT VC §8.2).
 const LABEL: &str = "label";
 
-/// The plug-in's domain, as its fault message.
-pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "sdjwt.fault");
+/// The plug-in's fault error: the log line, and the error that caused the fault.
+#[derive(Debug, thiserror::Error, Explain)]
+#[error("{detail}")]
+#[explain(id = "fault")]
+struct SdJwtFault {
+    #[explain(skip)]
+    detail: Detail,
+    #[source]
+    cause: Option<Box<dyn Error + Send + Sync>>,
+}
+
+/// The plug-in's fault, its log line written by `detail`.
+pub(crate) fn fault(detail: Detail) -> Fault {
+    Fault::new(SdJwtFault {
+        detail,
+        cause: None,
+    })
+}
+
+/// The plug-in's fault caused by an error, its log line written by `detail`.
+pub(crate) fn caused(detail: Detail, cause: impl Error + Send + Sync + 'static) -> Fault {
+    Fault::new(SdJwtFault {
+        detail,
+        cause: Some(Box::new(cause)),
+    })
+}
 
 /// B.3.5's rule on a `dc+sd-jwt` query's `meta`, which the kit reports under the query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "sdjwt.rules")]
 pub enum SdJwtRule {
     /// `meta.vct_values` is no non-empty array of strings.
     #[error("meta.vct_values is not a non-empty array of strings (B.3.5)")]
+    #[explain(id = "rules.vct_values")]
     VctValues,
 }
 
 /// B.3.3: transaction data names a query that waives holder binding: `invalid_transaction_data`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "sdjwt.rules", id = "holder_binding")]
+#[explain(id = "rules.holder_binding")]
 #[error("dc+sd-jwt {query}: transaction data on a query without holder binding (B.3.3)")]
 pub struct HolderBindingWaived {
     /// The query's id.
@@ -125,52 +161,6 @@ pub struct HolderBindingWaived {
 impl RequestRule for HolderBindingWaived {
     fn code(&self) -> ErrorCode {
         ErrorCode::INVALID_TRANSACTION_DATA
-    }
-}
-
-#[cfg(feature = "resolve")]
-/// The messages phase 2's error types declare.
-fn phase_two() -> Vec<Message> {
-    [
-        EncodedJsonFault::messages(),
-        IssuerJwtFault::messages(),
-        DisclosureFault::messages(),
-        SdAlgFault::messages(),
-        ReservedFault::messages(),
-        ParseError::messages(),
-        X5cError::messages(),
-        HolderKeyFault::messages(),
-        RegistrationError::messages(),
-        SelectError::messages(),
-        KeyBindingError::messages(),
-        PresentFault::messages(),
-    ]
-    .concat()
-}
-
-#[cfg(not(feature = "resolve"))]
-/// The messages phase 2's error types declare: none without phase 2.
-fn phase_two() -> Vec<Message> {
-    Vec::new()
-}
-
-/// The plug-in's messages: those its error types and rules declare, and its fault's.
-pub struct CrateMessages;
-
-impl Messages for CrateMessages {
-    fn messages() -> Vec<Message> {
-        let declared: &[fn() -> Vec<Message>] = &[
-            SdJwtRule::messages,
-            HolderBindingWaived::messages,
-            type_metadata::ExtendError::messages,
-            type_metadata::ConvertError::messages,
-            phase_two,
-        ];
-        declared
-            .iter()
-            .flat_map(|messages| messages())
-            .chain([FAULT.message()])
-            .collect()
     }
 }
 
@@ -210,7 +200,7 @@ impl Format for SdJwtVc {
     /// ES256 for the Issuer-signed JWT and the Key Binding JWT (B.3.4; HAIP §7).
     fn wallet_formats(&self) -> Result<Node<'static>, Fault> {
         Node::parse(r#"{"sd-jwt_alg_values":["ES256"],"kb-jwt_alg_values":["ES256"]}"#)
-            .map_err(|e| Fault::caused(FAULT, siros_openid4vp::detail!("the formats member"), e))
+            .map_err(|e| caused(siros_openid4vp::detail!("the formats member"), e))
     }
 
     /// The Key Binding JWT carries a profile's members as claims (B.3.3.1).
@@ -268,7 +258,7 @@ impl ClaimsFormat for SdJwtVc {
     fn read_meta<'n, 'm>(
         &self,
         meta: Option<&'n Node<'m>>,
-    ) -> Result<&'n Node<'m>, Box<dyn Explained>> {
+    ) -> Result<&'n Node<'m>, Box<dyn Explain>> {
         meta.filter(|meta| {
             meta.get("vct_values")
                 .and_then(Node::as_array)
@@ -276,16 +266,15 @@ impl ClaimsFormat for SdJwtVc {
                     !values.is_empty() && values.iter().all(|v| v.as_str().is_some())
                 })
         })
-        .ok_or_else(|| Box::new(SdJwtRule::VctValues) as Box<dyn Explained>)
+        .ok_or_else(|| Box::new(SdJwtRule::VctValues) as Box<dyn Explain>)
     }
 
     /// The view's `type`, then each type of its `extends`, nearest first (§6.4).
     fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<CredentialType<'n>>, Fault> {
         let fault = || {
-            Fault::new(
-                FAULT,
-                siros_openid4vp::detail!("a view whose type or extends is no text"),
-            )
+            crate::fault(siros_openid4vp::detail!(
+                "a view whose type or extends is no text"
+            ))
         };
         let own = view.get("type").and_then(Node::as_str).ok_or_else(fault)?;
         let extended = match view.get("extends") {
@@ -327,39 +316,8 @@ impl ClaimsFormat for SdJwtVc {
             .is_some_and(|object| matches!(object.members(), [only] if only.name == "..."))
     }
 
-    /// The module the view's `display_module` names, by the metadata's digest in hexadecimal.
-    fn display_module(&self, view: &Node<'_>) -> Result<Option<DefinedModule>, Fault> {
-        let Some(digest) = view.get("display_module") else {
-            return Ok(None);
-        };
-        let fault = || {
-            Fault::new(
-                FAULT,
-                siros_openid4vp::detail!("a view whose display_module is no SHA-256 digest"),
-            )
-        };
-        let digest = digest.as_str().ok_or_else(fault)?;
-        let mut bytes = [0u8; 32];
-        if digest.len() != 64 || !digest.is_ascii() {
-            return Err(fault());
-        }
-        for (byte, pair) in bytes.iter_mut().zip(digest.as_bytes().chunks(2)) {
-            let pair = std::str::from_utf8(pair).map_err(|_| fault())?;
-            *byte = u8::from_str_radix(pair, 16).map_err(|_| fault())?;
-        }
-        Ok(Some(DefinedModule::new(
-            type_metadata::PLUGIN,
-            siros_explain::MetadataDigest::new(bytes),
-        )))
-    }
-
-    /// `name`, or `claim_<position>`.
-    fn display_key(&self, item: DisplayItem) -> Option<DefinedKey> {
-        Some(type_metadata::key(item))
-    }
-
     /// §7.1: every claims path pointer addresses a JSON-based credential.
-    fn pointer_refusal(&self, _path: &ClaimPath<'_>) -> Option<Box<dyn Explained>> {
+    fn pointer_refusal(&self, _path: &ClaimPath<'_>) -> Option<Box<dyn Explain>> {
         None
     }
 }

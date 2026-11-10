@@ -4,15 +4,14 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use siros_explain::{Explain, IntoArg, kind};
+use siros_explain::Explain;
 
-/// A language tag of the wallet's priority and fallback lists, and of a module's locales, and a
-/// text that is none.
+/// A language tag of the End-User's priority list, and the refusal of a text that is no tag.
 pub use siros_i18n::{InvalidTag, LocaleTag};
 
 /// A string that breaks the rule of the identifier it was parsed as.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
+#[explain(id = "invalid_id")]
 #[error("{value:?} is no {what}")]
 pub struct InvalidId {
     /// What the string was parsed as.
@@ -60,15 +59,6 @@ macro_rules! text_id {
 
         impl AsRef<str> for $name<'_> {
             fn as_ref(&self) -> &str {
-                &self.0
-            }
-        }
-
-        /// An identifier is named by its text in a message.
-        impl IntoArg for $name<'_> {
-            type Kind = kind::Raw;
-
-            fn arg(&self) -> &str {
                 &self.0
             }
         }
@@ -153,6 +143,14 @@ text_id!(
     "kid",
     |_| true
 );
+
+impl<'a> KeyId<'a> {
+    /// The `kid` of a text; RFC 7517 §4.5 takes any string.
+    #[must_use]
+    pub fn new(text: impl Into<Cow<'a, str>>) -> Self {
+        Self(text.into())
+    }
+}
 text_id!(
     /// A credential's type as its format reads it from the view: a `vct` (SD-JWT VC §3.2.2.2) or
     /// a docType (ISO/IEC 18013-5 §7.1).
@@ -284,15 +282,6 @@ impl FormatName {
 impl fmt::Display for FormatName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
-    }
-}
-
-/// A format is named by its text in a message.
-impl IntoArg for FormatName {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
     }
 }
 

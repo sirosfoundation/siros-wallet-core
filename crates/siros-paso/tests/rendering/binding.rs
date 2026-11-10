@@ -27,7 +27,7 @@ pub(super) fn bind(
         additions: &*additions,
         carriage,
     };
-    match PasoProfile::default().bind(binding, &en()) {
+    match PasoProfile::default().bind(binding, &en(), crate::common::context(&en())) {
         Ok(bound) => Ok(bound.entries.entries().iter().map(|e| e.get()).collect()),
         Err(NoCandidate::Excluded(exclude)) => Err(ExcludedBy::of(&exclude)),
         Err(NoCandidate::Fault(fault)) => panic!("{fault}"),
@@ -119,6 +119,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
                     carriage: Carriage::Carried,
                 },
                 &en(),
+                crate::common::context(&en()),
             )
             .expect("binds");
         assert_eq!(
@@ -184,6 +185,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
                     carriage: Carriage::Carried,
                 },
                 &en(),
+                crate::common::context(&en()),
             )
             .expect("binds")
             .entries

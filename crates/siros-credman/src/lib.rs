@@ -1,19 +1,4 @@
-//! Android Credential Manager's entries for the SIROS wallet core's matcher. The core composes
-//! each consent entry as platform-neutral data; this crate lays it out as Credential Manager's
-//! Standard entry (`AddEntryToSet`) or Payment entry (`AddPaymentEntryToSetV2`), its rows as
-//! fields, and decides each set's delegation:
-//!
-//! - [`CredmanEntry::of`]: a consent entry's Standard or Payment entry; [`Field::of`]: a row's
-//!   field.
-//! - [`emit`]: the matcher's entry emission, every text of every entry plain, a card's texts
-//!   ([`held`]) read from the registration's package as held, the request's rendered from its
-//!   compiled messages; [`register`] (feature `register`): the package the registration writer
-//!   builds, which records its lists, options, credentials and transaction types.
-//! - [`WalletDisplay::of`] (A9): whether a set needs the wallet's display. [`Delegation::of`]
-//!   (K4): the delegation the matcher sends for every entry of the set.
-//!   [`Fulfilment::check`] (A9): the background fulfilment of a set that needs the wallet's
-//!   display is refused with `access_denied`.
-
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
 #![deny(
@@ -32,37 +17,26 @@
     clippy::disallowed_methods
 )]
 
+siros_explain::scope!("credman");
+
+mod cluster;
 mod delegation;
 mod emit;
 mod entry;
 mod field;
+mod read;
 #[cfg(feature = "register")]
 pub mod register;
-
-use siros_explain::{Message, Messages};
+mod registration;
 
 pub use delegation::{
     Delegation, Fulfilment, HostDisplay, Presentable, SetFacts, TransactionData, WalletDisplay,
     WalletDisplayNeeded,
 };
 pub use emit::{
-    Emission, EmitError, Emitted, EntryId, NotEmitted, PaymentShown, RefusedEntry, Shown,
-    StandardShown, emit, held,
+    Emission, Emitted, EntryId, NotEmitted, PaymentShown, Shown, StandardShown, Unshown, emit,
 };
 pub use entry::{CredmanEntry, EntryIcon, PaymentEntry, StandardEntry};
 pub use field::{Extent, FIELD_MAX, Field, FieldName, FieldText, NoName};
-
-/// The crate's messages: those its error types declare.
-pub struct CrateMessages;
-
-impl Messages for CrateMessages {
-    fn messages() -> Vec<Message> {
-        [
-            NoName::messages(),
-            WalletDisplayNeeded::messages(),
-            NotEmitted::messages(),
-            EmitError::messages(),
-        ]
-        .concat()
-    }
-}
+pub use read::{Malformed, ReadError, Registration};
+pub use registration::{Base, ContextError, Kind};

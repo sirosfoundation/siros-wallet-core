@@ -3,9 +3,9 @@
 
 use std::borrow::Borrow;
 
-use siros_explain::AllOf;
 use siros_openid4vp::rows::SriMetadata;
 use siros_openid4vp::sri;
+use siros_syntax::AllOf;
 
 /// A linked document's `href` as its entry writes it: any text, https or `data:` included (CSC
 /// §6.2.1), compared byte for byte.

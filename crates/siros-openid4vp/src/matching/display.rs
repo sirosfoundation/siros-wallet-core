@@ -1,51 +1,59 @@
-//! The consent display every renderer draws: each entry's record, consent entry and header, the
-//! sets of slots of choices, and the selection read back from the ids the platform returns.
+//! The consent display every platform lays out: each entry's record, consent entry and header,
+//! the sets of slots of choices, and the selection read back from the ids the platform returns.
 
 use std::fmt;
 
 use rustc_hash::FxHashMap;
-use siros_explain::{Count, DefinedModule, Explain, IntoArg, Text, kind};
+use siros_explain::Explain;
+use siros_i18n::{Context, ResolveError};
 
-use super::{Match, OfferSet, Offered, Pick, Record};
+use super::{Match, OfferSet, Offered, Pick, Record, ShownDigest};
+use crate::claims::Foreign;
 use crate::consent::{Card, ConsentEntry, Header};
+use crate::detail;
 use crate::ids::StaticEntryId;
-use crate::plugins::{Fault, OptionIndex, OptionItems, Options, Shown};
+use crate::plugins::{Fault, OptionIndex, Options, Shown};
+use crate::plugins::{caused, fault};
 use crate::request::Item;
-use crate::rows::{Env, Selected, WalletText};
-use crate::{FAULT, detail};
+use crate::rows::{Env, WalletText};
 
-/// The header of a request without a transaction: the wallet's own.
-#[must_use]
-pub fn wallet_header() -> Header {
-    Header {
-        title: Text::of(&WalletText::RequestTitle),
-        confirm: Text::of(&WalletText::Share),
-        cancel: Text::of(&WalletText::Deny),
-    }
+/// The header of a request without a transaction: the wallet's own, resolved by `context`.
+///
+/// # Errors
+///
+/// `context` resolves no text for one of [`WalletText::RequestTitle`], [`WalletText::Share`] and
+/// [`WalletText::Deny`].
+pub fn wallet_header(context: &Context) -> Result<Header, ResolveError> {
+    Ok(Header {
+        title: context.resolve(&WalletText::RequestTitle)?,
+        confirm: context.resolve(&WalletText::Share)?,
+        cancel: context.resolve(&WalletText::Deny)?,
+    })
 }
 
 /// The option's items in every option the candidate answers, then those this option adds.
-#[must_use]
+///
+/// # Errors
+///
+/// [`Foreign::Option`]: `option` or an answerable option is no option of `options`.
 pub fn option_items(
     options: &Options,
     answerable: &[OptionIndex],
     option: OptionIndex,
-) -> (Vec<Item>, Vec<Item>) {
-    let items = options.get(option).map_or(&[][..], OptionItems::items);
-    let in_all = |item: &Item| {
-        answerable.iter().all(|o| {
-            options
-                .get(*o)
-                .is_some_and(|other| other.items().contains(item))
-        })
-    };
+) -> Result<(Vec<Item>, Vec<Item>), Foreign> {
+    let items = options.option(option)?.items();
+    let answerable = answerable
+        .iter()
+        .map(|other| options.option(*other))
+        .collect::<Result<Vec<_>, _>>()?;
+    let in_all = |item: &Item| answerable.iter().all(|other| other.items().contains(item));
     let everyone: Vec<Item> = items.iter().copied().filter(in_all).collect();
     let chosen = items
         .iter()
         .copied()
         .filter(|item| !everyone.contains(item))
         .collect();
-    (everyone, chosen)
+    Ok((everyone, chosen))
 }
 
 /// One consent entry: its pick, its record, what it shows, and its transaction's header.
@@ -59,10 +67,6 @@ pub struct EntryView<'m> {
     pub entry: ConsentEntry,
     /// The transaction's header.
     pub header: Option<&'m Header>,
-    /// The module whose texts show in the locale the transaction's profile selected.
-    pub selected: Option<&'m Selected>,
-    /// The defined module the card draws its texts from.
-    pub card_module: Option<DefinedModule>,
 }
 
 /// Every consent entry: one per query, candidate and answerable option.
@@ -74,34 +78,31 @@ pub struct Views<'m> {
 
 impl<'m> Views<'m> {
     /// Every (query, candidate, answerable option): its record, its consent entry, and the
-    /// header of the transaction it authorizes.
-    pub fn of(matched: &'m Match<'m>, env: &Env) -> Result<Self, Fault> {
+    /// header of the transaction it authorizes. `context` resolves the cards' texts, which the
+    /// records commit to.
+    ///
+    /// # Errors
+    ///
+    /// A format's fault drawing a card, such as one caused by the `ResolveError` of a text
+    /// `context` cannot resolve.
+    pub fn of(matched: &'m Match<'m>, env: &Env, context: &Context) -> Result<Self, Fault> {
         let accepted = matched.accepted();
         let request = accepted.request();
         let digest = request.digest();
         let mut views = Vec::new();
-        for (index, query) in request.indexed_queries() {
-            let Some(formatted) = accepted
-                .plan(index)
-                .and_then(|plan| plan.formatted.as_ref())
-            else {
+        for plan in accepted.plans() {
+            let (index, query) = (plan.index, plan.query);
+            // A query whose format has no plug-in has no candidate.
+            let Some(formatted) = plan.formatted.as_ref() else {
                 continue;
             };
             let options = formatted.query.options();
             for (at, candidate) in matched.indexed_candidates(index) {
                 let bound = candidate.bound.as_ref().map(|binding| &binding.bound);
                 for option in &candidate.options {
-                    let (everyone, chosen) = option_items(options, &candidate.options, *option);
+                    let (everyone, chosen) = option_items(options, &candidate.options, *option)
+                        .map_err(|foreign| caused(detail!("a candidate's option"), foreign))?;
                     let entries = bound.map_or(&[][..], |bound| bound.entries.entries());
-                    let record = Record::new(
-                        query.id(),
-                        &candidate.credential.id,
-                        *option,
-                        entries,
-                        bound.map(|b| &b.attested),
-                        digest,
-                        &candidate.inputs,
-                    );
                     let card = formatted.query.draw(
                         candidate.credential,
                         Shown {
@@ -109,8 +110,19 @@ impl<'m> Views<'m> {
                             chosen: &chosen,
                         },
                         env,
+                        context,
                     )?;
-                    let card_module = formatted.query.card_module(candidate.credential)?;
+                    let header = bound.map(|bound| &bound.header);
+                    let overlay = bound.map(|bound| &bound.overlay);
+                    let record = Record::new(
+                        query.id(),
+                        &candidate.credential.id,
+                        *option,
+                        entries,
+                        bound.map(|b| &b.attested),
+                        digest,
+                        ShownDigest::of(&card, header, overlay),
+                    );
                     views.push(EntryView {
                         pick: Pick {
                             query: index,
@@ -118,10 +130,8 @@ impl<'m> Views<'m> {
                             option: *option,
                         },
                         record,
-                        entry: ConsentEntry::new(card, bound.map(|bound| bound.overlay.clone())),
-                        header: bound.map(|bound| &bound.header),
-                        selected: bound.and_then(|bound| bound.selected.as_ref()),
-                        card_module,
+                        entry: ConsentEntry::new(card, overlay.cloned()),
+                        header,
                     });
                 }
             }
@@ -224,7 +234,7 @@ pub fn display<'v>(
                             Offered::Nothing => Ok(Choice::Nothing),
                             Offered::Pick(pick) => {
                                 views.get(*pick).map(Choice::Entry).ok_or_else(|| {
-                                    Fault::new(FAULT, detail!("{pick:?} has no view", pick = *pick))
+                                    fault(detail!("{pick:?} has no view", pick = *pick))
                                 })
                             }
                         })
@@ -255,21 +265,12 @@ impl fmt::Display for SetIndex {
     }
 }
 
-/// A position is named as a count in a message.
-impl IntoArg for SetIndex {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.0.arg()
-    }
-}
-
 /// A selection that is not one of the display's.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.selection")]
 pub enum SelectionError {
     /// No set at that index.
     #[error("set {set} of {sets}")]
+    #[explain(id = "selection.no_set")]
     NoSet {
         /// The position the platform returned.
         set: usize,
@@ -278,6 +279,7 @@ pub enum SelectionError {
     },
     /// Not one id per slot.
     #[error("set {set}: {ids} ids for {slots} slots")]
+    #[explain(id = "selection.length")]
     Length {
         /// The set.
         set: SetIndex,
@@ -288,6 +290,7 @@ pub enum SelectionError {
     },
     /// An id that is not exactly one of its slot's choices.
     #[error("set {set} slot {slot}: {id} is not one of its entries")]
+    #[explain(id = "selection.not_a_choice")]
     NotAChoice {
         /// The set.
         set: SetIndex,
@@ -298,6 +301,7 @@ pub enum SelectionError {
     },
     /// Two chosen entries carry transactions.
     #[error("two chosen entries carry transactions; one confirmation carries one")]
+    #[explain(id = "selection.two_transactions")]
     TwoTransactions,
 }
 
@@ -404,13 +408,16 @@ impl<'v> Selection<'v> {
             .collect()
     }
 
-    /// The header for the selection: the transaction's, else the wallet's own.
-    #[must_use]
-    pub fn header(&self) -> Header {
-        self.chosen
-            .iter()
-            .find_map(|view| view.header)
-            .cloned()
-            .unwrap_or_else(wallet_header)
+    /// The header for the selection: the transaction's, else the wallet's own, resolved by
+    /// `context`.
+    ///
+    /// # Errors
+    ///
+    /// `context` resolves no text for one of the wallet's header's statements.
+    pub fn header(&self, context: &Context) -> Result<Header, ResolveError> {
+        match self.chosen.iter().find_map(|view| view.header) {
+            Some(header) => Ok(header.clone()),
+            None => wallet_header(context),
+        }
     }
 }

@@ -1,7 +1,7 @@
-//! The names I27 reads: each module's `use` items, and the types and `impl`s the shipped crates
-//! declare, resolved along Rust's path rules (the Reference's "Use declarations" and "Paths").
-//! A `use` or an item in a function body counts in its module. The test-util rule reads the same
-//! table, over every crate's sources.
+//! The names I27 and I28 read: each module's `use` items, and the types, `impl`s and struct
+//! expressions the shipped crates write, resolved along Rust's path rules (the Reference's "Use
+//! declarations" and "Paths"). A `use` or an item in a function body counts in its module. The
+//! test-util rule reads the same table, over every crate's sources.
 
 use rustc_hash::FxHashMap;
 
@@ -40,12 +40,23 @@ struct Implemented {
     implemented: Vec<String>,
 }
 
-/// The shipped crates' scopes, types and `impl`s.
+/// A struct expression whose `field` holds a string literal, with its path as written: a hit of
+/// I28 when the path names a statement or one of its variants.
+struct Built {
+    module: Global,
+    path: Vec<String>,
+    file: String,
+    line: usize,
+    field: String,
+}
+
+/// The shipped crates' scopes, types, `impl`s and struct expressions.
 #[derive(Default)]
 pub(super) struct Names {
     scopes: FxHashMap<Global, Scope>,
     types: Vec<Judged>,
     impls: Vec<Implemented>,
+    built: Vec<Built>,
 }
 
 /// The module of a source under `<crate>/src/`, or of another source's path.
@@ -177,6 +188,24 @@ impl Names {
         });
     }
 
+    /// A struct expression of a shipped source whose `field` holds a string literal.
+    pub(super) fn add_built(
+        &mut self,
+        module: &[String],
+        path: Vec<String>,
+        at: (&str, usize),
+        field: String,
+    ) {
+        let (file, line) = at;
+        self.built.push(Built {
+            module: module.to_vec(),
+            path,
+            file: file.to_owned(),
+            line,
+            field,
+        });
+    }
+
     /// The paths `written`, read in `module`, can name.
     pub(super) fn paths(&self, module: &[String], written: &[String]) -> Vec<Global> {
         self.resolve(module, written, DEPTH)
@@ -301,7 +330,12 @@ impl Names {
         })
     }
 
-    /// The hits of I27.
+    /// Whether `ty` derives siros-i18n's `Message`.
+    fn statement(&self, ty: &Judged) -> bool {
+        self.derives(ty, |path| path.last().is_some_and(|last| last == "Message"))
+    }
+
+    /// The hits of I27 and I28.
     pub(super) fn judge(&self, hits: &mut Vec<Hit>) {
         for ty in &self.types {
             let thiserror = self.derives(
@@ -312,12 +346,8 @@ impl Names {
                 self.derives(ty, |path| path.last().is_some_and(|last| last == "Explain"));
             let rule = if thiserror && !explain && !self.implements(ty, "Explain") {
                 format!("I27: the error `{}` does not implement `Explain`", ty.name)
-            } else if explain
-                && !thiserror
-                && !self.implements(ty, "Error")
-                && self.implements(ty, "Display")
-            {
-                format!("I27: the text type `{}` implements `Display`", ty.name)
+            } else if self.statement(ty) && self.implements(ty, "Display") {
+                format!("I27: the statement `{}` implements `Display`", ty.name)
             } else {
                 continue;
             };
@@ -327,7 +357,35 @@ impl Names {
                 rule,
             });
         }
+        for built in &self.built {
+            let named = self.resolve(&built.module, &built.path, DEPTH);
+            let statement = self
+                .types
+                .iter()
+                .find(|ty| self.statement(ty) && names_type(&named, ty));
+            if let Some(ty) = statement {
+                hits.push(Hit {
+                    file: built.file.clone(),
+                    line: built.line,
+                    rule: format!(
+                        "I28: the statement `{}`'s field `{}` holds a literal",
+                        ty.name, built.field
+                    ),
+                });
+            }
+        }
     }
+}
+
+/// Whether one of `paths` names `ty` or one of its variants.
+fn names_type(paths: &[Global], ty: &Judged) -> bool {
+    paths.iter().any(|path| {
+        let named = |at: &[String]| {
+            at.split_last()
+                .is_some_and(|(name, module)| *name == ty.name && module == ty.module.as_slice())
+        };
+        named(path) || path.split_last().is_some_and(|(_, ty_path)| named(ty_path))
+    })
 }
 
 impl Scope {

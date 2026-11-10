@@ -1,7 +1,22 @@
-# The test app's own module in German.
+# The test app's German wording of the test doubles.
 @locale de
 @dir ltr
 ---
 
-[format]
+[testkit.format]
 monthly = monatlich
+written = {$text}
+date = {$value :siros:date}
+time = {$value :siros:time}
+date_time = {$value :siros:datetime}
+currency = {$code}
+amount = {$value :currency currency=$currency}
+
+[testkit.profile]
+reference = Referenz
+section = Abschnitt
+logo = Logo
+merchant = Händler
+confirm = Bestätigen
+entries = Einträge {$reference}
+hint = Hinweis {$reference}

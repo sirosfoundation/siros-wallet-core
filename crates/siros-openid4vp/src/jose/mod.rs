@@ -29,28 +29,49 @@ pub use time::{NumericDate, Skew, SkewTooLarge, TimeError, Validity};
 
 /// Why a JWS does not parse (U10, U16).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.jws")]
 pub enum JwsError {
     /// Not three parts, or a JWS JSON Serialization without its members (RFC 7515 §7).
     #[error("the JWS does not have the structure of its serialization")]
+    #[explain(id = "jws.structure")]
     Structure,
     /// A part is no base64url without padding.
     #[error("a JWS part is no base64url without padding")]
+    #[explain(id = "jws.base64")]
     Base64,
     /// A header, the payload or the JSON Serialization is no JSON object with unique member
     /// names at every level, or no UTF-8.
     #[error("{0}")]
-    Json(#[explain(name = "cause")] JsonError),
+    #[explain(id = "jws.json")]
+    Json(#[source] JsonError),
     /// `alg` absent, no JOSE name, or `none` (RFC 8725 §3.2).
-    #[error("alg {0:?}: no signature algorithm")]
-    Algorithm(#[explain(name = "alg")] Option<String>),
+    #[error("alg {alg:?}: no signature algorithm")]
+    #[explain(id = "jws.algorithm")]
+    Algorithm {
+        /// The `alg`, when the header names one.
+        alg: Option<String>,
+    },
+    /// `typ` or `kid` is no string (RFC 7515 §4.1.4, §4.1.9).
+    #[error("the protected header's {member} is no string")]
+    #[explain(id = "jws.member")]
+    Member {
+        /// The member's name.
+        member: &'static str,
+    },
     /// `crit` empty, outside the protected header, or naming a header the wallet does not
     /// process (RFC 7515 §4.1.11; U16).
-    #[error("crit {0}: the wallet does not process it")]
-    Critical(#[explain(name = "header")] String),
+    #[error("crit {header}: the wallet does not process it")]
+    #[explain(id = "jws.critical")]
+    Critical {
+        /// The header's name.
+        header: String,
+    },
     /// A name in both a signature's protected and unprotected header (RFC 7515 §7.2.1).
-    #[error("the protected and unprotected headers both name {0}")]
-    HeaderTwice(#[explain(name = "header")] String),
+    #[error("the protected and unprotected headers both name {header}")]
+    #[explain(id = "jws.header_twice")]
+    HeaderTwice {
+        /// The header's name.
+        header: String,
+    },
 }
 
 impl From<JsonError> for JwsError {
@@ -115,14 +136,23 @@ impl ProtectedHeader {
             Some(Node::String(alg)) if alg != "none" && crate::request::jose_name(alg) => {
                 HeaderAlgorithm(alg.to_string())
             }
-            other => return Err(JwsError::Algorithm(other.map(Node::written_compact))),
+            other => {
+                return Err(JwsError::Algorithm {
+                    alg: other.map(Node::written_compact),
+                });
+            }
         };
         critical(&members)?;
-        let member = |name: &str| members.get(name).and_then(Node::as_str).map(str::to_owned);
-        let kid = member("kid").and_then(|kid| KeyId::parse(kid).ok());
+        let member = |name: &'static str| match members.get(name) {
+            None => Ok(None),
+            Some(Node::String(text)) => Ok(Some(text.to_string())),
+            Some(_) => Err(JwsError::Member { member: name }),
+        };
+        let typ = member("typ")?.map(HeaderType);
+        let kid = member("kid")?.map(KeyId::new);
         Ok(Self {
             alg,
-            typ: member("typ").map(HeaderType),
+            typ,
             kid,
             members,
         })
@@ -175,7 +205,7 @@ fn critical(members: &Object<'_>) -> Result<(), JwsError> {
             .as_array()
             .and_then(|names| names.first())
             .map_or_else(|| crit.written_compact(), Node::written_compact);
-        Err(JwsError::Critical(first))
+        Err(JwsError::Critical { header: first })
     })
 }
 
@@ -281,13 +311,17 @@ impl JsonSignature {
         };
         if let Some(unprotected) = &unprotected {
             if unprotected.get("crit").is_some() {
-                return Err(JwsError::Critical("crit".to_owned()));
+                return Err(JwsError::Critical {
+                    header: "crit".to_owned(),
+                });
             }
             if let Some(name) = unprotected
                 .names()
                 .find(|name| header.members.get(name).is_some())
             {
-                return Err(JwsError::HeaderTwice(name.to_owned()));
+                return Err(JwsError::HeaderTwice {
+                    header: name.to_owned(),
+                });
             }
         }
         let signature = members
@@ -419,27 +453,41 @@ impl<'s> Signed<'s> {
 
 /// Why a JWE Request Object does not parse (U11).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.jwe")]
 pub enum JweError {
     /// Not five parts (RFC 7516 §7.1).
     #[error("the JWE does not have five parts")]
+    #[explain(id = "jwe.structure")]
     Structure,
     /// A part is no base64url without padding.
     #[error("a JWE part is no base64url without padding")]
+    #[explain(id = "jwe.base64")]
     Base64,
     /// The protected header is no JSON object with unique member names at every level.
     #[error("{0}")]
-    Json(#[explain(name = "cause")] JsonError),
+    #[explain(id = "jwe.json")]
+    Json(#[source] JsonError),
     /// `alg` absent or none the decrypting module states (`RequestDecryption::decrypts`; RFC
     /// 8725 §3.1).
-    #[error("alg {0:?}: none the wallet decrypts")]
-    Algorithm(#[explain(name = "alg")] Option<String>),
+    #[error("alg {alg:?}: none the wallet decrypts")]
+    #[explain(id = "jwe.algorithm")]
+    Algorithm {
+        /// The `alg`, when the header names one.
+        alg: Option<String>,
+    },
     /// `enc` absent or none the decrypting module states.
-    #[error("enc {0:?}: none the wallet decrypts")]
-    Encryption(#[explain(name = "enc")] Option<String>),
+    #[error("enc {enc:?}: none the wallet decrypts")]
+    #[explain(id = "jwe.encryption")]
+    Encryption {
+        /// The `enc`, when the header names one.
+        enc: Option<String>,
+    },
     /// `crit` naming a header the wallet does not process (RFC 7516 §4.1.13).
-    #[error("crit {0}: the wallet does not process it")]
-    Critical(#[explain(name = "header")] String),
+    #[error("crit {header}: the wallet does not process it")]
+    #[explain(id = "jwe.critical")]
+    Critical {
+        /// The header's name.
+        header: String,
+    },
 }
 
 /// A compact JWE Request Object (RFC 7516 §7.1): five base64url parts, its protected header read,
@@ -474,15 +522,25 @@ impl<'t> CompactJwe<'t> {
         match header.get("alg") {
             Some(Node::String(alg))
                 if KeyAgreement::new(alg).is_some_and(|alg| accepted.agreement(alg)) => {}
-            other => return Err(JweError::Algorithm(other.map(Node::written_compact))),
+            other => {
+                return Err(JweError::Algorithm {
+                    alg: other.map(Node::written_compact),
+                });
+            }
         }
         match header.get("enc") {
             Some(Node::String(enc))
                 if ContentEncryption::new(enc).is_some_and(|enc| accepted.encryption(enc)) => {}
-            other => return Err(JweError::Encryption(other.map(Node::written_compact))),
+            other => {
+                return Err(JweError::Encryption {
+                    enc: other.map(Node::written_compact),
+                });
+            }
         }
         match header.get("crit") {
-            Some(crit) => Err(JweError::Critical(crit.written_compact())),
+            Some(crit) => Err(JweError::Critical {
+                header: crit.written_compact(),
+            }),
             None => Ok(Self { text, header }),
         }
     }

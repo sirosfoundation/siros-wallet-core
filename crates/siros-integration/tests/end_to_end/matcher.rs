@@ -1,100 +1,93 @@
-//! I37's ad-hoc clause (section 4.14 of the design, "Ad-hoc metadata"): an entry whose ad-hoc
-//! metadata JWT (PaSO Proof Metadata §5) the registration's package was built without is offered
-//! and rendered by the matcher, which reads the JWT unverified and renders its converted module
-//! beside the package; each text equals the wallet's for the verified JWT.
+//! The matcher shares the wallet's code path (spec section 5): the wallet writes its registration
+//! with siros-credman's writer, the matcher reads it back, builds its context from it and converts
+//! the ad-hoc metadata JWT (PaSO Proof Metadata §5) an entry carries for a type the registration
+//! lacks. The two conversions are one source text, and every entry the matcher shows and emits
+//! equals the wallet's. A claim label with no visible character refuses its entry before
+//! Credential Manager reads it.
+
+use std::io::Cursor;
 
 use serde_json::{Value, json};
-use siros_credman::register::{Registered, RegisteredCard, Registration, package};
-use siros_credman::{Emitted, Shown, emit};
-use siros_explain::{DeclaredModule, Messages, ModuleId, RequestText, Text};
-use siros_i18n::{Module, Package};
+use siros_credman::register::write;
+use siros_credman::{Base, Emission, Emitted, Registration, Shown, emit};
+use siros_i18n::{Bidi, Context, LocaleTag};
 use siros_openid4vp::consent::ConsentEntry;
 use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::matching::{Accepted, Consent, Display, Match, Views, display, offer};
-use siros_openid4vp::rendering::Rendering;
 use siros_openid4vp::request::Request;
-use siros_openid4vp::rows::{Choice, Env, Value as RowValue};
+use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::wallet::Wallet;
+use siros_paso::PasoProfile;
 use siros_paso::adhoc::{Carried, Verified};
+use siros_paso::labels::LabelViolation;
+use siros_paso::outcome::{Outcome, Unsupported};
+use siros_syntax::{AllOf, Keyed};
 use siros_testkit::fixtures::{Held, ORIGIN, parameters};
-use siros_testkit::render::{App, MainModule, TestkitModule, formats};
+use siros_testkit::render::Language;
 use siros_testkit::verifier::{self, ISSUER, secret_key};
 
-use crate::common::{HaipHost, own_modules, registry};
+use crate::common::{HaipHost, loaded, placement, registry};
 use crate::{NOW, PAY, annex, english, member, payment_metadata};
 
-/// The texts of an entry a request decides: its overlay's.
-fn request_texts(entry: &ConsentEntry) -> Vec<&Text> {
-    let mut out: Vec<&Text> = Vec::new();
-    if let Some(overlay) = entry.overlay() {
-        out.extend(overlay.hint.iter().map(RequestText::text));
-        for row in overlay
-            .rows
-            .iter()
-            .chain(overlay.header.iter().flat_map(|header| &header.rows))
-        {
-            out.push(row.label.text());
-            out.extend(
-                row.value
-                    .as_ref()
-                    .and_then(RowValue::text)
-                    .map(RequestText::text),
-            );
-            out.extend(row.section.iter().map(RequestText::text));
-        }
-        if let Some(transaction) = &overlay.header {
-            out.extend([transaction.counterparty.text(), transaction.amount.text()]);
-        }
-    }
-    out
-}
-
-/// The request matched over `rendering`, its views and display handed to `then`.
+/// The request matched in `context`, its views and display handed to `then`.
 pub fn shown<T>(
     request: &Request<'_>,
     wallet: &Wallet<'_>,
     env: &Env,
-    rendering: &Rendering<'_>,
+    context: &Context,
     then: impl FnOnce(&Views<'_>, &Display<'_>) -> T,
 ) -> T {
     let registry = registry().expect("the real registry");
     let accepted = Accepted::new(request, &registry).expect("accepted");
-    let matched = Match::run(&accepted, wallet, env, rendering).expect("no fault");
+    let matched = Match::run(&accepted, wallet, env, context).expect("no fault");
     let consent = Consent::of(&matched).expect("the wallet meets the request");
-    let views = Views::of(&matched, env).expect("no fault");
+    let views = Views::of(&matched, env, context).expect("no fault");
     let sets = offer(&matched, &consent, Choice::First);
     let display = display(&sets, &views, &[]).expect("no fault");
     then(&views, &display)
 }
 
-/// The wallet's own modules, each with its type's request messages.
-pub fn registered_modules(modules: &[Module]) -> Vec<Registered<'_>> {
-    modules
-        .iter()
-        .map(|module| {
-            match module.id() {
-                ModuleId::Main => Registered::of::<MainModule>(module),
-                id if id == TestkitModule::ID => Registered::of::<TestkitModule>(module),
-                id if id == siros_paso::CrateModule::ID => {
-                    Registered::of::<siros_paso::CrateModule>(module)
-                }
-                id if id == siros_qes::CrateModule::ID => {
-                    Registered::of::<siros_qes::CrateModule>(module)
-                }
-                _ => Registered::of::<siros_openid4vp::CrateModule>(module),
-            }
-            .expect("a declared module")
-        })
-        .collect()
+/// The registration the test app writes for its matcher in `language`, for `env`'s priority
+/// list: its sources in load order and no transaction type, read back through the matcher's
+/// reader.
+pub fn registered(language: Language, env: &Env) -> Registration<Cursor<Vec<u8>>> {
+    let sources = language.sources().map(str::to_owned).to_vec();
+    let base = Base::load(
+        LocaleTag::parse(language.tag()).expect("a tag"),
+        AllOf::new(env.priority().to_vec()).expect("a priority list"),
+        Bidi::None,
+        AllOf::new(sources).expect("the test app's sources"),
+    )
+    .expect("the base loads");
+    let blob = write(&base, &Keyed::empty()).expect("the registration");
+    let registration = Registration::open(Cursor::new(blob)).expect("the matcher reads it");
+    assert_eq!(registration.base(), &base);
+    registration
 }
 
-#[test]
-fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_does() {
-    let core = annex("paso-core.md", "A.1");
-    let types: Value = serde_json::from_str(&payment_metadata()).expect("the types");
+/// What the End-User sees of a request: each view's record id, which commits to its texts, and
+/// its entry, then the display as Credential Manager draws it.
+fn seen(
+    request: &Request<'_>,
+    wallet: &Wallet<'_>,
+    env: &Env,
+    context: &Context,
+) -> (Vec<(String, ConsentEntry)>, Emission) {
+    shown(request, wallet, env, context, |views, display| {
+        let entries = views
+            .iter()
+            .map(|view| (view.record.id().as_str().to_owned(), view.entry.clone()))
+            .collect();
+        (entries, emit(display, context).expect("every choice emits"))
+    })
+}
+
+/// Core A.1's `entry` carrying the ad-hoc metadata JWT (PaSO Proof Metadata §5) the card's issuer
+/// signs over `metadata`, encoded.
+fn carrying(entry: &str, metadata: &Value) -> String {
     let claims = json!({"iss": "https://issuer.bank.example", "sub": "https://bank.example/sca/card",
         "format": "dc+sd-jwt", "iat": NOW - 60, "exp": NOW + 600, "transaction_data_type": PAY,
-        "metadata": types[PAY]});
+        "metadata": metadata});
     let jwt = verifier::adhoc_jwt(
         &claims.to_string(),
         &secret_key("issuer-secret-1"),
@@ -102,15 +95,26 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
         None,
     )
     .expect("the ad-hoc metadata JWT");
-    let mut entry: Value = serde_json::from_str(&core[1]).expect("Core A.1's entry");
+    let mut entry: Value = serde_json::from_str(entry).expect("Core A.1's entry");
     entry["metadata"] = json!(jwt);
-    let entry = verifier::encode(&entry.to_string()).expect("the entry");
-    let text = parameters(
+    verifier::encode(&entry.to_string()).expect("the entry")
+}
+
+/// The request of Core A.1's query whose `transaction_data` holds `entries`.
+fn requesting(core: &[String], entries: &[String]) -> String {
+    let listed: Vec<String> = entries.iter().map(|entry| format!("\"{entry}\"")).collect();
+    parameters(
         &member(&core[0], "dcql_query"),
-        &format!(r#""transaction_data":["{entry}"],"expected_origins":["{ORIGIN}"]"#),
-    );
-    siros_testkit::signed_request!(let request = &text);
-    // The card's metadata lists no transaction type: the request's JWT alone renders the entry.
+        &format!(
+            r#""transaction_data":[{}],"expected_origins":["{ORIGIN}"]"#,
+            listed.join(",")
+        ),
+    )
+}
+
+/// The card whose metadata lists no transaction type: a request's ad-hoc JWT alone renders its
+/// entry.
+fn card() -> Held {
     let document = verifier::paso_document(
         "https://bank.example/sca/card",
         "dc+sd-jwt",
@@ -128,120 +132,116 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
     card = card.with_issued().expect("the issued SD-JWT");
     card.documents
         .push(("paso".to_owned(), document.into_bytes()));
+    card
+}
+
+/// The Payment entries of an emission.
+fn payments(emission: &Emission) -> usize {
+    emission
+        .sets()
+        .iter()
+        .flatten()
+        .flatten()
+        .filter(|emitted| {
+            matches!(
+                emitted,
+                Emitted::Entry {
+                    shown: Shown::Payment(_),
+                    ..
+                }
+            )
+        })
+        .count()
+}
+
+#[test]
+fn the_matcher_reads_the_wallets_registration_and_shows_an_ad_hoc_entry_as_the_wallet_does() {
+    let core = annex("paso-core.md", "A.1");
+    let types: Value = serde_json::from_str(&payment_metadata()).expect("the types");
+    let text = requesting(&core, &[carrying(&core[1], &types[PAY])]);
+    siros_testkit::signed_request!(let request = &text);
+    let card = card();
     let credential = card.credential().expect("a credential");
     let wallet = Wallet::new(vec![credential.clone()]).expect("a wallet");
     let env = english();
-    let modules: Vec<Module> = own_modules();
-    let own: Vec<ModuleId> = modules.iter().map(Module::id).collect();
-    let formats = formats().expect("the render halves");
+    let own = Language::English.shared().expect("the test app's context");
 
     // The wallet verifies the JWT (Proof Metadata §5.3) before it converts it.
     let host = HaipHost::at(Timestamp(NOW));
     let verified = Verified::of(&request, &[&credential], &host).expect("verified");
     assert!(verified.refusals().is_empty(), "{:?}", verified.refusals());
-    let main = siros_testkit::render::main_locales().expect("the main module");
-    let converted =
-        siros_paso::view::verified(&verified, &main, env.priority()).expect("converted");
-    assert_eq!(converted.len(), 1, "the JWT's module");
-    let live = App::new(
-        &modules.iter().collect::<Vec<_>>(),
-        &converted.iter().collect::<Vec<_>>(),
-    )
-    .expect("the wallet's app");
-    let wallet_rendering = live.rendering().expect("the wallet's rendering");
+    let converted = siros_paso::view::verified(&verified, own, env.priority()).expect("converted");
+    assert_eq!(converted.len(), 1, "the JWT's source");
+    let wallet_context = loaded(own, converted.clone());
 
-    // The registration: the card's texts, no transaction type.
-    let built = shown(&request, &wallet, &env, &wallet_rendering, |views, _| {
-        let cards: Vec<RegisteredCard<'_>> = views
-            .iter()
-            .map(|view| RegisteredCard {
-                credential: view.record.credential(),
-                card: view.entry.card(),
-            })
-            .collect();
-        package(
-            &Registration {
-                modules: &registered_modules(&modules),
-                own: &own,
-                credentials: &cards,
-                statics: &[],
-                transactions: &[],
-            },
-            &env,
-            &formats,
-        )
-        .expect("the registration's package")
-    });
-    let registered = Package::read(built.bytes(), built.root()).expect("the package");
-    // The package holds the compiled messages of the texts that depend on a request and no
-    // others: the request messages each module's type declares.
-    let mut declared: Vec<String> = [
-        siros_openid4vp::rows::BooleanText::messages(),
-        siros_paso::PasoRequested::messages(),
-        siros_qes::QesText::messages(),
-    ]
-    .concat()
-    .into_iter()
-    .map(|message| message.id().as_str().to_owned())
-    .collect();
-    declared.sort();
-    assert_eq!(registered.keys().expect("the keys"), declared);
-
-    // The matcher reads the JWT unverified and converts it over the package's main entries.
+    // The matcher reads the JWT unverified and converts it in the registration's context.
+    let mut registration = registered(Language::English, &env);
+    let matcher_context = registration
+        .context(&request)
+        .expect("the matcher's context");
     let read = Carried::read(&request).expect("a DC API request");
-    let carried = siros_paso::view::carried(
-        &read,
-        &registered.main_locales().expect("the main entries"),
-        env.priority(),
-    )
-    .expect("converted");
+    let carried =
+        siros_paso::view::carried(&read, &matcher_context, env.priority()).expect("converted");
     assert_eq!(carried, converted, "one conversion for both");
-    let matcher = Rendering::new(registered, &formats, &own)
-        .expect("a registration")
-        .carrying(&carried);
-    let (texts, differences) = shown(&request, &wallet, &env, &matcher, |views, display| {
-        let emission = emit(display, &matcher, &env).expect("no fault");
-        assert!(emission.refused().is_empty(), "{:?}", emission.refused());
-        let payments = emission
-            .sets()
-            .iter()
-            .flatten()
-            .flatten()
-            .filter(|emitted| {
-                matches!(
-                    emitted,
-                    Emitted::Entry {
-                        shown: Shown::Payment(_),
-                        ..
-                    }
-                )
-            })
-            .count();
-        assert_eq!(payments, 1, "the matcher offers the entry");
-        let (mut texts, mut differences) = (0, 0);
-        for view in views.iter() {
-            assert!(view.selected.is_some(), "the ad-hoc module shows");
-            let credential = Some(view.record.credential().as_str());
-            let renderer = matcher
-                .renderer(view.selected, view.card_module, credential, &env)
-                .expect("no fault")
-                .expect("a language");
-            let wallet = wallet_rendering
-                .renderer(view.selected, view.card_module, None, &env)
-                .expect("no fault")
-                .expect("a language");
-            assert_eq!(renderer.inputs(), wallet.inputs());
-            for text in request_texts(&view.entry) {
-                texts += 1;
-                if renderer.formatted(text).expect("renders")
-                    != wallet.formatted(text).expect("renders")
-                {
-                    differences += 1;
-                }
-            }
-        }
-        (texts, differences)
-    });
-    assert!(texts > 0, "the entry shows its texts");
-    assert_eq!(differences, 0, "of {texts} texts");
+
+    let matcher = seen(&request, &wallet, &env, &matcher_context);
+    assert_eq!(payments(&matcher.1), 1, "the matcher offers the entry");
+    assert_eq!(matcher, seen(&request, &wallet, &env, &wallet_context));
+}
+
+/// The ad-hoc metadata JWT of the request's first entry names `payee.id` `" "`, which shows no
+/// visible character: PaSO refuses that metadata, so the entry. The second entry carries the
+/// metadata as Payment A.1 writes it; it binds the card, and the matcher emits it.
+#[test]
+fn a_label_with_no_visible_character_refuses_its_entry_and_the_display_emits() {
+    let core = annex("paso-core.md", "A.1");
+    let types: Value = serde_json::from_str(&payment_metadata()).expect("the types");
+    let mut blank = types[PAY].clone();
+    let id = blank["claims"]
+        .as_array_mut()
+        .expect("claims")
+        .iter_mut()
+        .find(|claim| claim["path"] == json!(["payee", "id"]))
+        .expect("payee.id");
+    id["display"] = json!([{"locale": "en", "name": " "}]);
+    let text = requesting(
+        &core,
+        &[carrying(&core[1], &blank), carrying(&core[1], &types[PAY])],
+    );
+    siros_testkit::signed_request!(let request = &text);
+    let card = card();
+    let credential = card.credential().expect("a credential");
+    let wallet = Wallet::new(vec![credential.clone()]).expect("a wallet");
+    let env = english();
+    let mut registration = registered(Language::English, &env);
+    let base = registration
+        .context(&request)
+        .expect("the matcher's context");
+    let read = Carried::read(&request).expect("a DC API request");
+    let carried = siros_paso::view::carried(&read, &base, env.priority()).expect("converted");
+    let context = loaded(&base, carried);
+
+    let blank = request.entries().first().expect("the first entry");
+    let refused = PasoProfile::default()
+        .render(
+            blank,
+            request.envelope().channel().kind(),
+            &credential,
+            placement(&credential.format),
+            &env,
+            &context,
+        )
+        .expect("no fault");
+    assert!(
+        matches!(
+            refused,
+            Err(Outcome::Unsupported(Unsupported::ClaimLabel {
+                violation: LabelViolation::Invisible,
+                ..
+            }))
+        ),
+        "{refused:?}"
+    );
+    let (_, emission) = seen(&request, &wallet, &env, &context);
+    assert_eq!(payments(&emission), 1, "the second entry emits");
 }

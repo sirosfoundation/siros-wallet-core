@@ -1,143 +1,65 @@
-//! `:string` (spec/functions/string.md), the framework's own format: it formats a text as given
-//! and selects the key equal to the text. It takes no options and ignores those a call writes,
-//! as spec/functions/README.md permits.
+//! `:string` (spec/functions/string.md): it formats its operand's text as given and selects the
+//! key equal to it. It ignores the options a call writes, as spec/functions/README.md permits.
 //!
-//! The keys are NFC from the parser. A selector over a literal, directly or through declarations,
-//! compiles the literal's NFC form, which the selection compares; formatting writes the literal
-//! as written. A selector over an argument compares the argument's text as given: the typed
-//! values and the loader's checks leave run-time normalization no text to serve (decision 19).
+//! The parse holds keys as [`normal`] holds them, and a selector compares a literal held the
+//! same way ("Selection": the operand's value in NFC). A selector over an argument compares the
+//! argument's text as given.
 
-#[cfg(feature = "load")]
-use unicode_normalization::UnicodeNormalization;
+use std::borrow::Cow;
 
-#[cfg(feature = "load")]
-use siros_explain::ArgKind;
+use crate::error::Refusal;
+use crate::format::{Chain, Env, Failure, Function, Refused, Root, Use};
+use crate::normal::{Hold, normal};
 
-#[cfg(feature = "render")]
-use crate::error::{FormatFailure, RenderError};
-#[cfg(feature = "load")]
-use crate::error::{Refusal, RefusedOption};
-use crate::format::FormatId;
-#[cfg(feature = "load")]
-use crate::format::{Call, FormatCompiler, LanguageFormats, Operand, ParsedFormats};
-#[cfg(feature = "render")]
-use crate::format::{Direction, FormatRenderer, Input, VariantKey, VariantKeys};
-#[cfg(feature = "render")]
-use crate::sink::Sink;
-
-/// The `:string` format, both halves.
-#[derive(Debug)]
-pub(crate) struct StringFormat;
-
-/// The one `:string` format.
-pub(crate) static STRING: StringFormat = StringFormat;
-
-/// Its identity.
-const ID: FormatId = siros_explain::checked!(FormatId, "string");
-
-#[cfg(feature = "load")]
-impl FormatCompiler for StringFormat {
-    fn id(&self) -> FormatId {
-        ID
+/// Checks a chain of `:string` calls for its use: an operand, a call of `:string` alone, and a
+/// selector's literal `hold` holds.
+///
+/// # Errors
+///
+/// [`Refused::Call`] with [`Refusal::Operand`] for a chain without an operand or with a call of
+/// another function, and [`Refused::Unnormalized`] for a selector's literal `hold` refuses.
+pub(crate) fn check(chain: &Chain<'_>, at: Use, hold: Hold) -> Result<(), Refused> {
+    if chain.calls().any(|call| call.function != Function::String) {
+        return Err(Refusal::Operand.into());
     }
-
-    fn functions(&self) -> &'static [&'static str] {
-        &["string"]
-    }
-
-    fn options(&self) -> &'static [&'static str] {
-        &[]
-    }
-
-    fn parse(
-        &self,
-        _language: &LanguageFormats<'_>,
-    ) -> Result<Box<dyn ParsedFormats>, RefusedOption> {
-        Ok(Box::new(StringFormat))
+    match chain.root {
+        Root::None => Err(Refusal::Operand.into()),
+        Root::Literal(text) if at == Use::Select => hold.check(text).map_err(Refused::Unnormalized),
+        Root::Literal(_) | Root::Argument(_) => Ok(()),
     }
 }
 
-/// The literal a chain of `:string` calls starts from.
-#[cfg(feature = "load")]
-fn literal<'c>(operand: Operand<'c>) -> Option<&'c str> {
-    match operand {
-        Operand::Literal(literal) => Some(literal),
-        Operand::Call(inner) => literal(inner.operand()),
-        Operand::None | Operand::Argument(_) => None,
+/// The operand's text: a literal as written, an argument's text as given.
+///
+/// # Errors
+///
+/// [`Failure::Unresolved`] for an argument the message does not give.
+pub(crate) fn value<'m>(chain: &Chain<'m>, env: &Env<'_, 'm>) -> Result<&'m str, Failure> {
+    match chain.root {
+        Root::None => Err(Failure::Operand),
+        Root::Literal(text) => Ok(text),
+        Root::Argument(key) => env.argument(key),
     }
 }
 
-/// The compiled call: the NFC form of the literal a selector compares, or no bytes, which
-/// compare the operand's text as given.
-#[cfg(feature = "load")]
-impl ParsedFormats for StringFormat {
-    fn compile(&self, call: &Call<'_>) -> Result<Vec<u8>, Refusal> {
-        let text = match call.operand() {
-            Operand::Literal(_) => true,
-            Operand::Argument(kind) => matches!(
-                kind,
-                ArgKind::Name | ArgKind::Raw | ArgKind::Text | ArgKind::Message
-            ),
-            Operand::Call(inner) => inner.function() == "string",
-            Operand::None => false,
-        };
-        if !text {
-            return Err(Refusal::Operand);
-        }
-        let compared = literal(call.operand()).filter(|_| call.uses().selects());
-        Ok(compared.map_or_else(Vec::new, |literal| {
-            literal.nfc().collect::<String>().into_bytes()
-        }))
-    }
-}
-
-/// The text a `:string` operand holds.
-#[cfg(feature = "render")]
-fn text<'a>(input: &Input<'a>) -> Result<&'a str, RenderError> {
-    match *input {
-        Input::Literal(text) | Input::Text(text) => Ok(text),
-        Input::None | Input::Value(_) | Input::List { .. } => {
-            Err(RenderError::Message(FormatFailure::BadOperand))
-        }
-    }
-}
-
-#[cfg(feature = "render")]
-impl FormatRenderer for StringFormat {
-    fn id(&self) -> FormatId {
-        ID
-    }
-
-    fn direction(&self, _compiled: &[u8], _input: &Input<'_>) -> Result<Direction, RenderError> {
-        Ok(Direction::Unknown)
-    }
-
-    fn render(
-        &self,
-        _compiled: &[u8],
-        input: &Input<'_>,
-        sink: &mut dyn Sink,
-    ) -> Result<(), RenderError> {
-        sink.text(text(input)?);
-        Ok(())
-    }
-
-    fn select<'k>(
-        &self,
-        compiled: &[u8],
-        input: &Input<'_>,
-        keys: VariantKeys<'k>,
-    ) -> Result<Vec<VariantKey<'k>>, RenderError> {
-        let given = text(input)?;
-        let compared = if compiled.is_empty() {
-            given
-        } else {
-            std::str::from_utf8(compiled).map_err(|_| RenderError::Compiled(ID))?
-        };
-        Ok(keys
-            .iter()
-            .filter(|(_, key)| *key == compared)
-            .map(|(key, _)| key)
-            .collect())
-    }
+/// The keys equal to the text a selector compares.
+///
+/// # Errors
+///
+/// [`Failure::Unresolved`] for an argument the message does not give.
+pub(crate) fn select<'k>(
+    chain: &Chain<'_>,
+    env: &Env<'_, '_>,
+    keys: &'k [String],
+) -> Result<Vec<&'k str>, Failure> {
+    let compared = match chain.root {
+        Root::None => return Err(Failure::Operand),
+        Root::Literal(text) => normal(text),
+        Root::Argument(key) => Cow::Borrowed(env.argument(key)?),
+    };
+    Ok(keys
+        .iter()
+        .filter(|key| key.as_str() == compared.as_ref())
+        .map(String::as_str)
+        .collect())
 }

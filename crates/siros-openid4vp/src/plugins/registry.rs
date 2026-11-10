@@ -6,7 +6,8 @@ use std::any::Any;
 use std::any::TypeId;
 use std::fmt;
 
-use siros_explain::{AllOf, Explain};
+use siros_explain::Explain;
+use siros_syntax::AllOf;
 
 #[cfg(feature = "resolve")]
 use super::{Answered, Fault, FetchedRecord, Members};
@@ -15,6 +16,8 @@ use super::{Binding, Bound, NoCandidate, ViewAdditions};
 use super::{Format, Member, Profile};
 #[cfg(feature = "signed")]
 use crate::authenticate::{HostedPrefix, ObjectRule};
+#[cfg(feature = "request-decryption")]
+use crate::detail;
 #[cfg(feature = "transaction-data")]
 use crate::hash::HashAlgorithm;
 use crate::hash::HashName;
@@ -27,6 +30,8 @@ use crate::host::{Authentication, AuthenticationNeed, FormatHost, ProfileHost};
 #[cfg(feature = "resolve")]
 use crate::host::{Haip, Has, Platform};
 use crate::ids::{FormatId, TransactionType, TypePrefix};
+#[cfg(feature = "request-decryption")]
+use crate::plugins::fault;
 #[cfg(feature = "uri")]
 use crate::request::Agreements;
 #[cfg(feature = "request-decryption")]
@@ -53,14 +58,14 @@ use crate::wallet_metadata::{
 };
 #[cfg(feature = "uri")]
 use crate::wallet_metadata::{HostedPostContribution, MetadataMember, PostContribution};
-#[cfg(feature = "request-decryption")]
-use crate::{FAULT, detail};
 #[cfg(feature = "match")]
 use crate::{
     refusal::Refusal,
     request::{EntryIndex, Request},
     rows::Env,
 };
+#[cfg(feature = "match")]
+use siros_i18n::Context;
 
 /// A profile by its registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -68,23 +73,39 @@ pub struct ProfileHandle(usize);
 
 /// A registry that cannot exist.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.registry")]
 pub enum RegistryError {
     /// Two formats with one identifier.
-    #[error("two formats have the identifier {0}")]
-    FormatTwice(#[explain(name = "format")] String),
+    #[error("two formats have the identifier {format}")]
+    #[explain(id = "registry.format_twice")]
+    FormatTwice {
+        /// The format identifier.
+        format: String,
+    },
     /// A type or prefix registered twice.
-    #[error("{0} is registered twice")]
-    TypeTwice(#[explain(name = "registration")] String),
+    #[error("{registration} is registered twice")]
+    #[explain(id = "registry.type_twice")]
+    TypeTwice {
+        /// The type or type prefix.
+        registration: String,
+    },
     /// Two Client Identifier Prefix plug-ins with one name.
-    #[error("two Client Identifier Prefix plug-ins have the name {0}")]
-    PrefixTwice(#[explain(name = "prefix")] String),
+    #[error("two Client Identifier Prefix plug-ins have the name {prefix}")]
+    #[explain(id = "registry.prefix_twice")]
+    PrefixTwice {
+        /// The prefix.
+        prefix: String,
+    },
     /// A registration names a profile the builder does not hold.
-    #[error("{0} names a profile the registry does not hold")]
-    UnknownProfile(#[explain(name = "registration")] String),
+    #[error("{registration} names a profile the registry does not hold")]
+    #[explain(id = "registry.unknown_profile")]
+    UnknownProfile {
+        /// The type or type prefix.
+        registration: String,
+    },
     /// Two modes of one name on one channel: two registrations for answers, two for errors, or
     /// an answer and an error registration of modes of different types.
     #[error("the response mode {name} is registered twice on one channel")]
+    #[explain(id = "registry.mode_twice")]
     ModeTwice {
         /// The name.
         name: ModeName,
@@ -93,28 +114,51 @@ pub enum RegistryError {
         channel: ChannelKind,
     },
     /// An error mode on the DC API, whose errors are A.4's and the core's.
-    #[error("the response mode {0} writes DC API errors, which A.4 fixes")]
-    ErrorModeChannel(#[explain(name = "mode")] ModeName),
+    #[error("the response mode {mode} writes DC API errors, which A.4 fixes")]
+    #[explain(id = "registry.error_mode_channel")]
+    ErrorModeChannel {
+        /// The mode.
+        mode: ModeName,
+    },
     /// Two response types of one name.
-    #[error("the response type {0} is registered twice")]
-    ResponseTypeTwice(#[explain(name = "response_type")] ResponseTypeName),
+    #[error("the response type {response_type} is registered twice")]
+    #[explain(id = "registry.response_type_twice")]
+    ResponseTypeTwice {
+        /// The response type.
+        response_type: ResponseTypeName,
+    },
     /// `RequestPost` or `EncryptedRequests` registered twice.
     #[error("the request_uri POST is registered twice")]
+    #[explain(id = "registry.post_twice")]
     PostTwice,
     /// Two hash algorithms of one name.
-    #[error("the hash algorithm {0} is registered twice")]
-    HashTwice(#[explain(name = "algorithm")] HashName),
+    #[error("the hash algorithm {algorithm} is registered twice")]
+    #[explain(id = "registry.hash_twice")]
+    HashTwice {
+        /// The algorithm.
+        algorithm: HashName,
+    },
     /// A transaction data profile without `sha-256`, B.3.3.1's default.
     #[error("a transaction data profile is registered and sha-256 is not")]
+    #[explain(id = "registry.sha256_absent")]
     Sha256Absent,
     /// Two queries of one scope value.
-    #[error("the scope value {0} is registered twice")]
-    ScopeTwice(#[explain(name = "scope")] ScopeValue),
+    #[error("the scope value {scope} is registered twice")]
+    #[explain(id = "registry.scope_twice")]
+    ScopeTwice {
+        /// The scope value.
+        scope: ScopeValue,
+    },
     /// A scope value's query that is no DCQL query the core reads.
-    #[error("the scope value {0} maps to no DCQL query")]
-    ScopeQuery(#[explain(name = "scope")] ScopeValue),
+    #[error("the scope value {scope} maps to no DCQL query")]
+    #[explain(id = "registry.scope_query")]
+    ScopeQuery {
+        /// The scope value.
+        scope: ScopeValue,
+    },
     /// A Credential Query or claim id two scope values' queries share (§5.5: "MUST be unique").
     #[error("the scope values {first} and {second} share the id {id}")]
+    #[explain(id = "registry.scope_ids")]
     ScopeIds {
         /// The first scope value.
         first: ScopeValue,
@@ -124,10 +168,15 @@ pub enum RegistryError {
         id: String,
     },
     /// A mode that writes `wallet_metadata` members over the DC API, whose requests post none.
-    #[error("the DC API response mode {0} writes wallet_metadata members")]
-    MetadataChannel(#[explain(name = "mode")] ModeName),
+    #[error("the DC API response mode {mode} writes wallet_metadata members")]
+    #[explain(id = "registry.metadata_channel")]
+    MetadataChannel {
+        /// The mode.
+        mode: ModeName,
+    },
     /// A name two registered parts write.
     #[error("{name} is written by two registered parts")]
+    #[explain(id = "registry.name_twice")]
     NameTwice {
         /// Where.
         #[explain(skip)]
@@ -137,6 +186,7 @@ pub enum RegistryError {
     },
     /// A name the core writes itself, which a registered part declares.
     #[error("{name} is the core's to write")]
+    #[explain(id = "registry.name_reserved")]
     NameReserved {
         /// Where.
         #[explain(skip)]
@@ -146,29 +196,62 @@ pub enum RegistryError {
     },
     /// `EncryptedRequests` without `RequestPost`.
     #[error("encrypted Request Objects are registered without the request_uri POST")]
+    #[explain(id = "registry.decryption_without_post")]
     DecryptionWithoutPost,
     /// A profile would write a member twice into one presentation: one of the format's own, or
     /// one it declares twice.
-    #[error("the profile registered for {registration} writes {} twice in a {format} presentation", .members.items().join(", "))]
+    #[error(
+        "the profile registered for {registration} writes {members} twice in a {format} presentation"
+    )]
+    #[explain(id = "registry.member_twice")]
     MemberTwice {
         /// A type or prefix the profile is registered under.
         registration: String,
         /// The format.
         format: String,
         /// The members.
-        members: AllOf<String>,
+        members: MemberNames,
     },
     /// A profile names members of another kind than the format's placement holds: a data
     /// element where the proof holds claims, or a claim where it holds name-space elements.
-    #[error("the profile registered for {registration} names {} in a {format} presentation, whose proof holds no such member", .members.items().join(", "))]
+    #[error(
+        "the profile registered for {registration} names {members} in a {format} presentation, whose proof holds no such member"
+    )]
+    #[explain(id = "registry.member_placement")]
     MemberPlacement {
         /// A type or prefix the profile is registered under.
         registration: String,
         /// The format.
         format: String,
         /// The members.
-        members: AllOf<String>,
+        members: MemberNames,
     },
+}
+
+/// Member names a [`RegistryError`] lists, sorted, each once. Its `Display`, a message's
+/// argument, writes them separated by `, `.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberNames(AllOf<String>);
+
+impl MemberNames {
+    /// The names sorted, each once; `None` for no name.
+    fn of(mut names: Vec<String>) -> Option<Self> {
+        names.sort();
+        names.dedup();
+        AllOf::new(names).map(Self)
+    }
+
+    /// The names.
+    #[must_use]
+    pub fn names(&self) -> &[String] {
+        self.0.items()
+    }
+}
+
+impl fmt::Display for MemberNames {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0.items().join(", "))
+    }
 }
 
 /// A registered format and the placement it stated when the registry was built, which the
@@ -201,9 +284,18 @@ pub struct NoHost;
 
 /// A registry's host, which fixes what the registry takes of each plug-in: [`NoHost`] takes
 /// phase 1's [`Format`], [`Profile`] and [`Mode`] in every build; under `resolve`, a host holding
-/// a [`Platform`](crate::host::Platform) takes a plug-in whose phase 2 runs over it
-/// ([`FormatHost`](crate::host::FormatHost), [`ProfileHost`](crate::host::ProfileHost),
-/// [`ModeHost`](crate::routing::ModeHost), [`ErrorModeHost`](crate::routing::ErrorModeHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "a [`Platform`](crate::host::Platform) takes a plug-in whose phase 2 runs over it \
+           ([`FormatHost`](crate::host::FormatHost), [`ProfileHost`](crate::host::ProfileHost), \
+           [`ModeHost`](crate::routing::ModeHost), \
+           [`ErrorModeHost`](crate::routing::ErrorModeHost))."
+)]
+#[cfg_attr(
+    not(feature = "resolve"),
+    doc = "a `Platform` takes a plug-in whose phase 2 runs over it (`FormatHost`, `ProfileHost`, \
+           `ModeHost`, `ErrorModeHost`)."
+)]
 /// The core implements it for those hosts alone.
 pub trait Build: Plugins {}
 
@@ -317,7 +409,14 @@ impl<H: Has<dyn Platform>> Plugins for H {
 }
 
 /// A format the registry of the host `H` takes: a [`Format`] for [`NoHost`]; under `resolve`, a
-/// format whose phase 2 runs over `H` ([`FormatHost`](crate::host::FormatHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "format whose phase 2 runs over `H` ([`FormatHost`](crate::host::FormatHost))."
+)]
+#[cfg_attr(
+    not(feature = "resolve"),
+    doc = "format whose phase 2 runs over `H` (`FormatHost`)."
+)]
 pub trait HostedFormat<H: Build>: 'static {
     /// The format as the registry stores it.
     #[doc(hidden)]
@@ -338,7 +437,14 @@ impl<H: Has<dyn Platform>, F: FormatHost<H> + 'static> HostedFormat<H> for F {
 }
 
 /// A profile the registry of the host `H` takes: a [`Profile`] for [`NoHost`]; under `resolve`,
-/// a profile whose phase 2 runs over `H` ([`ProfileHost`](crate::host::ProfileHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "a profile whose phase 2 runs over `H` ([`ProfileHost`](crate::host::ProfileHost))."
+)]
+#[cfg_attr(
+    not(feature = "resolve"),
+    doc = "a profile whose phase 2 runs over `H` (`ProfileHost`)."
+)]
 pub trait HostedProfile<H: Build>: 'static {
     /// The profile as the registry stores it.
     #[doc(hidden)]
@@ -359,7 +465,14 @@ impl<H: Has<dyn Platform>, P: ProfileHost<H>> HostedProfile<H> for P {
 }
 
 /// A response mode the registry of the host `H` takes: a [`Mode`] for [`NoHost`]; under
-/// `resolve`, a mode whose phase 2 runs over `H` ([`ModeHost`](crate::routing::ModeHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "`resolve`, a mode whose phase 2 runs over `H` ([`ModeHost`](crate::routing::ModeHost))."
+)]
+#[cfg_attr(
+    not(feature = "resolve"),
+    doc = "`resolve`, a mode whose phase 2 runs over `H` (`ModeHost`)."
+)]
 pub trait HostedMode<H: Build>: 'static {
     /// The mode as the registry stores it.
     #[doc(hidden)]
@@ -381,7 +494,11 @@ impl<H: Has<dyn Platform>, M: ModeHost<H> + 'static> HostedMode<H> for M {
 
 /// A response mode the registry of the host `H` takes for a URI route's errors: a [`Mode`] for
 /// [`NoHost`]; under `resolve`, a mode whose error responses run over `H`
-/// ([`ErrorModeHost`](crate::routing::ErrorModeHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "([`ErrorModeHost`](crate::routing::ErrorModeHost))."
+)]
+#[cfg_attr(not(feature = "resolve"), doc = "(`ErrorModeHost`).")]
 pub trait HostedErrorMode<H: Build>: 'static {
     /// The mode as the registry stores it.
     #[doc(hidden)]
@@ -403,7 +520,11 @@ impl<H: Has<dyn Platform>, M: ErrorModeHost<H> + 'static> HostedErrorMode<H> for
 
 /// Parameters of the Authorization Response the registry of the host `H` takes: a
 /// [`ResponseParameters`] for [`NoHost`]; under `resolve`, parameters whose members are written
-/// over `H` ([`ResponseParametersHost`](crate::routing::ResponseParametersHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "over `H` ([`ResponseParametersHost`](crate::routing::ResponseParametersHost))."
+)]
+#[cfg_attr(not(feature = "resolve"), doc = "over `H` (`ResponseParametersHost`).")]
 pub trait HostedResponseParameters<H: Build>: 'static {
     /// The parameters as the registry stores them.
     #[doc(hidden)]
@@ -552,13 +673,7 @@ pub struct Registry<H: Build = NoHost> {
     parameters: Vec<RegisteredParameters<H>>,
     modes: Vec<RegisteredMode<H>>,
     formats: Vec<RegisteredFormat<H>>,
-    #[cfg_attr(
-        not(feature = "match"),
-        expect(dead_code, reason = "matching and phase 2 read the profiles")
-    )]
-    profiles: Vec<Box<<H as Plugins>::Profile>>,
-    exact: Vec<(TransactionType<'static>, ProfileHandle)>,
-    prefixes: Vec<(TypePrefix<'static>, ProfileHandle)>,
+    profiles: Vec<Typed<<H as Plugins>::Profile>>,
     #[cfg(feature = "signed")]
     clients: Vec<RegisteredPrefix<H>>,
     #[cfg(feature = "signed")]
@@ -569,6 +684,32 @@ pub struct Registry<H: Build = NoHost> {
     contributions: Vec<Box<dyn HostedPostContribution<H>>>,
     #[cfg(feature = "uri")]
     readers: Vec<Box<dyn AnswerReader>>,
+}
+
+/// A profile with the exact type identifiers and the type prefixes registered for it.
+struct Typed<P: ?Sized> {
+    profile: Box<P>,
+    exact: Vec<TransactionType<'static>>,
+    prefixes: Vec<TypePrefix<'static>>,
+}
+
+impl<P: ?Sized> Typed<P> {
+    const fn untyped(profile: Box<P>) -> Self {
+        Self {
+            profile,
+            exact: Vec::new(),
+            prefixes: Vec::new(),
+        }
+    }
+
+    /// Each registration's name: the type, else `the prefix` and the prefix.
+    fn registrations(&self) -> impl Iterator<Item = String> + '_ {
+        self.exact.iter().map(ToString::to_string).chain(
+            self.prefixes
+                .iter()
+                .map(|prefix| format!("the prefix {prefix}")),
+        )
+    }
 }
 
 impl<H: Build> fmt::Debug for Registry<H> {
@@ -582,8 +723,14 @@ impl<H: Build> fmt::Debug for Registry<H> {
                     .map(|registered| registered.format.id().to_string())
                     .collect::<Vec<_>>(),
             )
-            .field("exact", &self.exact)
-            .field("prefixes", &self.prefixes)
+            .field(
+                "profiles",
+                &self
+                    .profiles
+                    .iter()
+                    .map(|typed| (&typed.exact, &typed.prefixes))
+                    .collect::<Vec<_>>(),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -824,10 +971,13 @@ impl<H: Build> RegistryBuilder<H> {
         #[cfg(feature = "transaction-data")]
         for (k, algorithm) in hashes.iter().enumerate() {
             if hashes
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.name() == algorithm.name()))
+                .iter()
+                .take(k)
+                .any(|other| other.name() == algorithm.name())
             {
-                return Err(RegistryError::HashTwice(algorithm.name()));
+                return Err(RegistryError::HashTwice {
+                    algorithm: algorithm.name(),
+                });
             }
         }
         #[cfg(feature = "uri")]
@@ -836,10 +986,13 @@ impl<H: Build> RegistryBuilder<H> {
         let scopes = Vec::new();
         for (k, kind) in response_types.iter().enumerate() {
             if response_types
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.name() == kind.name()))
+                .iter()
+                .take(k)
+                .any(|other| other.name() == kind.name())
             {
-                return Err(RegistryError::ResponseTypeTwice(kind.name()));
+                return Err(RegistryError::ResponseTypeTwice {
+                    response_type: kind.name(),
+                });
             }
         }
         for (k, registration) in modes.iter().enumerate() {
@@ -847,15 +1000,13 @@ impl<H: Build> RegistryBuilder<H> {
             let (name, channel) = (registered.mode().name(), registered.mode().channel());
             let errors = registered.carries_errors();
             if errors && channel == ChannelKind::DcApi {
-                return Err(RegistryError::ErrorModeChannel(name));
+                return Err(RegistryError::ErrorModeChannel { mode: name });
             }
-            if modes.get(..k).is_some_and(|before| {
-                before.iter().any(|other| {
-                    other.registered.mode().name() == name
-                        && other.registered.mode().channel() == channel
-                        && (other.registered.carries_errors() == errors
-                            || other.kind != registration.kind)
-                })
+            if modes.iter().take(k).any(|other| {
+                other.registered.mode().name() == name
+                    && other.registered.mode().channel() == channel
+                    && (other.registered.carries_errors() == errors
+                        || other.kind != registration.kind)
             }) {
                 return Err(RegistryError::ModeTwice { name, channel });
             }
@@ -905,11 +1056,12 @@ impl<H: Build> RegistryBuilder<H> {
         if let Some(twice) = clients.iter().enumerate().find_map(|(k, registered)| {
             let name = registered.prefix.name();
             clients
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.prefix.name() == name))
+                .iter()
+                .take(k)
+                .any(|other| other.prefix.name() == name)
                 .then(|| name.to_string())
         }) {
-            return Err(RegistryError::PrefixTwice(twice));
+            return Err(RegistryError::PrefixTwice { prefix: twice });
         }
         #[cfg(feature = "request-decryption")]
         let post = Post::of(&posts, encrypted)?;
@@ -917,10 +1069,13 @@ impl<H: Build> RegistryBuilder<H> {
         let post = Post::of(&posts)?;
         for (k, format) in formats.iter().enumerate() {
             if formats
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.id() == format.id()))
+                .iter()
+                .take(k)
+                .any(|other| other.id() == format.id())
             {
-                return Err(RegistryError::FormatTwice(format.id().to_string()));
+                return Err(RegistryError::FormatTwice {
+                    format: format.id().to_string(),
+                });
             }
         }
         let formats: Vec<RegisteredFormat<H>> = formats
@@ -930,25 +1085,41 @@ impl<H: Build> RegistryBuilder<H> {
                 format,
             })
             .collect();
-        let registrations: Vec<(String, ProfileHandle)> = exact
+        let mut profiles: Vec<Typed<_>> = profiles.into_iter().map(Typed::untyped).collect();
+        #[cfg(feature = "transaction-data")]
+        let transacting = !exact.is_empty() || !prefixes.is_empty();
+        for (kind, handle) in exact {
+            profiles
+                .get_mut(handle.0)
+                .ok_or_else(|| RegistryError::UnknownProfile {
+                    registration: kind.to_string(),
+                })?
+                .exact
+                .push(kind);
+        }
+        for (prefix, handle) in prefixes {
+            profiles
+                .get_mut(handle.0)
+                .ok_or_else(|| RegistryError::UnknownProfile {
+                    registration: format!("the prefix {prefix}"),
+                })?
+                .prefixes
+                .push(prefix);
+        }
+        let registrations: Vec<(String, &<H as Plugins>::Profile)> = profiles
             .iter()
-            .map(|(kind, handle)| (kind.to_string(), *handle))
-            .chain(
-                prefixes
-                    .iter()
-                    .map(|(prefix, handle)| (format!("the prefix {prefix}"), *handle)),
-            )
+            .flat_map(|typed| {
+                typed
+                    .registrations()
+                    .map(|name| (name, typed.profile.as_ref()))
+            })
             .collect();
-        for (k, (name, handle)) in registrations.iter().enumerate() {
-            if registrations
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|(other, _)| other == name))
-            {
-                return Err(RegistryError::TypeTwice(name.clone()));
+        for (k, (name, profile)) in registrations.iter().enumerate() {
+            if registrations.iter().take(k).any(|(other, _)| other == name) {
+                return Err(RegistryError::TypeTwice {
+                    registration: name.clone(),
+                });
             }
-            let profile = profiles
-                .get(handle.0)
-                .ok_or_else(|| RegistryError::UnknownProfile(name.clone()))?;
             for RegisteredFormat { format, placement } in &formats {
                 let Some((placement, members)) = placement.and_then(|placement| {
                     profile
@@ -957,21 +1128,19 @@ impl<H: Build> RegistryBuilder<H> {
                 }) else {
                     continue;
                 };
-                let mut misplaced: Vec<String> = members
+                let misplaced: Vec<String> = members
                     .iter()
                     .filter(|member| !placement.places(member))
                     .map(ToString::to_string)
                     .collect();
-                misplaced.sort();
-                misplaced.dedup();
-                if let Some(members) = AllOf::new(misplaced) {
+                if let Some(members) = MemberNames::of(misplaced) {
                     return Err(RegistryError::MemberPlacement {
                         registration: name.clone(),
                         format: format.id().to_string(),
                         members,
                     });
                 }
-                let mut twice: Vec<String> = members
+                let twice: Vec<String> = members
                     .iter()
                     .enumerate()
                     .filter(|(j, m)| {
@@ -983,9 +1152,7 @@ impl<H: Build> RegistryBuilder<H> {
                     })
                     .map(|(_, m)| m.to_string())
                     .collect();
-                twice.sort();
-                twice.dedup();
-                if let Some(members) = AllOf::new(twice) {
+                if let Some(members) = MemberNames::of(twice) {
                     return Err(RegistryError::MemberTwice {
                         registration: name.clone(),
                         format: format.id().to_string(),
@@ -994,8 +1161,6 @@ impl<H: Build> RegistryBuilder<H> {
                 }
             }
         }
-        #[cfg(feature = "transaction-data")]
-        let transacting = !exact.is_empty() || !prefixes.is_empty();
         #[cfg(feature = "transaction-data")]
         if transacting
             && !hashes
@@ -1013,8 +1178,6 @@ impl<H: Build> RegistryBuilder<H> {
             modes,
             formats,
             profiles,
-            exact,
-            prefixes,
             #[cfg(feature = "signed")]
             clients,
             #[cfg(feature = "signed")]
@@ -1130,22 +1293,35 @@ impl<H: Build> Registry<H> {
     /// prefix.
     #[must_use]
     pub fn profile(&self, kind: &TransactionType<'_>) -> Option<ProfileHandle> {
-        self.exact
-            .iter()
-            .find(|(exact, _)| exact == kind)
-            .map(|(_, handle)| *handle)
-            .or_else(|| {
-                self.prefixes
-                    .iter()
-                    .filter(|(prefix, _)| kind.has_prefix(prefix))
-                    .max_by_key(|(prefix, _)| prefix.as_str().len())
-                    .map(|(_, handle)| *handle)
-            })
+        self.typed(kind).map(|(handle, _)| handle)
     }
 
-    #[cfg(feature = "match")]
-    pub(crate) fn profile_ref(&self, handle: ProfileHandle) -> Option<&dyn ErasedProfile> {
-        self.profiles.get(handle.0).map(|profile| profile.upcast())
+    /// The profile registered for the exact type identifier, else for its longest registered
+    /// prefix, with its handle.
+    fn typed(
+        &self,
+        kind: &TransactionType<'_>,
+    ) -> Option<(ProfileHandle, &Typed<<H as Plugins>::Profile>)> {
+        let handled = || {
+            self.profiles
+                .iter()
+                .enumerate()
+                .map(|(k, typed)| (ProfileHandle(k), typed))
+        };
+        handled()
+            .find(|(_, typed)| typed.exact.iter().any(|exact| exact == kind))
+            .or_else(|| {
+                handled()
+                    .flat_map(|(handle, typed)| {
+                        typed
+                            .prefixes
+                            .iter()
+                            .map(move |prefix| (prefix, handle, typed))
+                    })
+                    .filter(|(prefix, _, _)| kind.has_prefix(prefix))
+                    .max_by_key(|(prefix, _, _)| prefix.as_str().len())
+                    .map(|(_, handle, typed)| (handle, typed))
+            })
     }
 }
 
@@ -1198,7 +1374,9 @@ impl<H: Has<dyn Platform>> Registry<H> {
 
     #[cfg(feature = "resolve")]
     pub(crate) fn profile_host(&self, handle: ProfileHandle) -> Option<&dyn DynProfile<H>> {
-        self.profiles.get(handle.0).map(AsRef::as_ref)
+        self.profiles
+            .get(handle.0)
+            .map(|typed| typed.profile.as_ref())
     }
 
     /// The registry with each profile informed of its findings, for the request's re-run of
@@ -1208,7 +1386,7 @@ impl<H: Has<dyn Platform>> Registry<H> {
         let mut found: Vec<(&dyn DynProfile<H>, Vec<&dyn FindingData>)> = self
             .profiles
             .iter()
-            .map(|profile| (profile.as_ref(), Vec::new()))
+            .map(|typed| (typed.profile.as_ref(), Vec::new()))
             .collect();
         for finding in findings {
             let (_, own) = found.get_mut(finding.profile.0).ok_or(InformError)?;
@@ -1226,9 +1404,15 @@ impl<H: Has<dyn Platform>> Registry<H> {
             parameters: self.parameters.clone(),
             modes: self.modes.clone(),
             formats: self.formats.clone(),
-            profiles: read.into_iter().map(|informed| informed()).collect(),
-            exact: self.exact.clone(),
-            prefixes: self.prefixes.clone(),
+            profiles: read
+                .into_iter()
+                .zip(&self.profiles)
+                .map(|(informed, typed)| Typed {
+                    profile: informed(),
+                    exact: typed.exact.clone(),
+                    prefixes: typed.prefixes.clone(),
+                })
+                .collect(),
             #[cfg(feature = "signed")]
             clients: self.clients.clone(),
             #[cfg(feature = "signed")]
@@ -1334,10 +1518,9 @@ impl<H> Post<H> {
                 if curve.is_some_and(|curve| decryption.decrypts().curve(curve)) {
                     Ok(key)
                 } else {
-                    Err(Fault::new(
-                        FAULT,
-                        detail!("the ephemeral key's crv is none the module states"),
-                    ))
+                    Err(fault(detail!(
+                        "the ephemeral key's crv is none the module states"
+                    )))
                 }
             })
             .transpose()
@@ -1512,7 +1695,7 @@ fn names<H: Build>(
         let mode = registered.mode();
         let names = mode.metadata_names();
         if mode.channel() == ChannelKind::DcApi && !names.is_empty() {
-            return Err(RegistryError::MetadataChannel(mode.name()));
+            return Err(RegistryError::MetadataChannel { mode: mode.name() });
         }
         members.extend_from_slice(names);
     }
@@ -1536,7 +1719,7 @@ fn names<H: Build>(
             if reserved.contains(name) {
                 return Err(RegistryError::NameReserved { place, name: *name });
             }
-            if names.get(..k).is_some_and(|before| before.contains(name)) {
+            if names.iter().take(k).any(|before| before == name) {
                 return Err(RegistryError::NameTwice { place, name: *name });
             }
         }
@@ -1552,9 +1735,9 @@ fn read_scopes(queries: &[Box<dyn ScopeQuery>]) -> Result<Vec<ScopeEntry>, Regis
     for query in queries {
         let (value, entry) = (query.scope(), ScopeEntry::read(query.as_ref()));
         if entries.iter().any(|entry| entry.value == value) {
-            return Err(RegistryError::ScopeTwice(value));
+            return Err(RegistryError::ScopeTwice { scope: value });
         }
-        let entry = entry.ok_or(RegistryError::ScopeQuery(value))?;
+        let entry = entry.ok_or(RegistryError::ScopeQuery { scope: value })?;
         for earlier in &entries {
             if let Some(id) = entry.ids.iter().find(|id| earlier.ids.contains(id)) {
                 return Err(RegistryError::ScopeIds {
@@ -1573,8 +1756,8 @@ fn read_scopes(queries: &[Box<dyn ScopeQuery>]) -> Result<Vec<ScopeEntry>, Regis
 #[cfg(feature = "match")]
 pub(crate) trait Catalog {
     fn placed(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn Format>>;
-    fn profile(&self, kind: &TransactionType<'_>) -> Option<ProfileHandle>;
-    fn profile_ref(&self, handle: ProfileHandle) -> Option<&dyn ErasedProfile>;
+    /// The profile registered for the type, with its handle.
+    fn profiled(&self, kind: &TransactionType<'_>) -> Option<(ProfileHandle, &dyn ErasedProfile)>;
     /// The profiles that reserve the credential.
     fn reserving(
         &self,
@@ -1589,12 +1772,9 @@ impl<H: Build> Catalog for Registry<H> {
         Self::placed(self, id)
     }
 
-    fn profile(&self, kind: &TransactionType<'_>) -> Option<ProfileHandle> {
-        Self::profile(self, kind)
-    }
-
-    fn profile_ref(&self, handle: ProfileHandle) -> Option<&dyn ErasedProfile> {
-        Self::profile_ref(self, handle)
+    fn profiled(&self, kind: &TransactionType<'_>) -> Option<(ProfileHandle, &dyn ErasedProfile)> {
+        self.typed(kind)
+            .map(|(handle, typed)| (handle, typed.profile.upcast()))
     }
 
     fn reserving(
@@ -1603,8 +1783,8 @@ impl<H: Build> Catalog for Registry<H> {
         additions: &dyn ViewAdditions,
     ) -> Result<Vec<ProfileHandle>, super::Fault> {
         let mut reserving = Vec::new();
-        for (position, profile) in self.profiles.iter().enumerate() {
-            let profile: &dyn ErasedProfile = profile.upcast();
+        for (position, typed) in self.profiles.iter().enumerate() {
+            let profile: &dyn ErasedProfile = typed.profile.upcast();
             if profile.reserves(credential, additions)? {
                 reserving.push(ProfileHandle(position));
             }
@@ -1640,7 +1820,7 @@ impl ProfileFinding {
 /// A finding from a profile the registry does not hold.
 #[cfg(feature = "resolve")]
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
+#[explain(id = "inform_error")]
 #[error("a finding comes from a profile the registry does not hold")]
 pub struct InformError;
 
@@ -1654,7 +1834,12 @@ pub trait ErasedProfile: Send + Sync {
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal>;
     fn members(&self, placement: Placement) -> Option<&[Member]>;
     #[cfg(feature = "match")]
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate>;
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate>;
     #[cfg(feature = "match")]
     fn reserves(
         &self,
@@ -1674,8 +1859,13 @@ impl<P: Profile> ErasedProfile for P {
     }
 
     #[cfg(feature = "match")]
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
-        Profile::bind(self, binding, env)
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate> {
+        Profile::bind(self, binding, env, context)
     }
 
     #[cfg(feature = "match")]

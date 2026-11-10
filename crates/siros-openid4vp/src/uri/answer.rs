@@ -2,7 +2,7 @@
 //! the members registered readers declare.
 
 use dyn_clone::DynClone;
-use siros_explain::{Explain, Explained};
+use siros_explain::Explain;
 
 use super::RedirectTarget;
 use crate::json::{Node, Object};
@@ -32,7 +32,7 @@ pub trait AnswerReader: DynClone + Send + Sync {
     fn read(
         &self,
         members: &AnswerMembers<'_>,
-    ) -> Result<Option<Box<dyn Explained>>, Box<dyn Explained>>;
+    ) -> Result<Option<Box<dyn Explain>>, Box<dyn Explain>>;
 }
 
 dyn_clone::clone_trait_object!(AnswerReader);
@@ -65,22 +65,24 @@ impl<'a> AnswerMembers<'a> {
 #[derive(Debug)]
 pub struct ResponseUriAnswer {
     redirect: Option<RedirectTarget>,
-    outcomes: Vec<Box<dyn Explained>>,
+    outcomes: Vec<Box<dyn Explain>>,
 }
 
 /// A Response URI answer the wallet cannot read.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.response_uri")]
 pub enum AnswerError {
     /// No JSON object with unique member names.
     #[error("the answer is no JSON object with unique member names")]
+    #[explain(id = "response_uri.not_object")]
     NotObject,
     /// `redirect_uri` is no URI with a scheme.
     #[error("redirect_uri is no URI with a scheme")]
+    #[explain(id = "response_uri.redirect_uri")]
     RedirectUri,
     /// A registered reader refuses its members: its rule.
     #[error("{0}")]
-    Reader(#[explain(skip)] Box<dyn Explained>),
+    #[explain(id = "response_uri.reader")]
+    Reader(#[source] Box<dyn Explain>),
 }
 
 impl ResponseUriAnswer {
@@ -125,7 +127,7 @@ impl ResponseUriAnswer {
 
     /// The outcomes the readers read, in their registration order.
     #[must_use]
-    pub fn outcomes(&self) -> &[Box<dyn Explained>] {
+    pub fn outcomes(&self) -> &[Box<dyn Explain>] {
         &self.outcomes
     }
 }

@@ -22,28 +22,25 @@ const WITHHELD: &str = "org.example.withheld";
 
 /// Why a view cannot be issued.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "testkit.issue")]
 pub enum IssueError {
     /// The view lacks a member, or holds one of another type.
-    #[error("the view's {0}")]
-    View(#[explain(name = "member")] &'static str),
+    #[error("the view's {member}")]
+    #[explain(id = "issue.view")]
+    View {
+        /// The member's name.
+        member: &'static str,
+    },
     /// The view repeats a member name.
     #[error(transparent)]
     Json(#[from] siros_openid4vp::json::JsonError),
     /// A value does not convert or encode.
     #[error("a value of the view")]
-    Cbor(
-        #[from]
-        #[explain(name = "cause")]
-        CborError,
-    ),
+    #[explain(id = "issue.cbor")]
+    Cbor(#[from] CborError),
     /// coset could not write IssuerAuth.
     #[error("IssuerAuth")]
-    Cose(
-        #[source]
-        #[explain(skip)]
-        coset::CoseError,
-    ),
+    #[explain(id = "issue.cose")]
+    Cose(#[source] coset::CoseError),
 }
 
 /// `#6.24(bstr .cbor item)`: an embedded data item.
@@ -66,7 +63,11 @@ fn device_key(curve: &str, alg: Option<i64>) -> Result<Vec<(Value, Value)>, Issu
         "brainpoolP320r1" => (iana::KeyType::EC2, iana::EllipticCurve::BrainpoolP320R1),
         "brainpoolP384r1" => (iana::KeyType::EC2, iana::EllipticCurve::BrainpoolP384R1),
         "brainpoolP512r1" => (iana::KeyType::EC2, iana::EllipticCurve::BrainpoolP512R1),
-        _ => return Err(IssueError::View("device_curve")),
+        _ => {
+            return Err(IssueError::View {
+                member: "device_curve",
+            });
+        }
     };
     let int = |value: i64| Value::Integer(value.into());
     let mut key = vec![
@@ -85,8 +86,11 @@ fn device_key(curve: &str, alg: Option<i64>) -> Result<Vec<(Value, Value)>, Issu
 
 fn integer(view: &Node<'_>, name: &'static str) -> Result<i64, IssueError> {
     match view.get(name) {
-        Some(Node::Number(number)) => number.text().parse().map_err(|_| IssueError::View(name)),
-        _ => Err(IssueError::View(name)),
+        Some(Node::Number(number)) => number
+            .text()
+            .parse()
+            .map_err(|_| IssueError::View { member: name }),
+        _ => Err(IssueError::View { member: name }),
     }
 }
 
@@ -132,7 +136,9 @@ fn key_authorizations(view: &Node<'_>) -> Result<Option<Value>, IssueError> {
     let Some(stated) = view.get("key_authorizations") else {
         return Ok(None);
     };
-    let bad = || IssueError::View("key_authorizations");
+    let bad = || IssueError::View {
+        member: "key_authorizations",
+    };
     let texts = |node: &Node<'_>| -> Result<Value, IssueError> {
         let items = node
             .as_array()
@@ -196,17 +202,20 @@ pub fn issue_as(
     let doctype = view
         .get("type")
         .and_then(Node::as_str)
-        .ok_or(IssueError::View("type"))?;
+        .ok_or(IssueError::View { member: "type" })?;
     let values = view
         .get("values")
         .and_then(Node::as_object)
-        .ok_or(IssueError::View("values"))?;
-    let alg = iana::Algorithm::from_i64(integer(view, "issuer_alg")?)
-        .ok_or(IssueError::View("issuer_alg"))?;
+        .ok_or(IssueError::View { member: "values" })?;
+    let alg = iana::Algorithm::from_i64(integer(view, "issuer_alg")?).ok_or(IssueError::View {
+        member: "issuer_alg",
+    })?;
     let curve = view
         .get("device_curve")
         .and_then(Node::as_str)
-        .ok_or(IssueError::View("device_curve"))?;
+        .ok_or(IssueError::View {
+            member: "device_curve",
+        })?;
     let text = |s: &str| Value::Text(s.to_owned());
     let (mut spaces, mut digests, mut digest_id) = (Vec::new(), Vec::new(), 0u64);
     // The reference model's views hold scalars and arrays beside the name spaces, which no
@@ -319,7 +328,7 @@ pub fn registered_view(view: &Node<'_>) -> Result<Node<'static>, IssueError> {
     let values = view
         .get("values")
         .and_then(Node::as_object)
-        .ok_or(IssueError::View("values"))?;
+        .ok_or(IssueError::View { member: "values" })?;
     let shown = values
         .members()
         .iter()

@@ -38,7 +38,7 @@ use super::config;
 /// The test Verifier's endpoints.
 const RESPONSE_URI: &str = "https://verifier.example/post";
 const ORIGIN: &str = "https://verifier.example";
-const TEST_MODE: ModeName = siros_explain::checked!(ModeName, "test.mode");
+const TEST_MODE: ModeName = siros_syntax::checked!(ModeName, "test.mode");
 
 /// How a mode under test registers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -548,6 +548,9 @@ fn bound(authenticated: &Authenticated<'_>) -> Option<String> {
 fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Case, k: usize) {
     let at = format!("{} case {k} {case:?}", under.name());
     let host = TestHost::default();
+    let context = siros_testkit::render::Language::English
+        .shared()
+        .expect("the test app");
     let parameters = case.parameters(under, k);
     let object;
     let data;
@@ -594,7 +597,12 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
     let authenticated = match envelope
         .questions(registry, &config(), &host)
         .and_then(|pending| {
-            pending.authenticate(|evaluation| trust.decide(evaluation), &config(), &host)
+            pending.authenticate(
+                |evaluation| trust.decide(evaluation),
+                &config(),
+                context,
+                &host,
+            )
         }) {
         Ok(authenticated) => authenticated,
         Err(rejected) => {
@@ -687,10 +695,7 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
     };
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("a wallet");
     let env = env("en");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let Ok(ids) = first_selection(&request, &wallet, registry, &env, &rendering) else {
+    let Ok(ids) = first_selection(&request, &wallet, registry, &env, context) else {
         match route.unmet(
             siros_openid4vp::matching::UnmetCode::AccessDenied,
             DcApiErrors::Respond,
@@ -714,16 +719,13 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
         return;
     };
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
     let built = Prepared::prepare(
         &authenticated,
         &ids,
         &wallet,
         registry,
         &env,
-        &rendering,
+        context,
         &host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host));
@@ -868,6 +870,9 @@ fn replay(runs: usize) -> usize {
 /// The bytes of the case's delivery: its endpoint and body, or its DC API data.
 fn delivery_bytes(under: &Under, registry: &Registry<TestHost>, case: &Case) -> Vec<u8> {
     let host = TestHost::default();
+    let context = siros_testkit::render::Language::English
+        .shared()
+        .expect("the test app");
     let parameters = case.parameters(under, 0);
     let object = case.object(&parameters);
     let data = format!(r#"{{"request":"{object}"}}"#);
@@ -891,28 +896,27 @@ fn delivery_bytes(under: &Under, registry: &Registry<TestHost>, case: &Case) -> 
     let authenticated = envelope
         .questions(registry, &config(), &host)
         .and_then(|pending| {
-            pending.authenticate(|evaluation| trust.decide(evaluation), &config(), &host)
+            pending.authenticate(
+                |evaluation| trust.decide(evaluation),
+                &config(),
+                context,
+                &host,
+            )
         })
         .expect("authenticated");
     let request = Request::parse(authenticated.envelope()).expect("a request");
     let held = [Held::answering("c", &["q"], &[])];
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("a wallet");
     let env = env("en");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let ids = first_selection(&request, &wallet, registry, &env, &rendering).expect("a selection");
+    let ids = first_selection(&request, &wallet, registry, &env, context).expect("a selection");
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
     let built = Prepared::prepare(
         &authenticated,
         &ids,
         &wallet,
         registry,
         &env,
-        &rendering,
+        context,
         &host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))

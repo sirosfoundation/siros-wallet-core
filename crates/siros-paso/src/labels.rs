@@ -1,20 +1,26 @@
-//! Proof Metadata §3.3: what every label meets, and the directional rule payload strings meet
-//! too.
+//! Proof Metadata §3.3: what every label meets as written, and the directional rule payload
+//! strings meet too. Every label also shows a visible character ([`DisplayText::visible`]), which
+//! Credential Manager requires of a field's name (android-credman-sys ABI.md §5,
+//! `field_display_name`).
 
 use std::num::NonZeroUsize;
 
 use siros_explain::Explain;
+use siros_openid4vp::text::DisplayText;
 use unicode_segmentation::UnicodeSegmentation;
+
+use crate::markdown::spans;
 
 /// A string that breaks the directional rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.directional")]
 pub enum Directional {
     /// U+202A to U+202E: an embedding or override.
     #[error("directional embedding or override U+{:04X}", u32::from(*.0))]
+    #[explain(id = "directional.embedding")]
     Embedding(#[explain(skip)] char),
     /// An isolate U+2066 to U+2068 without a later U+2069.
     #[error("a directional isolate is not terminated by U+2069")]
+    #[explain(id = "directional.unterminated_isolate")]
     UnterminatedIsolate,
 }
 
@@ -106,50 +112,59 @@ impl LabelLimits {
     }
 }
 
-/// A label that breaks Proof Metadata §3.3.
+/// A label that breaks Proof Metadata §3.3, or that shows no visible character.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.label")]
 pub enum LabelViolation {
     /// A C0 (U+0000 to U+001F) or C1 (U+0080 to U+009F) control character.
     #[error("control character U+{:04X}", u32::from(*.0))]
+    #[explain(id = "label.control")]
     Control(#[explain(skip)] char),
     /// The directional rule.
     #[error(transparent)]
     Directional(#[from] Directional),
     /// More extended grapheme clusters than the limit allows.
     #[error("{clusters} grapheme clusters, more than {max}")]
+    #[explain(id = "label.too_long")]
     TooLong {
         /// The clusters.
         clusters: usize,
         /// The limit.
         max: usize,
     },
+    /// No character the label shows is visible ([`DisplayText::visible`]).
+    #[error("the label shows no visible character")]
+    #[explain(id = "label.invisible")]
+    Invisible,
 }
 
-/// A label's text that meets Proof Metadata §3.3 under its limit.
+/// A label's text that meets Proof Metadata §3.3 under its limit as written and shows a visible
+/// character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LabelText<'t>(&'t str);
 
 impl<'t> LabelText<'t> {
-    /// The text when it meets the rules: no control character, the directional rule, at most
-    /// `limit` extended grapheme clusters.
+    /// A plain label's text when it meets the rules: no control character, the directional rule,
+    /// at most `limit` extended grapheme clusters, and a visible character.
+    ///
+    /// # Errors
+    ///
+    /// [`LabelViolation`]: the first rule the text breaks, in that order.
     pub fn parse(text: &'t str, limit: NonZeroUsize) -> Result<Self, LabelViolation> {
-        if let Some(control) = text
-            .chars()
-            .find(|c| matches!(u32::from(*c), 0..0x20 | 0x80..0xA0))
-        {
-            return Err(LabelViolation::Control(control));
-        }
-        if let Some(directional) = Directional::find(text) {
-            return Err(directional.into());
-        }
-        let clusters = text.graphemes(true).count();
-        if clusters > limit.get() {
-            return Err(LabelViolation::TooLong {
-                clusters,
-                max: limit.get(),
-            });
-        }
+        as_written(text, limit)?;
+        shows(text.chars())?;
+        Ok(Self(text))
+    }
+
+    /// A `mini_markdown` label's text when it meets the rules: as written, no control character,
+    /// the directional rule and at most `limit` extended grapheme clusters; and a visible
+    /// character in the text of its spans ([`spans`]), its markup left out.
+    ///
+    /// # Errors
+    ///
+    /// [`LabelViolation`]: the first rule the text breaks, in that order.
+    pub fn markdown(text: &'t str, limit: NonZeroUsize) -> Result<Self, LabelViolation> {
+        as_written(text, limit)?;
+        shows(spans(text).iter().flat_map(|span| span.text.chars()))?;
         Ok(Self(text))
     }
 
@@ -157,5 +172,44 @@ impl<'t> LabelText<'t> {
     #[must_use]
     pub const fn as_str(self) -> &'t str {
         self.0
+    }
+}
+
+/// Proof Metadata §3.3 on a label as written: no C0 (U+0000 to U+001F) or C1 (U+0080 to U+009F)
+/// control character, the directional rule, at most `limit` extended grapheme clusters.
+///
+/// # Errors
+///
+/// [`LabelViolation`]: the first rule the text breaks, in that order.
+pub(crate) fn as_written(text: &str, limit: NonZeroUsize) -> Result<(), LabelViolation> {
+    if let Some(control) = text
+        .chars()
+        .find(|c| matches!(u32::from(*c), 0..0x20 | 0x80..0xA0))
+    {
+        return Err(LabelViolation::Control(control));
+    }
+    if let Some(directional) = Directional::find(text) {
+        return Err(directional.into());
+    }
+    let clusters = text.graphemes(true).count();
+    if clusters > limit.get() {
+        return Err(LabelViolation::TooLong {
+            clusters,
+            max: limit.get(),
+        });
+    }
+    Ok(())
+}
+
+/// The visible-character rule over the characters a label shows.
+///
+/// # Errors
+///
+/// [`LabelViolation::Invisible`]: no character of `shown` is visible ([`DisplayText::visible`]).
+fn shows(shown: impl IntoIterator<Item = char>) -> Result<(), LabelViolation> {
+    if shown.into_iter().any(DisplayText::visible) {
+        Ok(())
+    } else {
+        Err(LabelViolation::Invisible)
     }
 }

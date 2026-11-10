@@ -19,7 +19,6 @@ use crate::error::{
 };
 use crate::sd_jwt::{JwtType, SdJwt};
 use crate::tree::{ClaimValue, Element, IssuedClaim, Object};
-use crate::type_metadata;
 
 /// The key of the document a registration holds, and the Issuer-signed JWT's `typ` (SD-JWT VC
 /// §3.2.1).
@@ -28,17 +27,6 @@ pub const DOCUMENT: &str = "dc+sd-jwt";
 /// The members of an OpenID4VCI display entry that SD-JWT VC §8.1.1.1 holds under
 /// `rendering.simple`.
 const SIMPLE_RENDERING: [&str; 3] = ["logo", "background_color", "text_color"];
-
-/// Whether the wallet loaded the `display` of [`Resolved::view_metadata`]'s document as a defined
-/// module ([`type_metadata::convert`]).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum DisplayModule {
-    /// It did, so the view names the module when something states metadata.
-    Loaded,
-    /// It did not.
-    #[default]
-    NotLoaded,
-}
 
 /// What the wallet resolved beside the issued SD-JWT.
 #[derive(Debug, Clone, Default)]
@@ -49,8 +37,6 @@ pub struct Resolved<'a> {
     /// What OpenID4VCI states of the credential's display, which follows the Type Metadata per
     /// language.
     pub issued: IssuedMetadata<'a>,
-    /// Whether the view names [`Resolved::view_metadata`]'s `display` as a defined module.
-    pub display: DisplayModule,
     /// Each type the credential's type extends, nearest first (§6.4).
     pub extends: Vec<CredentialType<'a>>,
     /// The curve of the issuer's key: RFC 7518 §3.4 and RFC 9864 fix it for each JWS algorithm but
@@ -121,7 +107,7 @@ impl Registered {
             .into_iter()
             .find(|claim| sd_jwt.claims().get(claim.name()).is_some_and(disclosed))
         {
-            return Err(RegistrationError::SelectivelyDisclosed(claim));
+            return Err(RegistrationError::SelectivelyDisclosed { claim });
         }
         let view = view(&sd_jwt, resolved)?;
         let holder = match sd_jwt.claims().get("cnf") {
@@ -136,7 +122,7 @@ impl Registered {
     }
 
     /// The view: `{"type", "metadata", "values", "issuer"?, "alg", "curve"?, "key_alg"?,
-    /// "key_curve"?, "extends"?, "validity"?, "issuer_display"?, "display_module"?}`.
+    /// "key_curve"?, "extends"?, "validity"?, "issuer_display"?}`.
     #[must_use]
     pub fn view(&self) -> ViewBytes<'_> {
         ViewBytes::new(&self.view)
@@ -178,19 +164,6 @@ fn view(sd_jwt: &SdJwt, resolved: &Resolved<'_>) -> Result<Node<'static>, Regist
     let claims = sd_jwt.claims();
     let kind = string(claims.get("vct")).ok_or(RegistrationError::Vct)?;
     let metadata = resolved.view_metadata()?;
-    let stated = resolved.metadata.is_some()
-        || resolved.issued.configuration.is_some()
-        || resolved.issued.response.is_some();
-    let display_module = (resolved.display == DisplayModule::Loaded && stated).then(|| {
-        let digest = type_metadata::module_of(&metadata);
-        let hex: String = digest
-            .digest()
-            .bytes()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        text(&hex)
-    });
     let issuer = match claims.get("iss") {
         None => None,
         Some(iss) => Some(string(Some(iss)).ok_or(RegistrationError::Iss)?),
@@ -218,7 +191,6 @@ fn view(sd_jwt: &SdJwt, resolved: &Resolved<'_>) -> Result<Node<'static>, Regist
         "extends" => extends,
         "validity" => validity(claims)?,
         "issuer_display" => resolved.issued.issuer_display_member()?,
-        "display_module" => display_module,
     }))
 }
 
@@ -324,7 +296,7 @@ fn holder_key(claims: &Object) -> Result<Option<(&str, &str)>, HolderKeyFault> {
         .iter()
         .find(|coordinate| !shape.holds(string(jwk.get(coordinate.name()))))
     {
-        return Err(HolderKeyFault::Coordinate(*name));
+        return Err(HolderKeyFault::Coordinate { coordinate: *name });
     }
     let alg = match jwk.get("alg") {
         None => shape.alg,
@@ -349,7 +321,7 @@ fn validity(claims: &Object) -> Result<Option<Node<'static>>, RegistrationError>
             Some(ClaimValue::Number(number)) if number.to_double().is_some_and(f64::is_finite) => {
                 Ok(Some(Node::Number(number.clone())))
             }
-            Some(_) => Err(RegistrationError::Validity(claim)),
+            Some(_) => Err(RegistrationError::Validity { claim }),
         }
     };
     let (not_before, not_after) = (date(ValidityClaim::Nbf)?, date(ValidityClaim::Exp)?);

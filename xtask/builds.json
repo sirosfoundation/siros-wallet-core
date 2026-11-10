@@ -19,7 +19,8 @@
         {
           "name": "siros-i18n",
           "features": [
-            "load"
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -52,16 +53,16 @@
         "ryu",
         "sponge-cursor",
         "der_derive",
-        "flagset"
+        "flagset",
+        "inventory"
       ],
       "exact": [
         {
           "name": "siros-i18n",
           "features": [
-            "list",
-            "load",
-            "number",
-            "render"
+            "derive",
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -81,19 +82,26 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "number"
+            ]
           }
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
             "name": "siros-i18n",
             "features": [
-              "list",
-              "number",
-              "render"
+              "derive",
+              "number"
             ]
           }
         ]
@@ -118,7 +126,9 @@
         {
           "name": "siros-i18n",
           "features": [
-            "load"
+            "date",
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -144,17 +154,17 @@
         "ryu",
         "sponge-cursor",
         "der_derive",
-        "flagset"
+        "flagset",
+        "inventory"
       ],
       "exact": [
         {
           "name": "siros-i18n",
           "features": [
             "date",
-            "list",
-            "load",
-            "number",
-            "render"
+            "derive",
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -175,19 +185,28 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "date",
+              "number"
+            ]
           }
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
             "name": "siros-i18n",
             "features": [
-              "list",
-              "number",
-              "render"
+              "date",
+              "derive",
+              "number"
             ]
           }
         ]
@@ -215,7 +234,8 @@
         {
           "name": "siros-i18n",
           "features": [
-            "load"
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -238,16 +258,16 @@
         "uuid",
         "zerocopy",
         "zerocopy-derive",
-        "sponge-cursor"
+        "sponge-cursor",
+        "inventory"
       ],
       "exact": [
         {
           "name": "siros-i18n",
           "features": [
-            "list",
-            "load",
-            "number",
-            "render"
+            "derive",
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -266,19 +286,26 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "number"
+            ]
           }
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
             "name": "siros-i18n",
             "features": [
-              "list",
-              "number",
-              "render"
+              "derive",
+              "number"
             ]
           }
         ]
@@ -310,7 +337,10 @@
         {
           "name": "siros-i18n",
           "features": [
-            "load"
+            "currency",
+            "date",
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -337,7 +367,8 @@
         "zerocopy-derive",
         "percent-encoding",
         "ryu",
-        "sponge-cursor"
+        "sponge-cursor",
+        "inventory"
       ],
       "exact": [
         {
@@ -345,10 +376,9 @@
           "features": [
             "currency",
             "date",
-            "list",
-            "load",
-            "number",
-            "render"
+            "derive",
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -372,11 +402,21 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "currency",
+              "date",
+              "number"
+            ]
           }
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
@@ -384,9 +424,8 @@
             "features": [
               "currency",
               "date",
-              "list",
-              "number",
-              "render"
+              "derive",
+              "number"
             ]
           }
         ]
@@ -422,7 +461,9 @@
         {
           "name": "siros-i18n",
           "features": [
-            "load"
+            "date",
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -438,17 +479,17 @@
         "blake2",
         "k12",
         "uuid",
-        "sponge-cursor"
+        "sponge-cursor",
+        "inventory"
       ],
       "exact": [
         {
           "name": "siros-i18n",
           "features": [
             "date",
-            "list",
-            "load",
-            "number",
-            "render"
+            "derive",
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -472,19 +513,28 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "date",
+              "number"
+            ]
           }
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
             "name": "siros-i18n",
             "features": [
-              "list",
-              "number",
-              "render"
+              "date",
+              "derive",
+              "number"
             ]
           }
         ]
@@ -531,7 +581,10 @@
         {
           "name": "siros-i18n",
           "features": [
-            "load"
+            "currency",
+            "date",
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -553,7 +606,8 @@
         "k12",
         "zerocopy",
         "zerocopy-derive",
-        "sponge-cursor"
+        "sponge-cursor",
+        "inventory"
       ],
       "exact": [
         {
@@ -561,10 +615,9 @@
           "features": [
             "currency",
             "date",
-            "list",
-            "load",
-            "number",
-            "render"
+            "derive",
+            "nfc",
+            "number"
           ]
         }
       ],
@@ -592,11 +645,21 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "currency",
+              "date",
+              "number"
+            ]
           }
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
@@ -604,9 +667,8 @@
             "features": [
               "currency",
               "date",
-              "list",
-              "number",
-              "render"
+              "derive",
+              "number"
             ]
           }
         ]
@@ -619,7 +681,10 @@
       "names": [
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -628,7 +693,10 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -637,7 +705,10 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -646,7 +717,10 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -656,7 +730,10 @@
         "siros-x509",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -665,7 +742,10 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -674,7 +754,10 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -685,7 +768,10 @@
         "siros-x509",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -694,7 +780,10 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -703,7 +792,10 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -712,31 +804,60 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
       "name": "siros-i18n",
       "names": [
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
+      ]
+    },
+    {
+      "name": "siros-i18n-derive",
+      "names": [
+        "siros-derive-internals"
       ]
     },
     {
       "name": "siros-explain",
       "names": [
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
+      ]
+    },
+    {
+      "name": "siros-syntax",
+      "names": [
+        "siros-explain",
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
       "name": "siros-explain-derive",
+      "names": [
+        "siros-derive-internals"
+      ]
+    },
+    {
+      "name": "siros-derive-internals",
       "names": []
     },
     {
       "name": "siros-cldr",
       "names": [
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-derive-internals"
       ]
     },
     {
@@ -749,7 +870,10 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {

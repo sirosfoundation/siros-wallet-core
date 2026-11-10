@@ -1,58 +1,112 @@
-//! The wallet's configuration the display reads, and its own texts.
+//! The wallet's configuration the display reads, and the statements of its own texts.
 
 use std::borrow::Cow;
+use std::fmt;
 use std::num::NonZeroU32;
 
 use siros_explain::Explain;
-
-use siros_i18n::RenderOptions;
+use siros_i18n::Message;
+use siros_syntax::{Count, Date, DateTime, Decimal};
 
 use crate::ids::LocaleTag;
 use crate::media::{MediaType, NotMediaType};
 
-/// A text of the wallet's own: a message of the crate's module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
-#[explain(domain = "openid4vp.wallet")]
+/// A text of the wallet's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Message)]
 pub enum WalletText {
     /// The denial action.
+    #[message(id = "wallet.deny")]
     Deny,
     /// The confirm action of a request without a transaction.
+    #[message(id = "wallet.share")]
     Share,
     /// The empty choice.
+    #[message(id = "wallet.none")]
     None,
     /// A card without a name.
+    #[message(id = "wallet.credential")]
     Credential,
     /// The title of a request without a transaction.
+    #[message(id = "wallet.request_title")]
     RequestTitle,
     /// A claim whose path names no member.
+    #[message(id = "wallet.claim")]
     Claim,
     /// A claim's `null` value.
+    #[message(id = "wallet.null")]
     Null,
 }
 
-/// A claim's value the wallet words.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Explain)]
-#[explain(domain = "openid4vp.wallet")]
+/// A value shown alone, a credential's or a request's, carrying its literal text: the wallet's
+/// wording formats it (`{$value :number}`, `{$value :siros:date}`) or writes it as given.
+#[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub enum ClaimText {
-    /// A byte string, shown by its `length` in bytes.
+    /// A string value, as the credential wrote it.
+    #[message(id = "wallet.text")]
+    Text {
+        /// The string.
+        value: String,
+    },
+    /// A number value as an exact number.
+    #[message(id = "wallet.number")]
+    Number {
+        /// The number.
+        value: ExactNumber,
+    },
+    /// A date value.
+    #[message(id = "wallet.date")]
+    Date {
+        /// The date.
+        value: Date,
+    },
+    /// A date and time value.
+    #[message(id = "wallet.date_time")]
+    DateTime {
+        /// The date and time.
+        value: DateTime,
+    },
+    /// A byte string value, shown by its `length` in bytes.
+    #[message(id = "wallet.bytes")]
     Bytes {
         /// The bytes it holds.
-        length: siros_explain::Count,
+        length: Count,
+    },
+    /// A label, a title or a name the credential's metadata writes, or a member name standing
+    /// in for a label, as written.
+    #[message(id = "wallet.label")]
+    Label {
+        /// The text.
+        label: String,
     },
 }
 
-/// A boolean's text, which a transaction's overlay shows: the module's request messages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
-#[explain(domain = "openid4vp.wallet")]
-pub enum BooleanText {
-    /// A true boolean.
-    Yes,
-    /// A false boolean.
-    No,
+/// A number as an exact value. Its `Display` is its literal, which `:number` reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExactNumber {
+    /// A natural number.
+    Count(Count),
+    /// Another number.
+    Decimal(Decimal),
 }
 
-impl siros_explain::Requested for BooleanText {
-    type Module = crate::CrateModule;
+impl fmt::Display for ExactNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Count(count) => count.fmt(f),
+            Self::Decimal(decimal) => decimal.fmt(f),
+        }
+    }
+}
+
+/// A boolean's text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Message)]
+pub enum BooleanText {
+    /// A true boolean.
+    #[message(id = "wallet.yes")]
+    Yes,
+    /// A false boolean.
+    #[message(id = "wallet.no")]
+    No,
 }
 
 /// An image media type (RFC 6838 §4.2.3): the essence of a media type of top-level type `image`.
@@ -61,14 +115,17 @@ pub struct ImageMedia(Cow<'static, str>);
 
 /// A media type that names no image.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.image_media")]
 pub enum NotImageMedia {
     /// The text is no media type.
     #[error(transparent)]
     Media(#[from] NotMediaType),
     /// The top-level type is another than `image` (RFC 6838 §4.2.3).
-    #[error("{0} is no image media type (RFC 6838 §4.2.3)")]
-    Type(#[explain(name = "media")] String),
+    #[error("{media} is no image media type (RFC 6838 §4.2.3)")]
+    #[explain(id = "image_media.type")]
+    Type {
+        /// The media type.
+        media: String,
+    },
 }
 
 impl ImageMedia {
@@ -87,7 +144,9 @@ impl ImageMedia {
     pub fn of(media: &MediaType) -> Result<Self, NotImageMedia> {
         match media.essence().split_once('/') {
             Some(("image", _)) => Ok(Self(Cow::Owned(media.essence().to_owned()))),
-            _ => Err(NotImageMedia::Type(media.essence().to_owned())),
+            _ => Err(NotImageMedia::Type {
+                media: media.essence().to_owned(),
+            }),
         }
     }
 
@@ -163,47 +222,35 @@ pub enum Choice {
 
 /// A wallet configuration that cannot exist.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.env")]
 pub enum EnvError {
     /// The priority list is empty.
     #[error("the wallet's locale priority list is empty")]
+    #[explain(id = "env.no_locale")]
     NoLocale,
 }
 
 /// The wallet's configuration the display reads: the End-User's language priority list, the
-/// app's fallback list, the rendering options, the icons resolved at issuance and the offer
-/// shape.
+/// icons resolved at issuance and the offer shape. The `siros_i18n::Context` the wallet passes
+/// holds the presentation's wording in its one locale.
 ///
-/// The core uses the priority list as given. A profile that selects its texts' locale itself, as
-/// PaSO View §4 does, shows its module in that locale; the presentation's other texts are in the
-/// first language of the list headed by that locale and its RFC 4647 §3.4 truncations (`de-CH`,
-/// then `de`) that every module they draw from matches by RFC 4647 basic filtering (§3.3.1),
-/// where a tag matches an equal tag and the tags extending it, so `en` matches `en-GB` and
-/// `en-US` matches no `en`. Modules tag their texts by language, and by region only for a
-/// regional variant. An app therefore puts each tag's generic form right after it, the language
-/// with its script when the tag names one: `[en-US, en]`, `[zh-Hant-TW, zh-Hant]`. The fallback
-/// list holds the languages the app shows when no tag of the priority list serves every module
-/// and none of them requires a language the End-User understands.
+/// The priority list chooses, as given, among the entries a credential's or a transaction's
+/// metadata writes per language: SD-JWT VC §7 and §8.2's display entries, PaSO View §4's Lookup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Env {
     priority: Vec<LocaleTag>,
-    fallback: Vec<LocaleTag>,
-    options: RenderOptions,
     icons: Vec<(String, Icon)>,
     choice: Choice,
 }
 
 impl Env {
-    /// The configuration: a non-empty priority list, the fallback list, the rendering options,
-    /// the icons resolved at issuance by logo URI and the offer shape.
+    /// The configuration: a non-empty priority list, the icons resolved at issuance by logo URI
+    /// and the offer shape.
     ///
     /// # Errors
     ///
     /// [`EnvError::NoLocale`] for an empty priority list.
     pub fn new(
         priority: Vec<LocaleTag>,
-        fallback: Vec<LocaleTag>,
-        options: RenderOptions,
         icons: Vec<(String, Icon)>,
         choice: Choice,
     ) -> Result<Self, EnvError> {
@@ -212,8 +259,6 @@ impl Env {
         }
         Ok(Self {
             priority,
-            fallback,
-            options,
             icons,
             choice,
         })
@@ -225,12 +270,6 @@ impl Env {
         &self.priority
     }
 
-    /// The app's fallback list.
-    #[must_use]
-    pub fn fallback(&self) -> &[LocaleTag] {
-        &self.fallback
-    }
-
     /// The card's icon: the logo resolved at issuance, else the wallet's default (Credential
     /// Manager drops an entry without an icon).
     #[must_use]
@@ -238,12 +277,6 @@ impl Env {
         logo.filter(|uri| !uri.is_empty())
             .and_then(|uri| self.icons.iter().find(|(known, _)| known == uri))
             .map_or(&Icon::DEFAULT, |(_, icon)| icon)
-    }
-
-    /// The rendering options.
-    #[must_use]
-    pub const fn options(&self) -> RenderOptions {
-        self.options
     }
 
     /// The offer shape.

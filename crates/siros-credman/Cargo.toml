@@ -1,29 +1,37 @@
 [package]
 name = "siros-credman"
 version = "0.1.0"
-description = "Android Credential Manager's entries for the SIROS wallet core's matcher: the Standard and Payment entries of a consent entry, and the delegation of a set (A9, K4)"
+description = "Android Credential Manager's entries for the SIROS wallet core's matcher: the Standard and Payment entries of a consent entry, the delegation of a set (A9, K4), and the registration the matcher reads its wording from"
 edition = "2024"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
+readme = "README.md"
 publish = false
 
 [features]
-# The registration writer's part: the package of the modules with the texts no request changes
-# precomputed, through siros-i18n's loader.
-register = ["siros-i18n/load"]
+# The registration writer, which the wallet links. It checks every source with siros-i18n's
+# `Context::module_in_nfc`.
+register = ["siros-i18n/nfc"]
 
 [dependencies]
 siros-openid4vp = { workspace = true, features = ["match"] }
 siros-explain = { workspace = true }
-# The matcher's renderer, which the entry emission renders each text through.
-siros-i18n = { workspace = true, features = ["render"] }
+# General_Category, which a field's cut reads; siros-openid4vp links the same data.
+icu_properties = { workspace = true }
+# The matcher's context. The build that links the matcher picks the format functions.
+siros-i18n = { workspace = true }
+siros-syntax = { workspace = true }
 thiserror = { workspace = true }
+# The transaction sources already loaded: the writer and the reader load a byte-equal source once.
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 siros-credman = { path = ".", features = ["register"] }
 siros-testkit = { workspace = true }
+# The segmentation a field's cuts are checked against.
+unicode-segmentation = { workspace = true }
 
 [lints]
 workspace = true

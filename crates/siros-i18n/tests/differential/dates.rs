@@ -20,36 +20,37 @@ use icu_locale_core::Locale;
 use icu_time::zone::models::Base;
 use icu_time::zone::{TimeZone, UtcOffset};
 use icu_time::{DateTime as IcuDateTime, Time as IsoTime, TimeZoneInfo, ZonedDateTime};
-use siros_explain::{Date, DateTime, Explain, Offset, OffsetTime, Time};
+use siros_i18n::Context;
+use siros_syntax::{Date, DateTime, Offset, OffsetTime, Time};
 
-use crate::{Differences, LANGUAGES, module, plain, renderer};
+use crate::{Differences, LANGUAGES, context, plain};
 
-#[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "probe")]
+/// Each value is an argument's text: its type's ISO 8601 literal.
+#[derive(Debug, siros_i18n::Message)]
 enum Probe {
-    #[error("{d:?}")]
+    #[message(id = "date_short")]
     DateShort { d: Date },
-    #[error("{d:?}")]
+    #[message(id = "date_medium")]
     DateMedium { d: Date },
-    #[error("{d:?}")]
+    #[message(id = "date_long")]
     DateLong { d: Date },
-    #[error("{d:?}")]
+    #[message(id = "date_full")]
     DateFull { d: Date },
-    #[error("{t:?}")]
+    #[message(id = "time_short")]
     TimeShort { t: OffsetTime },
-    #[error("{t:?}")]
+    #[message(id = "time_medium")]
     TimeMedium { t: OffsetTime },
-    #[error("{t:?}")]
+    #[message(id = "time_long")]
     TimeLong { t: OffsetTime },
-    #[error("{t:?}")]
+    #[message(id = "time_full")]
     TimeFull { t: OffsetTime },
-    #[error("{d:?}")]
+    #[message(id = "both_short")]
     BothShort { d: DateTime },
-    #[error("{d:?}")]
+    #[message(id = "both_medium")]
     BothMedium { d: DateTime },
-    #[error("{d:?}")]
+    #[message(id = "both_long")]
     BothLong { d: DateTime },
-    #[error("{d:?}")]
+    #[message(id = "both_full")]
     BothFull { d: DateTime },
 }
 
@@ -160,12 +161,10 @@ fn time(hour: u8, minute: u8) -> Time {
 #[test]
 #[ignore = "the per-merge tier: CI's per-merge job runs it with --ignored"]
 fn dates_and_times_equal_icu4x() {
-    let formats = crate::cldr::formats(&[]);
     let days = days();
     let mut differences = Differences::default();
     for language in LANGUAGES {
-        let module = module::<Probe>(language, MESSAGES);
-        let renderer = renderer(&module, language, &formats);
+        let context = context(language, MESSAGES);
         let locale: Locale = language.parse().expect("a locale");
         let theirs = Theirs::of(&locale);
         let lengths = ["short", "medium", "long", "full"];
@@ -180,7 +179,7 @@ fn dates_and_times_equal_icu4x() {
             let input = icu_at(Date::new(2000, 1, 1).expect("a date"), hour, minute);
             for ((message, theirs), length) in ours.iter().zip(&theirs.time).zip(lengths) {
                 let at = format!("{language} time {length} {hour:02}:{minute:02}");
-                differences.check(&at, &plain(&renderer, message), &theirs(&input));
+                differences.check(&at, &plain(&context, message), &theirs(&input));
             }
         }
         for &d in &days {
@@ -193,7 +192,7 @@ fn dates_and_times_equal_icu4x() {
             ];
             for ((message, theirs), length) in ours.iter().zip(&theirs.date).zip(lengths) {
                 let at = format!("{language} date {length} {d:?}");
-                differences.check(&at, &plain(&renderer, message), &theirs(&midnight));
+                differences.check(&at, &plain(&context, message), &theirs(&midnight));
             }
             for &(hour, minute) in &TIMES {
                 let both = DateTime::new(d, time(hour, minute), None);
@@ -206,11 +205,11 @@ fn dates_and_times_equal_icu4x() {
                 ];
                 for ((message, theirs), length) in ours.iter().zip(&theirs.both).zip(lengths) {
                     let at = format!("{language} datetime {length} {d:?} {hour:02}:{minute:02}");
-                    differences.check(&at, &plain(&renderer, message), &theirs(&input));
+                    differences.check(&at, &plain(&context, message), &theirs(&input));
                 }
             }
             if d.day() == 1 {
-                zoned(&renderer, &theirs, language, d, &mut differences);
+                zoned(&context, &theirs, language, d, &mut differences);
             }
         }
     }
@@ -219,7 +218,7 @@ fn dates_and_times_equal_icu4x() {
 
 /// The long and full lengths of a time and a date and time at each offset.
 fn zoned(
-    renderer: &siros_i18n::Renderer<'_>,
+    context: &Context,
     theirs: &Theirs,
     language: &str,
     d: Date,
@@ -247,7 +246,7 @@ fn zoned(
         let theirs = theirs.time_zoned.iter().chain(&theirs.both_zoned);
         for (message, theirs) in ours.iter().zip(theirs) {
             let at = format!("{language} {message:?}");
-            differences.check(&at, &plain(renderer, message), &theirs(&input));
+            differences.check(&at, &plain(context, message), &theirs(&input));
         }
     }
 }
@@ -266,7 +265,7 @@ fn years() -> Vec<Date> {
 
 /// Whether ICU4X's text is the one cell where its pattern is CLDR 49's German `GyMMMMEd`,
 /// `d MMMM Y G, E`, whose week-based year `Y` ICU4X 2.4 writes as the letter: the full length
-/// before year 1000. The renderer writes the full pattern with CLDR's `Gy`.
+/// before year 1000. `:siros:date` writes the full pattern with CLDR's `Gy`.
 fn week_year_cell(language: &str, length: &str, year: u16, theirs: &str) -> bool {
     language == "de" && length == "full" && year < 1000 && theirs.contains(" Y ")
 }
@@ -274,11 +273,9 @@ fn week_year_cell(language: &str, length: &str, year: u16, theirs: &str) -> bool
 #[test]
 #[ignore = "the per-merge tier: CI's per-merge job runs it with --ignored"]
 fn years_equal_icu4x() {
-    let formats = crate::cldr::formats(&[]);
     let mut differences = Differences::default();
     for language in LANGUAGES {
-        let module = module::<Probe>(language, MESSAGES);
-        let renderer = renderer(&module, language, &formats);
+        let context = context(language, MESSAGES);
         let theirs = Theirs::of(&language.parse().expect("a locale"));
         let lengths = ["short", "medium", "long", "full"];
         for d in years() {
@@ -299,7 +296,7 @@ fn years_equal_icu4x() {
                 let theirs = theirs(&input);
                 if !week_year_cell(language, length, d.year(), &theirs) {
                     let at = format!("{language} {length} {message:?}");
-                    differences.check(&at, &plain(&renderer, message), &theirs);
+                    differences.check(&at, &plain(&context, message), &theirs);
                 }
             }
         }

@@ -125,8 +125,13 @@ pub(super) fn tampered(
         }
     }
     let nothing = Published::default();
-    let authenticated = fixtures::authenticate(case.request.envelope(), case.registry, &host(&[]))
-        .expect("authentic");
+    let authenticated = fixtures::authenticate(
+        case.request.envelope(),
+        case.registry,
+        case.context,
+        &host(&[]),
+    )
+    .expect("authentic");
     for bad in rejected {
         let bad: Vec<&str> = bad.iter().map(String::as_str).collect();
         match Prepared::prepare(
@@ -135,7 +140,7 @@ pub(super) fn tampered(
             case.wallet,
             case.registry,
             case.env,
-            case.rendering,
+            case.context,
             &host(&[]),
         )
         .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
@@ -152,7 +157,7 @@ pub(super) fn tampered(
             case.wallet,
             case.registry,
             case.env,
-            case.rendering,
+            case.context,
             &host(&[]),
         )
         .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
@@ -210,14 +215,15 @@ pub(super) fn renewed(
     .expect("a wallet");
     let published = published();
     let authenticated =
-        fixtures::authenticate(case.request.envelope(), case.registry, host).expect("authentic");
+        fixtures::authenticate(case.request.envelope(), case.registry, case.context, host)
+            .expect("authentic");
     match Prepared::prepare(
         &authenticated,
         ids,
         &wallet,
         case.registry,
         case.env,
-        case.rendering,
+        case.context,
         host,
     )
     .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))

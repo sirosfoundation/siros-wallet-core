@@ -10,7 +10,7 @@ use siros_paso::risk::DEFAULT_PROFILE;
 use siros_testkit::Published;
 use siros_testkit::verifier::ISSUER;
 
-use crate::common::{Card, ExcludedBy, PAY, Screen, annex, en, member, parameters, request_app};
+use crate::common::{Card, ExcludedBy, PAY, annex, en, member, parameters, plain, request_context};
 
 use super::{
     AMR, MODE, answer, card, host_with, ok, payment, payment_meta, proof, registry, registry_of,
@@ -169,28 +169,16 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
                 carriage: Carriage::Carried,
             },
             &en(),
+            crate::common::context(&en()),
         )
         .expect("binds");
-    let locale = bound
-        .attested
-        .get("display_locale")
-        .expect("display_locale");
-    let screen = Screen::of(
-        PAY,
-        &meta,
-        &en(),
-        &siros_openid4vp::ids::LocaleTag::parse(locale.as_str()).expect("a tag"),
-    );
     let payment = bound.overlay.header.as_ref().expect("a payment");
     assert_eq!(
-        (
-            screen.plain(&payment.counterparty),
-            screen.plain(&payment.amount)
-        ),
+        (plain(&payment.counterparty), plain(&payment.amount)),
         ("Shop Inc.".to_owned(), "€49.99".to_owned())
     );
     assert_eq!(
-        bound.overlay.hint.as_ref().map(|shown| screen.plain(shown)),
+        bound.overlay.hint.as_ref().map(plain),
         Some(hint.to_owned())
     );
     // The header shows merchant and amount: the overlay's rows leave them out.
@@ -199,7 +187,7 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
         payment
             .rows
             .iter()
-            .map(|r| screen.plain(&r.label))
+            .map(|r| plain(&r.label))
             .collect::<Vec<_>>(),
         ["Payee", "Amount"]
     );
@@ -228,6 +216,7 @@ pub(super) fn versioned(card: &Card) -> Result<usize, ExcludedBy> {
             carriage: Carriage::Carried,
         },
         &en(),
+        crate::common::context(&en()),
     ) {
         Ok(bound) => Ok(bound.entries.entries()[0].get()),
         Err(NoCandidate::Excluded(exclude)) => Err(ExcludedBy::of(&exclude)),
@@ -281,12 +270,12 @@ pub(super) fn an_entry_whose_risk_signals_the_wallet_cannot_send_gives_way_to_th
 pub(super) fn the_authentication_methods_are_rfc_8176_values_and_one_biometric_class() {
     use std::num::NonZeroU32;
 
-    use siros_explain::AllOf;
     use siros_openid4vp::host::{
         AttackDetection, Authentication, Factor, FalseAcceptRate, Inherence, Isolation, Knowledge,
         Modality, Possession, Sensor, Timestamp,
     };
     use siros_paso::amr::{BiometricClass, methods};
+    use siros_syntax::AllOf;
 
     let facts = |isolation, attempts: u32, attack_detection| Inherence {
         modality: Modality::Face,
@@ -479,13 +468,12 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         // format's proof carries no mdoc members, so the control stops at the profile.
         let held = PasoHost::at(at);
         let env = en();
-        let app = request_app(&request, &[&card], &env);
-        let rendering = app.rendering().expect("the rendering");
+        let matcher = request_context(crate::common::context(&env), &request, &[&card], &env);
         let (revalidated, members) = crate::common::read_card_record(
             &request,
             &card,
             &env,
-            &rendering,
+            &matcher,
             |_: &Resource| Fetch::Unfetched,
             &held,
             move |record, host| {
@@ -512,7 +500,7 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         let wallet = Wallet::new(vec![card.credential()]).expect("wallet");
         let informed = registry.informed(&[finding]).expect("informed");
         let accepted = Accepted::new(&request, &informed).expect("accepted");
-        let again = Match::run(&accepted, &wallet, &en(), &rendering).expect("match");
+        let again = Match::run(&accepted, &wallet, &en(), &matcher).expect("match");
         let query = request.indexed_queries().next().expect("query").0;
         assert_eq!(again.candidates(query).len(), 0);
         let entry = request.entries().first().expect("an entry");
@@ -526,13 +514,14 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &en(),
+            crate::common::context(&en()),
         )
         .expect("no fault");
         assert_eq!(
             rendered.err(),
-            Some(Outcome::NotCompatible(NotCompatible::Lacks(
-                OptionalModule::CoseEncrypt
-            )))
+            Some(Outcome::NotCompatible(NotCompatible::Lacks {
+                module: OptionalModule::CoseEncrypt
+            }))
         );
     }
 }

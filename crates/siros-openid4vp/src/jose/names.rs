@@ -13,7 +13,7 @@ pub struct JwsAlgorithm(&'static str);
 
 impl JwsAlgorithm {
     /// `ES256` (RFC 7518 §3.4).
-    pub const ES256: Self = siros_explain::checked!(JwsAlgorithm, "ES256");
+    pub const ES256: Self = siros_syntax::checked!(JwsAlgorithm, "ES256");
 
     /// The name; `None` for an empty text, a character outside printable ASCII, space and `"`,
     /// and `none`, which RFC 8725 §3.2 refuses.

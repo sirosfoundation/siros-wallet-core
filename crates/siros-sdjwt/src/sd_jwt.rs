@@ -88,7 +88,7 @@ impl SdJwt {
                 content,
             };
             if pending.insert(digest.clone(), entry).is_some() {
-                return Err(ParseError::RepeatedDigest(digest));
+                return Err(ParseError::RepeatedDigest { digest });
             }
         }
         let claims = process::claims(&payload, pending)?;
@@ -172,7 +172,7 @@ fn certificate_chain(value: &Node<'_>) -> Result<Vec<Vec<u8>>, X5cError> {
             certificate
                 .as_str()
                 .and_then(|text| STANDARD.decode(text).ok())
-                .ok_or(X5cError::Certificate(position))
+                .ok_or(X5cError::Certificate { position })
         })
         .collect()
 }
@@ -183,7 +183,9 @@ fn issuer_header_and_payload(
 ) -> Result<(Node<'static>, Node<'static>), IssuerJwtFault> {
     let segments: Vec<&str> = issuer_jwt.split('.').collect();
     let [header, payload, signature] = segments.as_slice() else {
-        return Err(IssuerJwtFault::Segments(segments.len()));
+        return Err(IssuerJwtFault::Segments {
+            count: segments.len(),
+        });
     };
     if signature.is_empty() {
         return Err(IssuerJwtFault::SignatureEmpty);
@@ -219,9 +221,9 @@ fn decoded(text: &str) -> Result<Node<'static>, EncodedJsonFault> {
 fn sd_alg(payload: &Node<'_>) -> Result<HashAlg, SdAlgFault> {
     match payload.get("_sd_alg") {
         None => Ok(HashAlg::Sha256),
-        Some(Node::String(name)) => {
-            HashAlg::from_name(name).ok_or_else(|| SdAlgFault::Unknown(name.to_string()))
-        }
+        Some(Node::String(name)) => HashAlg::from_name(name).ok_or_else(|| SdAlgFault::Unknown {
+            algorithm: name.to_string(),
+        }),
         Some(_) => Err(SdAlgFault::NotString),
     }
 }
@@ -240,6 +242,6 @@ fn disclosure(text: &str) -> Result<Content, DisclosureFault> {
         }),
         [Node::String(_), _, _] => Err(DisclosureFault::Name),
         [_, _] | [_, _, _] => Err(DisclosureFault::Salt),
-        other => Err(DisclosureFault::Length(other.len())),
+        other => Err(DisclosureFault::Length { count: other.len() }),
     }
 }

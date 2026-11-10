@@ -26,16 +26,17 @@ const SUBJECT_ALT_NAME: &[u8] = &[0x06, 0x03, 0x55, 0x1d, 0x11];
 fn tlv(tag: u8, content: &[u8]) -> Vec<u8> {
     let length = content.len();
     let mut out = vec![tag];
-    if length < 0x80 {
-        out.push(u8::try_from(length).unwrap_or(0));
-    } else {
-        let octets: Vec<u8> = length
-            .to_be_bytes()
-            .into_iter()
-            .skip_while(|octet| *octet == 0)
-            .collect();
-        out.push(0x80 | u8::try_from(octets.len()).unwrap_or(0));
-        out.extend(octets);
+    match u8::try_from(length) {
+        Ok(short) if short < 0x80 => out.push(short),
+        _ => {
+            let octets = length.to_le_bytes();
+            let count = octets
+                .iter()
+                .zip(1u8..)
+                .fold(0, |count, (octet, at)| if *octet == 0 { count } else { at });
+            out.push(0x80 | count);
+            out.extend(octets.iter().take(usize::from(count)).rev());
+        }
     }
     out.extend_from_slice(content);
     out
@@ -53,11 +54,13 @@ pub fn name(common: &str) -> Vec<u8> {
 }
 
 /// The uncompressed point of a scalar's public key: 0x04, x, y (SEC 1 §2.3.3).
-#[must_use]
-pub fn point(secret: &[u8; 32]) -> Vec<u8> {
+///
+/// # Errors
+///
+/// The secret is no P-256 scalar.
+pub fn point(secret: &[u8; 32]) -> Result<Vec<u8>, p256::elliptic_curve::Error> {
     p256::SecretKey::from_slice(secret)
         .map(|key| key.public_key().to_sec1_point(false).as_bytes().to_vec())
-        .unwrap_or_default()
 }
 
 /// What a test certificate holds: its subject, its key as a SEC 1 point, its dNSName entries.
@@ -72,8 +75,11 @@ pub struct Leaf<'a> {
 }
 
 /// The DER certificate of the leaf, issued by the test root and signed with its key.
-#[must_use]
-pub fn certificate(leaf: &Leaf<'_>) -> Vec<u8> {
+///
+/// # Errors
+///
+/// The test root's secret is no P-256 scalar, a bug of the kit.
+pub fn certificate(leaf: &Leaf<'_>) -> Result<Vec<u8>, p256::elliptic_curve::Error> {
     let algorithm = sequence(&[ECDSA_SHA256]);
     let key_algorithm = sequence(&[EC_PUBLIC_KEY, SECP256R1]);
     let spki = sequence(&[
@@ -100,33 +106,34 @@ pub fn certificate(leaf: &Leaf<'_>) -> Vec<u8> {
         tbs.push(tlv(0xa3, &sequence(&[&extension])));
     }
     let tbs = tlv(0x30, &tbs.concat());
-    let signature = SigningKey::from_slice(&ROOT)
-        .map(|signer| {
-            let signed: DerSignature = signer.sign(&tbs);
-            signed.as_bytes().to_vec()
-        })
-        .unwrap_or_default();
-    sequence(&[
+    let signed: DerSignature = SigningKey::from(p256::SecretKey::from_slice(&ROOT)?).sign(&tbs);
+    Ok(sequence(&[
         &tbs,
         &algorithm,
-        &tlv(0x03, &[&[0u8][..], &signature].concat()),
-    ])
+        &tlv(0x03, &[&[0u8][..], signed.as_bytes()].concat()),
+    ]))
 }
 
 /// The test root's self-issued certificate.
-#[must_use]
-pub fn root() -> Vec<u8> {
+///
+/// # Errors
+///
+/// The test root's secret is no P-256 scalar, a bug of the kit.
+pub fn root() -> Result<Vec<u8>, p256::elliptic_curve::Error> {
     certificate(&Leaf {
         subject: "SIROS test root",
-        point: point(&ROOT),
+        point: point(&ROOT)?,
         dns: &[],
     })
 }
 
 /// The `x5c` items of a chain, base64 (RFC 7515 §4.1.6): the leaf, then the root.
-#[must_use]
-pub fn x5c(leaf: &[u8]) -> Vec<String> {
-    vec![STANDARD.encode(leaf), STANDARD.encode(root())]
+///
+/// # Errors
+///
+/// The test root's secret is no P-256 scalar, a bug of the kit.
+pub fn x5c(leaf: &[u8]) -> Result<Vec<String>, p256::elliptic_curve::Error> {
+    Ok(vec![STANDARD.encode(leaf), STANDARD.encode(root()?)])
 }
 
 /// The protected header of a Request Object signed under the chain's leaf.

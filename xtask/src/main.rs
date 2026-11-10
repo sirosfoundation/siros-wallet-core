@@ -8,11 +8,14 @@
 //!   build is a probe package, written under `target/xtask/`, that depends on its crates; `cargo
 //!   tree -e normal` lists what it compiles, over the workspace's lock file, each crate counted
 //!   once per version.
-//! - `alone`: each crate the table lists builds alone, with and without its default features, and
-//!   `cargo tree -e normal` of it names exactly the workspace crates its row gives.
+//! - `alone`: each crate the table lists builds alone and documents alone under `RUSTDOCFLAGS=-D
+//!   warnings` (`cargo doc --no-deps`), each with and without its default features, and `cargo
+//!   tree -e normal` of it names exactly the workspace crates its row gives. A refused run prints
+//!   the crate, the feature set and cargo's error output.
 //!
-//! - `layout [<root>]`: the workspace root's or `<root>`'s test code under `src/`, message sources
-//!   and display literals; one `file:line: rule` per hit, failing on any hit.
+//! - `layout [<root>]`: the workspace root's or `<root>`'s test code under `src/`, message sources,
+//!   error and statement types and the literals given to statements; one `file:line: rule` per
+//!   hit, failing on any hit.
 //!
 //! `builds` and `alone` print one line per row and exit with failure when a row fails. Their table
 //! names the crates; their code names none.
@@ -40,7 +43,7 @@ mod layout;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Output};
 
 use serde::Deserialize;
 
@@ -279,13 +282,19 @@ fn main() -> ExitCode {
     }
 }
 
+/// Cargo's run over the arguments, with rustdoc's warnings denied.
+fn run(args: &[&str]) -> Result<Output, Failure> {
+    let program = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
+    Command::new(&program)
+        .args(args)
+        .env("RUSTDOCFLAGS", "-D warnings")
+        .output()
+        .map_err(|e| Failure::Cargo(format!("{program}: {e}")))
+}
+
 /// Cargo's output for the arguments, refused when it exits with failure.
 fn cargo(args: &[&str]) -> Result<String, Failure> {
-    let program = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let output = Command::new(&program)
-        .args(args)
-        .output()
-        .map_err(|e| Failure::Cargo(format!("{program}: {e}")))?;
+    let output = run(args)?;
     if output.status.success() {
         String::from_utf8(output.stdout).map_err(|e| Failure::Cargo(e.to_string()))
     } else {
@@ -508,19 +517,69 @@ fn enabled(tree: &str) -> Vec<Enabled> {
     features
 }
 
-/// Each listed crate alone; true when each builds with and without its default features and its
-/// tree names exactly its row's workspace crates.
+/// A cargo run each crate alone passes: what it checks, the feature set, cargo's arguments before
+/// the crate.
+struct AloneRun {
+    check: &'static str,
+    features: &'static str,
+    args: &'static [&'static str],
+}
+
+/// Each crate builds and documents, with rustdoc's warnings denied, with and without its default
+/// features.
+const ALONE_RUNS: [AloneRun; 4] = [
+    AloneRun {
+        check: "builds",
+        features: "default features",
+        args: &["check"],
+    },
+    AloneRun {
+        check: "builds",
+        features: "no default features",
+        args: &["check", "--no-default-features"],
+    },
+    AloneRun {
+        check: "documents",
+        features: "default features",
+        args: &["doc", "--no-deps"],
+    },
+    AloneRun {
+        check: "documents",
+        features: "no default features",
+        args: &["doc", "--no-deps", "--no-default-features"],
+    },
+];
+
+/// Each listed crate alone; true when each builds and documents with and without its default
+/// features and its tree names exactly its row's workspace crates. A refused run prints cargo's
+/// error output under the crate and the feature set.
 fn alone(workspace: &Workspace) -> Result<bool, Failure> {
     let table = workspace.table()?;
     let mut holds = true;
     for row in &table.alone {
-        let builds = |extra: &[&str]| {
-            let mut args = vec!["check", "--locked", "--quiet", "-p", row.name.as_str()];
-            args.extend_from_slice(extra);
-            cargo(&args).is_ok()
-        };
-        let default = builds(&[]);
-        let bare = builds(&["--no-default-features"]);
+        let mut verdicts = Vec::with_capacity(ALONE_RUNS.len());
+        let mut refusals = Vec::new();
+        for alone_run in &ALONE_RUNS {
+            let mut args = alone_run.args.to_vec();
+            args.extend_from_slice(&["--locked", "--quiet", "-p", row.name.as_str()]);
+            let output = run(&args)?;
+            let passes = output.status.success();
+            verdicts.push(format!(
+                "{} with {} {}",
+                alone_run.check,
+                alone_run.features,
+                verdict(passes)
+            ));
+            if !passes {
+                refusals.push(format!(
+                    "alone {} {} with {}: {}",
+                    row.name,
+                    alone_run.check,
+                    alone_run.features,
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+        }
         let tree = cargo(&[
             "tree", "--locked", "-e", "normal", "--prefix", "none", "-p", &row.name,
         ])?;
@@ -536,10 +595,9 @@ fn alone(workspace: &Workspace) -> Result<bool, Failure> {
         want.sort();
         let names_hold = named == want;
         println!(
-            "alone {}: default {}, no default features {}, names {}{}",
+            "alone {}: {}, names {}{}",
             row.name,
-            verdict(default),
-            verdict(bare),
+            verdicts.join(", "),
             verdict(names_hold),
             if names_hold {
                 String::new()
@@ -547,7 +605,10 @@ fn alone(workspace: &Workspace) -> Result<bool, Failure> {
                 format!(" (tree {named:?}, table {want:?})")
             }
         );
-        holds &= default && bare && names_hold;
+        for refusal in &refusals {
+            println!("{refusal}");
+        }
+        holds &= refusals.is_empty() && names_hold;
     }
     Ok(holds)
 }

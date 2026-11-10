@@ -3,7 +3,8 @@
 
 use std::ops::Range;
 
-use siros_explain::AllOf;
+use siros_i18n::Context;
+use siros_syntax::AllOf;
 
 use super::route::Route;
 use super::selection::{check, derived};
@@ -12,6 +13,7 @@ use super::{
     ResponseMember, UndeclaredMember, VpToken,
 };
 use crate::authenticate::Authenticated;
+use crate::detail;
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
 use crate::host::{
     AnsweredOption, AnsweredQuery, Authentication, AuthenticationNeed, Categories, CoreHost, Host,
@@ -24,15 +26,14 @@ use crate::plugins::{
     Answered, Attested, BoundEntries, Fault, FetchedRecord, Member, Members, OptionIndex,
     ProfileHandle, Registry,
 };
+use crate::plugins::{caused, fault};
 use crate::refusal::Refused;
-use crate::rendering::Rendering;
 use crate::request::{ClientMetadata, Query, QueryIndex, Request};
 use crate::routing::{AnsweredContext, Carries, EntryNaming, ModeName, QueryContext, Routing};
 use crate::rows::Env;
 use crate::session::Session;
 use crate::wallet::{Credential, Wallet};
 use crate::wallet_metadata::Placement;
-use crate::{FAULT, detail};
 
 /// A selection read from an authenticated request, its records derived and checked, each
 /// record's query read for phase 2, and one slot per distinct resource each record's profile
@@ -108,8 +109,8 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
     /// checked as a selection; each record's query read through its format's
     /// [`FormatHost::answer`] under the accepted response mode; each record's profile names the
     /// resources it revalidates with over the host's modules, one slot each, in record order.
-    /// `registry` is the one the envelope was read with; `rendering` the package of the wallet's
-    /// live modules.
+    /// `registry` is the one the envelope was read with; `context` the wallet's wording, which
+    /// resolves the texts each record commits to.
     ///
     /// # Errors
     ///
@@ -123,7 +124,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         wallet: &'p Wallet<'p>,
         registry: &'p Registry<H>,
         env: &'p Env,
-        rendering: &Rendering<'_>,
+        context: &Context,
         host: &H,
     ) -> Result<Self, Outcome> {
         let request = Request::parse(authenticated.envelope())?;
@@ -135,8 +136,8 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
                 .map(|id| ReturnedRecord::parse(id))
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(Rejection::from)?;
-            let matched = Match::run(&accepted, wallet, env, rendering)?;
-            let views = Views::of(&matched, env)?;
+            let matched = Match::run(&accepted, wallet, env, context)?;
+            let views = Views::of(&matched, env, context)?;
             let views = derived(&views, &returned)?;
             check(&accepted, &views)?;
             let read = Read::of(&request, registry, accepted.mode().name())?;
@@ -206,7 +207,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         let mode = routing
             .mode()
             .filter(|mode| mode.carries() == Carries::Answers)
-            .ok_or_else(|| Fault::new(FAULT, detail!("an accepted request without its mode")))?
+            .ok_or_else(|| fault(detail!("an accepted request without its mode")))?
             .name();
         let read = Read::of(&request, registry, mode)?;
         let chosen = records
@@ -218,12 +219,9 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         if let Some(refusal) = refusal {
             return Err(Outcome::Refused(Refused::one(refusal)));
         }
-        let answering = route.answering().ok_or_else(|| {
-            Fault::new(
-                FAULT,
-                detail!("the route of an accepted request answers nothing"),
-            )
-        })?;
+        let answering = route
+            .answering()
+            .ok_or_else(|| fault(detail!("the route of an accepted request answers nothing")))?;
         let session = answering.session();
         let audience = session.audience();
         let phase = Phase {
@@ -270,7 +268,7 @@ fn parameters<H: CoreHost>(
 ) -> Result<Vec<ResponseMember>, Fault> {
     let response_type = routing
         .response_type()
-        .ok_or_else(|| Fault::new(FAULT, detail!("an accepted request without its type")))?;
+        .ok_or_else(|| fault(detail!("an accepted request without its type")))?;
     let mut members: Vec<ResponseMember> = Vec::new();
     for registered in registry.response_parameters() {
         for member in registered.part().members(response_type, session, host)? {
@@ -283,11 +281,7 @@ fn parameters<H: CoreHost>(
                 None
             };
             if let Some(breach) = breach {
-                return Err(Fault::caused(
-                    FAULT,
-                    detail!("the response parameter {name}"),
-                    breach,
-                ));
+                return Err(caused(detail!("the response parameter {name}"), breach));
             }
             members.push(member);
         }
@@ -310,13 +304,10 @@ impl<'r, 'p: 'r, H: CoreHost> Read<'r, 'p, H> {
         registry: &'p Registry<H>,
         mode: ModeName,
     ) -> Result<Self, Fault> {
-        let metadata = request.envelope().client_metadata().map_err(|e| {
-            Fault::caused(
-                FAULT,
-                detail!("an accepted request's client_metadata"),
-                e.clone(),
-            )
-        })?;
+        let metadata = request
+            .envelope()
+            .client_metadata()
+            .map_err(|e| caused(detail!("an accepted request's client_metadata"), e.clone()))?;
         Ok(Self {
             request,
             metadata,
@@ -333,11 +324,11 @@ impl<'r, 'p: 'r, H: CoreHost> Read<'r, 'p, H> {
         let request = self.request;
         let query = request
             .query(picked.query)
-            .ok_or_else(|| Fault::new(FAULT, detail!("a record names no query")))?;
+            .ok_or_else(|| fault(detail!("a record names no query")))?;
         let Placed { format, .. } = self
             .registry
             .placed_host(query.format())
-            .ok_or_else(|| Fault::new(FAULT, detail!("a record's query has no format")))?;
+            .ok_or_else(|| fault(detail!("a record's query has no format")))?;
         let context = AnsweredContext::of(
             QueryContext::of(
                 request,
@@ -373,23 +364,23 @@ fn picked<'p, H: CoreHost>(
     let request = accepted.request();
     let candidate = matched
         .candidate(view.pick.query, view.pick.candidate)
-        .ok_or_else(|| Fault::new(FAULT, detail!("a record names no candidate")))?;
+        .ok_or_else(|| fault(detail!("a record names no candidate")))?;
     let credential = wallet
         .credentials()
         .iter()
         .find(|credential| credential.id == candidate.credential.id)
-        .ok_or_else(|| Fault::new(FAULT, detail!("a candidate the wallet does not hold")))?;
+        .ok_or_else(|| fault(detail!("a candidate the wallet does not hold")))?;
     let query = request
         .query(view.pick.query)
-        .ok_or_else(|| Fault::new(FAULT, detail!("a record names no query")))?;
+        .ok_or_else(|| fault(detail!("a record names no query")))?;
     let Placed { placement, .. } = registry
         .placed_host(query.format())
-        .ok_or_else(|| Fault::new(FAULT, detail!("a record's query has no format")))?;
+        .ok_or_else(|| fault(detail!("a record's query has no format")))?;
     let transacted = match &candidate.bound {
         Some(TransactionBinding { transaction, bound }) => {
             let profile = registry
                 .profile_host(transaction.profile)
-                .ok_or_else(|| Fault::new(FAULT, detail!("a transaction has no profile")))?;
+                .ok_or_else(|| fault(detail!("a transaction has no profile")))?;
             let wanted = profile.wanted(
                 Answered::of(
                     request,
@@ -477,7 +468,7 @@ impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
         let own = filled
             .replies()
             .get(transacted.slots.clone())
-            .ok_or_else(|| Fault::new(FAULT, detail!("a record's slots the step lacks")))?;
+            .ok_or_else(|| fault(detail!("a record's slots the step lacks")))?;
         let fetched = FetchedRecord::of(
             transacted.answered(self.request, picked.credential, self.mode),
             Resources::of(own),
@@ -510,12 +501,7 @@ impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
             .choose(credential, self.env, &provided)?
             .into_iter()
             .find(|option| option.option() == record.picked.option)
-            .ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!("a record's option its format no longer answers"),
-                )
-            })
+            .ok_or_else(|| fault(detail!("a record's option its format no longer answers")))
     }
 
     /// The End-User's authentication, at least as strong as the strongest need of the records'
@@ -574,8 +560,7 @@ impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
             .and_then(|placement| profile.members(placement))
             .unwrap_or(&[]);
         if let Some(extra) = members.names().find(|member| !declared.contains(member)) {
-            return Err(Fault::caused(
-                FAULT,
+            return Err(caused(
                 detail!(
                     "a profile wrote {extra}, which it does not declare",
                     extra = extra.clone()

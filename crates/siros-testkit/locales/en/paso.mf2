@@ -1,9 +1,9 @@
-# The test app's English source of the paso module.
+# The test app's English wording of siros-paso's statements.
 @locale en
 @dir ltr
 ---
 
-[mandate]
+[paso.mandate]
 mandate_id = Mandate reference
 mandatee = Authorized party
 action = Authorized action
@@ -17,7 +17,7 @@ amount = Amount
 payee = Payee
 payee_logo = Payee logo
 
-[title]
+[paso.title]
 transaction = Confirm Transaction
 payment = Payment Confirmation
 data_sharing = Authorize Data Sharing
@@ -27,7 +27,7 @@ recurring_payment = Authorize Recurring Payment
 agent_purchase = Authorize Agent Purchase
 mandate = Authorize Mandate
 
-[confirm]
+[paso.confirm]
 confirm = Confirm
 allow_sharing = Authorize
 pay = Pay
@@ -36,12 +36,12 @@ mandate = Authorize Mandate
 agent = Authorize Agent
 authorize = Authorize
 
-[section]
+[paso.section]
 payment_details = Payment Details
 first_collection = First Collection
 payment = Payment
 
-[frequency]
+[paso.frequency]
 inda = intraday
 dail = daily
 week = weekly
@@ -54,3 +54,16 @@ fomn = every four months
 semi = twice a year
 year = yearly
 tyea = every two years
+
+[paso.value]
+time = {$value :siros:time}
+currency = {$code}
+amount = {$value :currency currency=$currency}
+
+[paso.array_at]
+claim = the labels of the claim {$path}
+ui = the labels of {$key}
+
+[paso.rendered_at]
+claim = the label of the claim {$claim}
+ui = the label {$key}

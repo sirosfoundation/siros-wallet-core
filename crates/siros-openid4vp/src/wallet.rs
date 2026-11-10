@@ -34,13 +34,17 @@ pub struct Facts<'a> {
 
 /// Registration data that cannot exist.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.registration")]
 pub enum RegistrationError {
     /// Two Trusted Authorities entries of one type.
-    #[error("the facts list the trusted authority type {0} twice")]
-    AuthorityTwice(#[explain(name = "authority_type")] String),
+    #[error("the facts list the trusted authority type {authority_type} twice")]
+    #[explain(id = "registration.authority_twice")]
+    AuthorityTwice {
+        /// The authority type.
+        authority_type: String,
+    },
     /// Two documents under one key.
     #[error("credential {credential}: two documents under the key {key}")]
+    #[explain(id = "registration.document_twice")]
     DocumentTwice {
         /// The credential.
         credential: String,
@@ -48,8 +52,12 @@ pub enum RegistrationError {
         key: String,
     },
     /// Two credentials with one id.
-    #[error("two credentials have the id {0}")]
-    CredentialTwice(#[explain(name = "credential")] String),
+    #[error("two credentials have the id {credential}")]
+    #[explain(id = "registration.credential_twice")]
+    CredentialTwice {
+        /// The credential's id.
+        credential: String,
+    },
 }
 
 impl<'a> Facts<'a> {
@@ -58,12 +66,14 @@ impl<'a> Facts<'a> {
         holder: Holder,
         authorities: Vec<HeldAuthority<'a>>,
     ) -> Result<Self, RegistrationError> {
-        if let Some(twice) = authorities.iter().enumerate().find_map(|(k, a)| {
-            authorities
-                .get(..k)
-                .and_then(|before| before.iter().find(|b| b.kind == a.kind))
-        }) {
-            return Err(RegistrationError::AuthorityTwice(twice.kind.to_string()));
+        if let Some(twice) = authorities
+            .iter()
+            .enumerate()
+            .find_map(|(k, a)| authorities.iter().take(k).find(|b| b.kind == a.kind))
+        {
+            return Err(RegistrationError::AuthorityTwice {
+                authority_type: twice.kind.to_string(),
+            });
         }
         Ok(Self {
             holder,
@@ -183,11 +193,11 @@ impl<'a> Credential<'a> {
         documents: Vec<Document<'a>>,
         facts: Facts<'a>,
     ) -> Result<Self, RegistrationError> {
-        if let Some(twice) = documents.iter().enumerate().find_map(|(k, d)| {
-            documents
-                .get(..k)
-                .and_then(|before| before.iter().find(|e| e.key == d.key))
-        }) {
+        if let Some(twice) = documents
+            .iter()
+            .enumerate()
+            .find_map(|(k, d)| documents.iter().take(k).find(|e| e.key == d.key))
+        {
             return Err(RegistrationError::DocumentTwice {
                 credential: id.to_string(),
                 key: twice.key.to_string(),
@@ -225,12 +235,14 @@ pub struct Wallet<'a>(Vec<Credential<'a>>);
 impl<'a> Wallet<'a> {
     /// The credentials, each id once.
     pub fn new(credentials: Vec<Credential<'a>>) -> Result<Self, RegistrationError> {
-        if let Some(twice) = credentials.iter().enumerate().find_map(|(k, c)| {
-            credentials
-                .get(..k)
-                .and_then(|before| before.iter().find(|d| d.id == c.id))
-        }) {
-            return Err(RegistrationError::CredentialTwice(twice.id.to_string()));
+        if let Some(twice) = credentials
+            .iter()
+            .enumerate()
+            .find_map(|(k, c)| credentials.iter().take(k).find(|d| d.id == c.id))
+        {
+            return Err(RegistrationError::CredentialTwice {
+                credential: twice.id.to_string(),
+            });
         }
         Ok(Self(credentials))
     }

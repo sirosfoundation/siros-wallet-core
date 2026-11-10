@@ -24,7 +24,7 @@ impl SdJwt {
             for (position, step) in path.iter().enumerate() {
                 let claim = self
                     .step(within, step)
-                    .ok_or(SelectError::Absent(position))?;
+                    .ok_or(SelectError::Absent { position })?;
                 chosen.add(claim);
                 within = Some(claim.value());
             }

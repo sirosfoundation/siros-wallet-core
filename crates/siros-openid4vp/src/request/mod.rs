@@ -14,7 +14,6 @@ use std::borrow::Cow;
 use std::fmt;
 
 use serde_json::value::RawValue;
-use siros_explain::{Count, IntoArg, kind};
 
 use crate::envelope::{Channel, Envelope, NonceError, Signatures};
 use crate::ids::{ClientId, ExpectedOrigin, Nonce};
@@ -31,7 +30,7 @@ pub use metadata::{
     MetadataError, Point,
 };
 pub use rules::{DcqlRule, ParameterRule, StructureRule, UndecodedEntry};
-pub use sets::{Item, ItemSet, MAX_POSITIONS, Position, QueryIndex, QuerySet, Set};
+pub use sets::{Item, ItemSet, MAX_POSITIONS, Position, QueryIndex, QuerySet, Set, Slot};
 
 /// A `transaction_data` entry by its position in the array.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -48,15 +47,6 @@ impl EntryIndex {
 impl fmt::Display for EntryIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
-    }
-}
-
-/// A position is named as a count in a message.
-impl IntoArg for EntryIndex {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.0.arg()
     }
 }
 
@@ -108,8 +98,8 @@ fn structure(rule: StructureRule) -> Refused {
 }
 
 impl<'a> Request<'a> {
-    /// The request an envelope holds, which it keeps. Refused in this order: S3 a `scope` value by
-    /// URI naming no registered scope query; S4 `dcql_query` beside a `scope` naming one (§5.1);
+    /// The request an envelope holds, which it keeps. Refused in this order: S3 a `scope` by URI
+    /// that is no string or holds a value naming no registered scope query; S4 `dcql_query` beside a `scope` naming one (§5.1);
     /// DCQL's structure, `dcql_query` or a `scope` naming a query required (§5.1), a `scope`'s
     /// queries read as their union; `nonce` absent, or N1 not URL-safe ASCII;
     /// `expected_origins` and `transaction_data` breaking their structure; C0, every entry that
@@ -121,14 +111,20 @@ impl<'a> Request<'a> {
     pub fn parse(envelope: &Envelope<'a>) -> Result<Self, Refused> {
         let channel = envelope.channel();
         let parameters = envelope.parameters();
-        let scoped = match (channel, parameters.text("scope")) {
+        let scoped = match (channel, parameters.json("scope")) {
             (Channel::Uri, Some(scope)) => {
-                let scope = scope.unwrap_or_default();
+                let json::Node::String(scope) = scope else {
+                    return Err(Refused::one(Refusal::new(ParameterRule::Scope {
+                        scope: scope.written_compact(),
+                    })));
+                };
                 let entries = scope
                     .split(' ')
                     .map(|value| {
                         envelope.scopes().named(value).ok_or_else(|| {
-                            Refused::one(Refusal::new(ParameterRule::Scope(value.to_owned())))
+                            Refused::one(Refusal::new(ParameterRule::Scope {
+                                scope: value.to_owned(),
+                            }))
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -271,10 +267,7 @@ impl<'a> Request<'a> {
 
     /// The queries with their positions.
     pub fn indexed_queries(&self) -> impl Iterator<Item = (QueryIndex, &Query<'a>)> {
-        self.queries
-            .iter()
-            .enumerate()
-            .filter_map(|(k, query)| QueryIndex::new(k).map(|index| (index, query)))
+        self.queries.iter().map(|query| (query.index(), query))
     }
 
     /// The Credential Sets, when present.
@@ -306,13 +299,18 @@ impl<'a> Request<'a> {
     /// The entries whose `credential_ids` name the query, in array order.
     #[must_use]
     pub fn entries_naming(&self, query: QueryIndex) -> Vec<EntryIndex> {
+        self.naming(query).map(|(index, _)| index).collect()
+    }
+
+    /// The entries whose `credential_ids` name the query, with their positions, in array order.
+    pub(crate) fn naming(
+        &self,
+        query: QueryIndex,
+    ) -> impl Iterator<Item = (EntryIndex, &Entry<'a>)> {
         let id = self.query(query).map(|query| query.id().as_str());
-        self.indexed_entries()
-            .filter(|(_, entry)| {
-                id.is_some_and(|id| entry.credential_ids().iter().any(|named| *named == *id))
-            })
-            .map(|(index, _)| index)
-            .collect()
+        self.indexed_entries().filter(move |(_, entry)| {
+            id.is_some_and(|id| entry.credential_ids().iter().any(|named| *named == *id))
+        })
     }
 
     /// The queries some entry names.
@@ -376,11 +374,7 @@ fn decode_entries(raw: Vec<Cow<'_, str>>) -> Result<Vec<Entry<'_>>, Refused> {
 }
 
 fn alternatives(queries: &[Query<'_>], sets: Option<&[CredentialSet]>) -> Vec<Alternative> {
-    let all = || {
-        (0..queries.len())
-            .filter_map(QueryIndex::new)
-            .collect::<Vec<_>>()
-    };
+    let all = || queries.iter().map(Query::index).collect::<Vec<_>>();
     let Some(sets) = sets else {
         return vec![Alternative::of(all())];
     };

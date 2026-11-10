@@ -44,16 +44,18 @@ pub fn secret_key(secret: &str) -> P256Scalar {
 
 /// Why an encoder could not write its output.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "testkit.encode")]
 pub enum EncodeError {
     /// An input is no JSON with unique member names.
     #[error(transparent)]
     Json(#[from] JsonError),
     /// The HMAC refused the key.
     #[error("the HMAC refused the key")]
+    #[explain(id = "encode.key")]
     Key,
-    /// The issuer names no `iss`, or a key set whose keys are no secrets.
-    #[error("the issuer names no iss, or a key that is no secret")]
+    /// The issuer names no `iss`, or a key set that is no object of secrets with at least one
+    /// member.
+    #[error("the issuer names no iss, or a key set that is no non-empty object of secrets")]
+    #[explain(id = "encode.issuer")]
     Issuer,
     /// The key is no P-256 scalar.
     #[error(transparent)]
@@ -123,7 +125,8 @@ pub fn adhoc_jwt(
 /// it: the JWT's integrity value, the credential's type, the issuer's key material, its key set
 /// naming each key's public JWK in place of its secret, the `transaction_data_types`, and the
 /// risk signal encryption keys when the metadata publishes them. `types`, `keys` and `issuer` are
-/// JSON texts.
+/// JSON texts. The JWT is signed under the key set's first key; an issuer without `keys` signs
+/// under `kid` `x5c` with the secret `x5c-secret`.
 pub fn paso_document(
     credential_type: &str,
     credential_format: &str,
@@ -137,14 +140,18 @@ pub fn paso_document(
         .get("iss")
         .and_then(Node::as_str)
         .ok_or(EncodeError::Issuer)?;
-    let key_set = issuer_node.get("keys").and_then(Node::as_object);
-    let kid = key_set
-        .and_then(|keys| keys.names().next())
-        .unwrap_or("x5c");
-    let secret = key_set
-        .and_then(|keys| keys.get(kid))
-        .and_then(Node::as_str)
-        .unwrap_or("x5c-secret");
+    let key_set = issuer_node
+        .get("keys")
+        .map(|keys| keys.as_object().ok_or(EncodeError::Issuer))
+        .transpose()?;
+    let (kid, secret) = match key_set {
+        None => ("x5c", "x5c-secret"),
+        Some(keys) => {
+            let first = keys.members().first().ok_or(EncodeError::Issuer)?;
+            let secret = first.value.as_str().ok_or(EncodeError::Issuer)?;
+            (first.name.as_ref(), secret)
+        }
+    };
     let mut metadata = format!("\"transaction_data_types\": {}", spaced_json(types)?);
     if let Some(keys) = keys {
         metadata.push_str(&format!(

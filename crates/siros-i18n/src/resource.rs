@@ -4,30 +4,42 @@
 //! `[section]` heads prefix the keys of the `key = message` entries after them, an indented line
 //! continues a message, and the sections `[formats.<format>]` hold a format's options.
 
-use crate::error::{ModuleError, ResourceRule};
+use rustc_hash::FxHashMap;
+
+use crate::error::{LoadError, SyntaxRule};
 use crate::format::Direction;
 use crate::locale::LocaleTag;
 
 /// The section prefix of a format's options.
 const FORMATS: &str = "formats";
 
-/// A resource, parsed: its locale, its messages and its formats' options, each in source order.
+/// A resource, parsed: its locale, its direction, its message sections and its formats' options,
+/// each in source order.
 #[derive(Debug)]
 pub(crate) struct Resource {
-    pub(crate) locale: LocaleTag,
+    pub(crate) locale: Option<LocaleTag>,
     pub(crate) direction: Direction,
-    pub(crate) messages: Vec<Entry>,
+    pub(crate) sections: Vec<MessageSection>,
     pub(crate) formats: Vec<FormatSection>,
 }
 
-/// A message under its key: the section's id path, then the entry's.
+/// The message entries under one `[section]` head, whose name and a dot prefix each entry's key in
+/// its id; or those before the first head, whose ids are their keys.
+#[derive(Debug)]
+pub(crate) struct MessageSection {
+    pub(crate) name: Option<String>,
+    pub(crate) entries: Vec<Entry>,
+}
+
+/// A message or an option under its key, and the line, from 1, where the entry starts.
 #[derive(Debug)]
 pub(crate) struct Entry {
     pub(crate) key: String,
     pub(crate) value: String,
+    pub(crate) line: usize,
 }
 
-/// One format's options, as `[formats.<format>]` sections give them.
+/// One format's options, as its `[formats.<format>]` sections give them.
 #[derive(Debug)]
 pub(crate) struct FormatSection {
     pub(crate) format: String,
@@ -40,160 +52,201 @@ enum Place {
     Body(Section),
 }
 
-/// The section entries belong to.
+/// The section the parser adds entries to.
 enum Section {
-    Root,
-    Messages(String),
-    Format(String),
+    Messages(MessageSection),
+    Format(FormatSection),
 }
 
-/// Parses the resource `text`, the `index`-th source given.
-pub(crate) fn parse(index: usize, text: &str) -> Result<Resource, ModuleError> {
-    let refuse = |line: usize, rule: ResourceRule| ModuleError::Resource {
-        source_index: index,
-        line,
-        rule,
+/// The sections the parser has left: the message sections, and each format's options under its
+/// name, with the position of its first section among the formats.
+#[derive(Default)]
+struct Left {
+    sections: Vec<MessageSection>,
+    formats: FxHashMap<String, (usize, Vec<Entry>)>,
+}
+
+impl Left {
+    /// Adds a section the parser leaves: its options to its format's.
+    fn leave(&mut self, section: Section) {
+        match section {
+            Section::Messages(messages) => self.sections.push(messages),
+            Section::Format(FormatSection { format, options }) => {
+                let at = self.formats.len();
+                self.formats
+                    .entry(format)
+                    .or_insert_with(|| (at, Vec::new()))
+                    .1
+                    .extend(options);
+            }
+        }
+    }
+
+    /// The message sections, and the formats' options, each format at its first section's
+    /// position.
+    fn finish(self) -> (Vec<MessageSection>, Vec<FormatSection>) {
+        let mut formats: Vec<(usize, FormatSection)> = self
+            .formats
+            .into_iter()
+            .map(|(format, (at, options))| (at, FormatSection { format, options }))
+            .collect();
+        formats.sort_unstable_by_key(|&(at, _)| at);
+        let formats = formats.into_iter().map(|(_, format)| format).collect();
+        (self.sections, formats)
+    }
+}
+
+/// Parses the resource `text`.
+pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
+    let refuse = |line: usize, rule: SyntaxRule| LoadError::Syntax { line, rule };
+    // `newline = CRLF / LF`: a line an LF ends drops the CR before it; the last line keeps one.
+    let lines: Vec<&str> = match text.rsplit_once('\n') {
+        Some((ended, last)) => ended
+            .split('\n')
+            .map(|line| line.strip_suffix('\r').unwrap_or(line))
+            .chain([last])
+            .collect(),
+        None => vec![text],
     };
-    let lines: Vec<&str> = text.split('\n').collect();
+    if let Some(at) = lines.iter().position(|line| !line.chars().all(allowed)) {
+        return Err(refuse(at + 1, SyntaxRule::Line));
+    }
     let mut locale: Option<LocaleTag> = None;
     let mut direction: Option<Direction> = None;
     let mut place = Place::Head;
-    let mut messages = Vec::new();
-    let mut formats: Vec<FormatSection> = Vec::new();
+    let mut left = Left::default();
     let mut at = 0;
-    while let Some(&raw) = lines.get(at) {
-        let line = raw.strip_suffix('\r').unwrap_or(raw);
+    while let Some(&line) = lines.get(at) {
         let number = at + 1;
-        if !line.chars().all(allowed) {
-            return Err(refuse(number, ResourceRule::Line));
-        }
         at += 1;
         if line.trim_matches(is_ws).is_empty() || line.starts_with('#') {
             continue;
         }
         if line.starts_with(is_ws) {
-            return Err(refuse(number, ResourceRule::Line));
+            return Err(refuse(number, SyntaxRule::Line));
         }
         if line.trim_end_matches(is_ws) == "---" {
-            match (&place, &locale) {
-                (Place::Head, Some(_)) => place = Place::Body(Section::Root),
-                (Place::Head, None) => return Err(refuse(number, ResourceRule::NoLocale)),
-                (Place::Body(_), _) => return Err(refuse(number, ResourceRule::Frontmatter)),
+            match place {
+                Place::Head => {
+                    place = Place::Body(Section::Messages(MessageSection {
+                        name: None,
+                        entries: Vec::new(),
+                    }));
+                }
+                Place::Body(_) => return Err(refuse(number, SyntaxRule::Frontmatter)),
             }
             continue;
         }
         if let Some(rest) = line.strip_prefix('@') {
             let (name, value, next) =
-                metadata(&lines, at, rest).ok_or(refuse(number, ResourceRule::Line))?;
+                metadata(&lines, at, rest).map_err(|rule| refuse(number, rule))?;
             at = next;
             let value = value.map_err(|rule| refuse(number, rule))?;
             match (&place, name.as_str()) {
                 (Place::Head, "locale") if locale.is_none() => {
                     let tag = LocaleTag::parse(&value)
-                        .map_err(|_| refuse(number, ResourceRule::Tag { tag: value }))?;
+                        .map_err(|_| refuse(number, SyntaxRule::Tag { tag: value }))?;
                     locale = Some(tag);
                 }
-                (Place::Head, "locale") => return Err(refuse(number, ResourceRule::NoLocale)),
                 (Place::Head, "dir") if direction.is_none() => {
                     direction = Some(match value.as_str() {
                         "ltr" => Direction::Ltr,
                         "rtl" => Direction::Rtl,
                         _ => {
-                            let rule = ResourceRule::Direction { direction: value };
+                            let rule = SyntaxRule::Direction { direction: value };
                             return Err(refuse(number, rule));
                         }
                     });
                 }
-                _ => return Err(refuse(number, ResourceRule::Metadata { name })),
+                _ => return Err(refuse(number, SyntaxRule::Metadata { name })),
             }
             continue;
         }
         let Place::Body(section) = &mut place else {
-            return Err(refuse(number, ResourceRule::Order));
+            return Err(refuse(number, SyntaxRule::Order));
         };
         if let Some(rest) = line.strip_prefix('[') {
-            *section = head(rest).map_err(|rule| refuse(number, rule))?;
+            let next = head(rest).map_err(|rule| refuse(number, rule))?;
+            left.leave(std::mem::replace(section, next));
             continue;
         }
         let (key, rest) = id(line).map_err(|rule| refuse(number, rule))?;
         let Some(first) = rest.trim_start_matches(is_ws).strip_prefix('=') else {
-            return Err(refuse(number, ResourceRule::Line));
+            return Err(refuse(number, SyntaxRule::Line));
         };
         let (value, next) = value(&lines, at, first);
         at = next;
+        let value = value.map_err(|rule| refuse(number, rule))?;
         let entry = Entry {
-            key: String::new(),
-            value: value.map_err(|rule| refuse(number, rule))?,
+            key,
+            value,
+            line: number,
         };
         match section {
-            Section::Root => messages.push(Entry { key, ..entry }),
-            Section::Messages(prefix) => messages.push(Entry {
-                key: format!("{prefix}.{key}"),
-                ..entry
-            }),
-            Section::Format(format) => {
-                let option = Entry { key, ..entry };
-                match formats.iter_mut().find(|section| section.format == *format) {
-                    Some(section) => section.options.push(option),
-                    None => formats.push(FormatSection {
-                        format: format.clone(),
-                        options: vec![option],
-                    }),
-                }
-            }
+            Section::Messages(messages) => messages.entries.push(entry),
+            Section::Format(format) => format.options.push(entry),
         }
     }
-    match (place, locale) {
-        (Place::Body(_), Some(locale)) => Ok(Resource {
-            locale,
-            direction: direction.unwrap_or(Direction::Unknown),
-            messages,
-            formats,
-        }),
-        (Place::Head, _) | (_, None) => Err(refuse(lines.len(), ResourceRule::Frontmatter)),
+    match place {
+        Place::Body(section) => {
+            left.leave(section);
+            let (sections, formats) = left.finish();
+            Ok(Resource {
+                locale,
+                direction: direction.unwrap_or(Direction::Unknown),
+                sections,
+                formats,
+            })
+        }
+        Place::Head => Err(refuse(lines.len(), SyntaxRule::Frontmatter)),
     }
 }
 
 /// A section head after its `[`.
-fn head(rest: &str) -> Result<Section, ResourceRule> {
+fn head(rest: &str) -> Result<Section, SyntaxRule> {
     let (path, after) = id(rest.trim_start_matches(is_ws))?;
     let Some(tail) = after.trim_start_matches(is_ws).strip_prefix(']') else {
-        return Err(ResourceRule::Line);
+        return Err(SyntaxRule::Line);
     };
     if !tail.trim_start_matches(is_ws).is_empty() {
-        return Err(ResourceRule::Line);
+        return Err(SyntaxRule::Line);
     }
     Ok(
         match path
             .strip_prefix(FORMATS)
             .and_then(|format| format.strip_prefix('.'))
         {
-            Some(format) => Section::Format(format.to_owned()),
-            None => Section::Messages(path),
+            Some(format) => Section::Format(FormatSection {
+                format: format.to_owned(),
+                options: Vec::new(),
+            }),
+            None => Section::Messages(MessageSection {
+                name: Some(path),
+                entries: Vec::new(),
+            }),
         },
     )
 }
 
-/// A metadata line after its `@`: its name, its value, and the line after it.
+/// A metadata line after its `@` (`id-part [ws value]`): its name, its value, and the line after
+/// it.
 fn metadata(
     lines: &[&str],
     next: usize,
     rest: &str,
-) -> Option<(String, Result<String, ResourceRule>, usize)> {
-    let end = rest.find(|c: char| is_ws(c)).unwrap_or(rest.len());
-    let (name, after) = (rest.get(..end)?, rest.get(end..)?);
-    let (name, left) = part(name).ok()?;
-    if !left.is_empty() {
-        return None;
+) -> Result<(String, Result<String, SyntaxRule>, usize), SyntaxRule> {
+    let (name, after) = part(rest)?;
+    if !after.is_empty() && !after.starts_with(is_ws) {
+        return Err(SyntaxRule::Line);
     }
     let (value, next) = value(lines, next, after);
-    Some((name, value, next))
+    Ok((name, value, next))
 }
 
 /// An id at the start of `text`: its parts joined by `.`, and the text after it.
-fn id(text: &str) -> Result<(String, &str), ResourceRule> {
+fn id(text: &str) -> Result<(String, &str), SyntaxRule> {
     if text.starts_with("---") {
-        return Err(ResourceRule::Line);
+        return Err(SyntaxRule::Line);
     }
     let (mut path, mut rest) = part(text)?;
     loop {
@@ -209,57 +262,48 @@ fn id(text: &str) -> Result<(String, &str), ResourceRule> {
 }
 
 /// One id part: `1*(id-char / "-")`, its escapes resolved.
-fn part(text: &str) -> Result<(String, &str), ResourceRule> {
+fn part(text: &str) -> Result<(String, &str), SyntaxRule> {
     let mut out = String::new();
-    let mut chars = text.char_indices().peekable();
-    while let Some((_, c)) = chars.next_if(|&(_, c)| c == '\\' || id_safe(c) || c == '-') {
-        if c == '\\' {
-            let escaped = chars.next().ok_or(ResourceRule::Escape)?.1;
-            match escape(escaped, &mut chars)? {
-                Some(c) => out.push(c),
-                None if symbol(escaped) => out.push(escaped),
-                None => return Err(ResourceRule::Escape),
+    let mut chars = text.chars();
+    loop {
+        let rest = chars.as_str();
+        match chars.next() {
+            Some('\\') => {
+                let escaped = chars.next().ok_or(SyntaxRule::Escape)?;
+                match escape(escaped, &mut chars)? {
+                    Some(c) => out.push(c),
+                    None if symbol(escaped) => out.push(escaped),
+                    None => return Err(SyntaxRule::Escape),
+                }
             }
-        } else {
-            out.push(c);
+            Some(c) if id_safe(c) || c == '-' => out.push(c),
+            Some(_) | None if out.is_empty() => return Err(SyntaxRule::Line),
+            Some(_) | None => return Ok((out, rest)),
         }
     }
-    if out.is_empty() {
-        return Err(ResourceRule::Line);
-    }
-    let rest = chars
-        .peek()
-        .map_or("", |&(at, _)| text.get(at..).unwrap_or_default());
-    Ok((out, rest))
 }
 
-/// One character of a value: escaped, and so kept from trimming, or as written.
+/// One character of a value's line: escaped, and so kept from trimming, or as written.
 #[derive(Clone, Copy)]
 enum Char {
     Escaped(char),
     Written(char),
-    Break,
 }
 
 /// A value from `first`, the rest of its first line, through its continuation lines: each line
 /// trimmed, empty lines trimmed from both ends, lines joined by LF. MF2's escapes `\\`, `\{`,
 /// `\|` and `\}` pass through intact. Returns the line after it.
-fn value(lines: &[&str], mut next: usize, first: &str) -> (Result<String, ResourceRule>, usize) {
+fn value(lines: &[&str], mut next: usize, first: &str) -> (Result<String, SyntaxRule>, usize) {
     let mut text = first.to_owned();
-    let mut end = next;
-    while let Some(&raw) = lines.get(end) {
-        let line = raw.strip_suffix('\r').unwrap_or(raw);
+    let mut blank = 0;
+    for &line in lines.iter().skip(next) {
         if line.trim_matches(is_ws).is_empty() {
-            end += 1;
+            blank += 1;
         } else if line.starts_with(is_ws) {
-            for empty in lines.get(next..end).unwrap_or_default() {
-                text.push('\n');
-                text.push_str(empty.strip_suffix('\r').unwrap_or(empty));
-            }
-            text.push('\n');
+            text.extend(std::iter::repeat_n('\n', blank + 1));
             text.push_str(line);
-            end += 1;
-            next = end;
+            next += blank + 1;
+            blank = 0;
         } else {
             break;
         }
@@ -268,67 +312,64 @@ fn value(lines: &[&str], mut next: usize, first: &str) -> (Result<String, Resour
 }
 
 /// The value's text, its escapes resolved and its lines trimmed.
-fn resolve(text: &str) -> Result<String, ResourceRule> {
-    let mut chars = text.char_indices().peekable();
-    let mut out: Vec<Char> = Vec::new();
-    while let Some((_, c)) = chars.next() {
+fn resolve(text: &str) -> Result<String, SyntaxRule> {
+    let mut chars = text.chars().peekable();
+    let mut lines: Vec<Vec<Char>> = Vec::new();
+    let mut line: Vec<Char> = Vec::new();
+    while let Some(c) = chars.next() {
         match c {
-            '\n' => out.push(Char::Break),
+            '\n' => lines.push(std::mem::take(&mut line)),
             '\\' => {
-                let escaped = chars.next().ok_or(ResourceRule::Escape)?.1;
+                let escaped = chars.next().ok_or(SyntaxRule::Escape)?;
                 if matches!(escaped, '\\' | '{' | '|' | '}') {
-                    out.extend([Char::Escaped('\\'), Char::Escaped(escaped)]);
+                    line.extend([Char::Escaped('\\'), Char::Escaped(escaped)]);
                 } else if escaped == '\n' {
-                    while chars.next_if(|&(_, c)| is_ws(c)).is_some() {}
+                    while chars.next_if(|&c| is_ws(c)).is_some() {}
                 } else {
-                    out.push(Char::Escaped(
-                        escape(escaped, &mut chars)?.ok_or(ResourceRule::Escape)?,
+                    line.push(Char::Escaped(
+                        escape(escaped, &mut chars)?.ok_or(SyntaxRule::Escape)?,
                     ));
                 }
             }
-            c => out.push(Char::Written(c)),
+            c => line.push(Char::Written(c)),
         }
     }
-    let lines: Vec<&[Char]> = out
-        .split(|c| matches!(c, Char::Break))
-        .map(|line| {
-            let blank = |c: &Char| matches!(c, Char::Written(c) if is_ws(*c));
-            let start = line.iter().position(|c| !blank(c)).unwrap_or(line.len());
-            let end = line
-                .iter()
-                .rposition(|c| !blank(c))
-                .map_or(start, |end| end + 1);
-            line.get(start..end).unwrap_or_default()
-        })
-        .collect();
-    let first = lines
-        .iter()
-        .position(|line| !line.is_empty())
-        .unwrap_or(lines.len());
-    let last = lines
-        .iter()
-        .rposition(|line| !line.is_empty())
-        .map_or(first, |last| last + 1);
-    let kept = lines.get(first..last).unwrap_or_default();
+    lines.push(line);
+    let blank = |c: &Char| matches!(c, Char::Written(c) if is_ws(*c));
+    let lines: Vec<&[Char]> = lines.iter().map(|line| trim(line, blank)).collect();
     let mut value = String::new();
-    for (index, line) in kept.iter().enumerate() {
+    for (index, line) in trim(&lines, |line| line.is_empty()).iter().enumerate() {
         if index > 0 {
             value.push('\n');
         }
-        value.extend(line.iter().filter_map(|c| match c {
-            Char::Escaped(c) | Char::Written(c) => Some(*c),
-            Char::Break => None,
+        value.extend(line.iter().map(|c| match *c {
+            Char::Escaped(c) | Char::Written(c) => c,
         }));
     }
     Ok(value)
 }
 
+/// `items` without the blank items at either end.
+fn trim<T>(mut items: &[T], blank: impl Fn(&T) -> bool) -> &[T] {
+    while let [first, rest @ ..] = items
+        && blank(first)
+    {
+        items = rest;
+    }
+    while let [rest @ .., last] = items
+        && blank(last)
+    {
+        items = rest;
+    }
+    items
+}
+
 /// The character an escape after its backslash stands for, reading its hex digits from `chars`;
 /// `None` for a character that starts no escape of `escaped`.
-fn escape<I: Iterator<Item = (usize, char)>>(
+fn escape(
     escaped: char,
-    chars: &mut std::iter::Peekable<I>,
-) -> Result<Option<char>, ResourceRule> {
+    chars: &mut impl Iterator<Item = char>,
+) -> Result<Option<char>, SyntaxRule> {
     let digits = match escaped {
         '\\' => return Ok(Some('\\')),
         ' ' | '\t' => return Ok(Some(escaped)),
@@ -344,11 +385,11 @@ fn escape<I: Iterator<Item = (usize, char)>>(
     for _ in 0..digits {
         let digit = chars
             .next()
-            .and_then(|(_, c)| c.to_digit(16))
-            .ok_or(ResourceRule::Escape)?;
+            .and_then(|c| c.to_digit(16))
+            .ok_or(SyntaxRule::Escape)?;
         code = code * 16 + digit;
     }
-    char::from_u32(code).map(Some).ok_or(ResourceRule::Escape)
+    char::from_u32(code).map(Some).ok_or(SyntaxRule::Escape)
 }
 
 /// `symbols`: the characters an id escapes.
@@ -370,7 +411,7 @@ const fn is_ws(c: char) -> bool {
     matches!(c, ' ' | '\t')
 }
 
-/// A character a line may hold: `content`, a backslash, or a line's CR.
+/// A character a line may hold before its line ending: `content` or a backslash.
 const fn allowed(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\u{21}'..='\u{7E}' | '\u{A0}'..='\u{2027}' | '\u{202A}'..='\u{10FFFF}')
 }

@@ -7,7 +7,7 @@ use super::Reply;
 use crate::json::Object;
 
 /// An AuthZEN entity's `type` (§5.1, §5.2): non-empty, fixed by the plug-in that asks, which
-/// makes its own with `siros_explain::checked!`.
+/// makes its own with `siros_syntax::checked!`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EntityType(&'static str);
 

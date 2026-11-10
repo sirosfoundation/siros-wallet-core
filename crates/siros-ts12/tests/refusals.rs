@@ -7,7 +7,6 @@ use common::{
     BASE, CS12_IBAN, TESTBED_IBAN, bound, bound_entry, bound_of, bound_with, credential, document,
     env, parameters, profile, with_signed, with_unsigned,
 };
-use siros_explain::{Entry, Keyed};
 use siros_openid4vp::hash::HashesAlgRule;
 use siros_openid4vp::ids::{QueryId, TransactionType};
 use siros_openid4vp::json::Node;
@@ -18,6 +17,7 @@ use siros_openid4vp::rows::HttpsUrl;
 use siros_openid4vp::wallet_metadata::Placement;
 use siros_paso::metadata::UiKey;
 use siros_paso::outcome::Outcome;
+use siros_syntax::{Entry, Keyed};
 use siros_ts12::{
     ComposeError, DataUrl, DateForm, Expected, FetchedDocument, Integrity, PayloadRefusal,
     Ts12Document, Ts12Excluded, Ts12Payload, Ts12Rule, Ts12Type, Ts12Unsupported, TwinnedMember,

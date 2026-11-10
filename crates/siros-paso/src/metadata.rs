@@ -1,13 +1,13 @@
 //! A transaction data type's metadata (Proof Metadata §3): its claims (§3.1) and the UI labels
-//! the wallet recognises (§3.2), parsed under the label and structural constraints of §3.3.
-//! Metadata that breaks a constraint makes the type unsupported by the credential; a displayed
-//! claim's value type the wallet does not support makes the entry not compatible (View §3).
+//! the wallet recognises (§3.2), parsed under the label and structural constraints of §3.3, each
+//! fixed label showing a visible character ([`crate::labels`]). Metadata that breaks a constraint
+//! makes the type unsupported by the credential; a displayed claim's value type the wallet does
+//! not support makes the entry not compatible (View §3).
 
 use std::fmt;
 use std::num::NonZeroUsize;
 
-use siros_explain::Domain;
-use siros_explain::{Explain, IntoArg, kind};
+use siros_i18n::Message;
 use siros_openid4vp::claims::ClaimPath;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::refusal::{ReprItem, ReprOption};
@@ -30,15 +30,6 @@ pub enum UiKey {
     DenialActionLabel,
     /// `security_hint`.
     SecurityHint,
-}
-
-/// A UI element identifier names an argument as the code fixes it.
-impl IntoArg for UiKey {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.name()
-    }
 }
 
 impl UiKey {
@@ -66,19 +57,6 @@ impl UiKey {
         Self::ALL.into_iter().find(|key| key.name() == name)
     }
 
-    /// The stem of its labels' keys in a converted module.
-    #[must_use]
-    pub const fn stem(self) -> Domain {
-        match self {
-            Self::TransactionTitle => siros_explain::checked!(Domain, "transaction_title"),
-            Self::AffirmativeActionLabel => {
-                siros_explain::checked!(Domain, "affirmative_action_label")
-            }
-            Self::DenialActionLabel => siros_explain::checked!(Domain, "denial_action_label"),
-            Self::SecurityHint => siros_explain::checked!(Domain, "security_hint"),
-        }
-    }
-
     /// Where its labels show.
     #[must_use]
     pub const fn slot(self) -> LabelSlot {
@@ -97,33 +75,52 @@ impl fmt::Display for UiKey {
     }
 }
 
-/// A display array, the place an error names: a claim's `display` or a UI label's entries.
-#[derive(Debug, Clone, PartialEq, Eq, Explain)]
-#[explain(domain = "paso.array_at")]
+/// A display array, the place an error names: a claim's `display` or a UI label's entries. The
+/// error's log line writes it as a JSON locator; a wallet that downcasts the error words it
+/// through this statement.
+#[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub enum ArrayAt {
     /// The `display` of the claim at a path.
-    Claim(#[explain(name = "path")] ReprItem),
+    #[message(id = "array_at.claim")]
+    Claim {
+        /// The claim's path.
+        path: ReprItem,
+    },
     /// A UI label's entries.
-    Ui(#[explain(name = "key")] UiKey),
+    #[message(id = "array_at.ui")]
+    Ui {
+        /// The UI label.
+        key: UiKey,
+    },
 }
 
 impl ArrayAt {
-    /// The place in an error's `#[error]` template.
+    /// The JSON locator an error's log line writes: `claim ['a'] display`, `ui_labels.<key>`.
     pub(crate) fn logged(&self) -> String {
         match self {
-            Self::Claim(path) => format!("claim {path} display"),
-            Self::Ui(key) => format!("ui_labels.{key}"),
+            Self::Claim { path } => format!("claim {} display", path.repr_text()),
+            Self::Ui { key } => format!("ui_labels.{key}"),
         }
     }
 
-    /// The rule a label of this array breaks as written.
+    /// The rule a fixed label of this array breaks.
     fn label(&self, violation: LabelViolation) -> Unsupported {
         match self {
-            Self::Claim(path) => Unsupported::ClaimLabel(path.clone(), violation),
-            Self::Ui(key) => Unsupported::UiLabel(*key, violation),
+            Self::Claim { path } => Unsupported::ClaimLabel {
+                claim: path.clone(),
+                violation,
+            },
+            Self::Ui { key } => Unsupported::UiLabel {
+                key: *key,
+                violation,
+            },
         }
     }
 }
+
+/// The character a template label's conversion reads its placeholders as ([`crate::view`]): a
+/// template label that holds it is unsupported.
+pub(crate) const RESERVED: char = '\u{FDD0}';
 
 /// A display entry's locale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,11 +134,13 @@ pub enum EntryLocale<'m> {
 /// A label as its entry types it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LabelForm<'m> {
-    /// Plain text, meeting §3.3.
+    /// Plain text, meeting §3.3 and showing a visible character ([`LabelText::parse`]).
     Plain(LabelText<'m>),
-    /// `mini_markdown`, meeting §3.3.
+    /// `mini_markdown`, meeting §3.3 as written, its spans showing a visible character
+    /// ([`LabelText::markdown`]).
     Markdown(LabelText<'m>),
-    /// `template:mini_markdown`: §3.3 applies once interpolated.
+    /// `template:mini_markdown`: §3.3 applies once interpolated, and the visible character to
+    /// what it shows once rendered.
     Template(&'m str),
     /// A Mandate claim's label: a text of the wallet's own, which the rulebook names.
     Own(MandateLabel),
@@ -191,49 +190,71 @@ impl<'m> DisplayArray<'m> {
         Self(entries)
     }
 
-    /// Parses an array: every entry's structure first, then each fixed label against §3.3.
+    /// Parses an array: every entry's structure first, then each fixed label against §3.3 and
+    /// the visible character.
     fn parse(node: &'m Node<'m>, shape: &ArrayShape) -> Result<Self, Unsupported> {
         let items = node
             .as_array()
             .filter(|items| !items.is_empty())
-            .ok_or_else(|| Unsupported::EmptyArray(shape.at.clone()))?;
+            .ok_or_else(|| Unsupported::EmptyArray {
+                at: shape.at.clone(),
+            })?;
         let mut seen: Vec<String> = Vec::new();
         let mut defaults = 0usize;
         let mut raw: Vec<(EntryLocale<'m>, &'m str, RawType)> = Vec::new();
         for item in items {
-            let text = item
-                .get(shape.text)
-                .and_then(Node::as_str)
-                .ok_or_else(|| Unsupported::EntryWithoutText(shape.at.clone(), shape.text))?;
+            let text = item.get(shape.text).and_then(Node::as_str).ok_or_else(|| {
+                Unsupported::EntryWithoutText {
+                    at: shape.at.clone(),
+                    member: shape.text,
+                }
+            })?;
             let typed = RawType::read(item.get(shape.typed_by), shape)?;
             let locale = match item.get("locale") {
                 None => {
                     defaults += 1;
                     EntryLocale::Default
                 }
-                Some(Node::Null) => return Err(Unsupported::NullLocale(shape.at.clone())),
+                Some(Node::Null) => {
+                    return Err(Unsupported::NullLocale {
+                        at: shape.at.clone(),
+                    });
+                }
                 Some(Node::String(tag)) if !seen.contains(&tag.to_lowercase()) => {
                     seen.push(tag.to_lowercase());
                     EntryLocale::Tagged(tag)
                 }
                 Some(other) => {
-                    return Err(Unsupported::LocaleRepeated(
-                        shape.at.clone(),
-                        ReprItem::repr(other),
-                    ));
+                    return Err(Unsupported::LocaleRepeated {
+                        at: shape.at.clone(),
+                        locale: ReprItem::repr(other),
+                    });
                 }
             };
             raw.push((locale, text, typed));
         }
         if defaults > 1 {
-            return Err(Unsupported::DefaultTwice(shape.at.clone()));
+            return Err(Unsupported::DefaultTwice {
+                at: shape.at.clone(),
+            });
         }
         raw.into_iter()
             .map(|(locale, text, typed)| {
-                let checked = || LabelText::parse(text, shape.limit).map_err(|v| shape.at.label(v));
+                let checked = |parsed: Result<LabelText<'m>, LabelViolation>| {
+                    parsed.map_err(|v| shape.at.label(v))
+                };
                 let label = match typed {
-                    RawType::Plain => LabelForm::Plain(checked()?),
-                    RawType::Markdown => LabelForm::Markdown(checked()?),
+                    RawType::Plain => {
+                        LabelForm::Plain(checked(LabelText::parse(text, shape.limit))?)
+                    }
+                    RawType::Markdown => {
+                        LabelForm::Markdown(checked(LabelText::markdown(text, shape.limit))?)
+                    }
+                    RawType::Template if text.contains([RESERVED, '\0']) => {
+                        return Err(Unsupported::Reserved {
+                            at: shape.at.clone(),
+                        });
+                    }
                     RawType::Template => LabelForm::Template(text),
                 };
                 Ok(Localized { locale, label })
@@ -414,16 +435,25 @@ impl<'m> Metadata<'m> {
             .and_then(Node::as_array)
             .ok_or(Unsupported::NoClaims)?;
         if claims.len() > 100 {
-            return Err(Unsupported::TooManyClaims(claims.len()).into());
+            return Err(Unsupported::TooManyClaims {
+                claims: claims.len(),
+            }
+            .into());
         }
         let mut parsed: Vec<ClaimMeta<'m>> = Vec::with_capacity(claims.len());
         for (k, claim) in claims.iter().enumerate() {
-            let path = claim
-                .get("path")
-                .and_then(ClaimPath::parse)
-                .ok_or(Unsupported::InvalidPath(ClaimIndex(k)))?;
+            let path =
+                claim
+                    .get("path")
+                    .and_then(ClaimPath::parse)
+                    .ok_or(Unsupported::InvalidPath {
+                        claim: ClaimIndex(k),
+                    })?;
             if parsed.iter().any(|earlier| earlier.path == path) {
-                return Err(Unsupported::PathTwice(claim_text(path.steps())).into());
+                return Err(Unsupported::PathTwice {
+                    path: claim_text(path.steps()),
+                }
+                .into());
             }
             let mandatory = if claim.get("mandatory") == Some(&Node::Bool(true)) {
                 Mandatory::Yes
@@ -432,9 +462,10 @@ impl<'m> Metadata<'m> {
             };
             let display = match claim.get("display") {
                 None if claim.get("value_type").is_some() => {
-                    return Err(
-                        Unsupported::ValueTypeWithoutDisplay(claim_text(path.steps())).into(),
-                    );
+                    return Err(Unsupported::ValueTypeWithoutDisplay {
+                        claim: claim_text(path.steps()),
+                    }
+                    .into());
                 }
                 None => None,
                 Some(display) => Some(Displayed::parse(claim, display, &path, mandatory, limits)?),
@@ -468,13 +499,18 @@ impl<'m> Displayed<'m> {
                 typed_by: "display_type",
                 typing: Typing::Text,
                 limit: limits.of(LabelSlot::ClaimName),
-                at: ArrayAt::Claim(claim_text(path.steps())),
+                at: ArrayAt::Claim {
+                    path: claim_text(path.steps()),
+                },
             },
         )?;
         let written = claim.get("value_type");
         let value = ValueType::parse(written);
         if value == Some(ValueType::LabelOnly) && mandatory == Mandatory::Yes {
-            return Err(Unsupported::MandatoryLabelOnly(claim_text(path.steps())).into());
+            return Err(Unsupported::MandatoryLabelOnly {
+                claim: claim_text(path.steps()),
+            }
+            .into());
         }
         let value = value.ok_or_else(|| NotCompatible::ValueType {
             path: claim_text(path.steps()),
@@ -517,7 +553,7 @@ impl<'m> UiLabel<'m> {
                 typed_by: "value_type",
                 typing,
                 limit: limits.of(key.slot()),
-                at: ArrayAt::Ui(key),
+                at: ArrayAt::Ui { key },
             },
         )?;
         Ok(Self { key, entries })

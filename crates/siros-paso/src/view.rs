@@ -1,403 +1,476 @@
-//! PaSO View's display rules as a defined module (section 4.14 of the design): the conversion the
-//! wallet runs when a type's metadata loads, and the matcher when ad-hoc metadata arrives with a
-//! request, and the identity and keys phase 1's texts name.
+//! PaSO View's display rules as MessageFormat 2 resource source: the conversion the wallet runs
+//! when a type's metadata loads, and the matcher when ad-hoc metadata arrives with a request, and
+//! the ids phase 1's texts name.
 //!
-//! Each display array is one message of the module, under the key of what it labels: a claim's
-//! `claim_<k>`, a UI label's name. The module supports each tag of the End-User's priority list
-//! View §4 can select; in each, an array's message is the text of the entries View §4 tries for
-//! that tag: one entry's, or for a template that an absent claim discards, a selection over each
-//! such entry's argument `e<j>` (`live` or `dead`, by its position) whose fallback is the last
-//! entry tried. A plain label is
-//! literal text, a `mini_markdown` label its emphasis, strong and underline spans as styles, a
-//! template label its spans with each `{n}` naming a claim as the argument `c<n>` of claim n's
-//! value kind, absent when the claim is. The conversion writes the module in its render form with
-//! no loader ([`DefinedForm`]): each tag's typed arguments format as the main module's entry RFC
-//! 4647 Lookup finds for the tag formats a bare value of their kind, and the tag takes that
-//! entry's direction; a tag no main entry serves where an argument calls a format has no locale,
-//! and a screen showing the module in it refuses it. Its language policy is `Understood`: View §4
-//! excludes a credential when no tag matches every array.
+//! A conversion is one resource in the context's locale. Each tag of the End-User's priority list
+//! that View §4 can select is a section `paso.view.<digest>.<tag>`, `<digest>` the hexadecimal
+//! SHA-256 of the metadata's compact JSON ([`ViewId`]), so conversions of several types load into
+//! one context. In it, each display array is one message under the key of what it labels: a
+//! claim's `claim_<k>`, a UI label's name. An array's message is the text of the entries View §4
+//! tries for that tag: one entry's, or for a template that an absent claim discards, a `.match`
+//! over each such entry's argument `e<j>` (`live` or `dead`, by its position) whose fallback is
+//! the last entry tried. A plain label is literal text, a `mini_markdown` label its emphasis,
+//! strong and underline spans as markup (`strong`, `emphasis`, `underline`), a template label its
+//! spans with each `{n}` naming a claim as the argument `c<n>`, formatted by claim n's value type:
+//! `:siros:date`, `:siros:time` and `:siros:datetime` over the value's literal, `:currency` over
+//! an amount's number `c<n>` with its code `c<n>_currency`, any other value as given. Every text
+//! the metadata writes reaches the source through [`siros_i18n::escape`]. A message's format
+//! options are the wallet's modules' in the same context.
+//!
+//! Every id, name and variant key the source holds is ASCII: digests, language tags,
+//! `claim_<n>`, UI labels' names, `c<n>`, `c<n>_currency`, `e<j>`, `live`, and the functions' and
+//! the markup's names. A matcher whose siros-i18n is built without `nfc` loads the source into the
+//! messages the wallet loads.
+
+use std::fmt;
 
 use sha2::{Digest, Sha256};
-use siros_explain::{
-    ArgKind, ArgName, DefinedKey, DefinedModule, Domain, Entry, Explain, Keyed, MetadataDigest,
-    ParamKind, ParamName, Presence, checked,
-};
-use siros_i18n::{
-    AsciiKey, Body, DefinedError, DefinedForm, LanguagePolicy, LocaleTag, MainLocale, Part, Variant,
-};
+use siros_explain::Explain;
+use siros_i18n::{Context, LoadError, LocaleTag, Message, ResolveError, escape};
 use siros_openid4vp::json::Node;
 
 use crate::adhoc::Carried;
 use crate::conform::ClaimIndex;
 use crate::labels::LabelLimits;
-use crate::locale::{ArrayKey, chain, lookup, selectable};
+use crate::locale::{ArrayKey, chain, selectable};
 use crate::markdown::{Span, Style, spans};
-use crate::metadata::{ClaimMeta, DisplayArray, LabelForm, Localized, ValueType};
+use crate::metadata::{ClaimMeta, DisplayArray, LabelForm, Localized, RESERVED, ValueType};
 use crate::outcome::Outcome;
 use crate::render::{Registered, arrays, rulebook_metadata};
 use crate::rulebook::PasoType;
-use crate::template::{Placeholder, placeholders};
+use crate::template::marked;
 use crate::value::{FormattedKind, ValueKind};
 
-/// The plug-in whose conversions name PaSO's defined modules.
-pub const PLUGIN: Domain = checked!(Domain, "paso");
+/// The prefix of the ids a type's metadata converts to: `paso.view.` and the hexadecimal SHA-256
+/// of the metadata's compact JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ViewId(String);
 
-/// The character a template's claim placeholders stand as while its `mini_markdown` is read.
-const SLOT: char = '\u{FDD0}';
+impl ViewId {
+    /// The prefix of a type's metadata.
+    #[must_use]
+    pub fn of(given: &Node<'_>) -> Self {
+        let digest = Sha256::digest(given.json_compact().to_string().as_bytes());
+        let mut id = String::from("paso.view.");
+        for byte in digest {
+            id.push_str(&format!("{byte:02x}"));
+        }
+        Self(id)
+    }
 
-/// The defined module a type's metadata converts to: PaSO's, under the SHA-256 of the
-/// metadata's compact JSON.
-#[must_use]
-pub fn module_of(given: &Node<'_>) -> DefinedModule {
-    let digest = Sha256::digest(given.json_compact().to_string().as_bytes());
-    DefinedModule::new(PLUGIN, MetadataDigest::new(digest.into()))
-}
+    /// The prefix.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 
-/// The stem of a claim's labels' keys.
-const CLAIM: Domain = checked!(Domain, "claim");
-
-/// The key of a display array's message: `claim_<index>` for a claim's, the UI label's name for
-/// a UI label's.
-pub(crate) fn key(array: ArrayKey) -> DefinedKey {
-    match array {
-        ArrayKey::Claim(claim) => DefinedKey::numbered(CLAIM, &[claim.0]),
-        ArrayKey::Ui(ui) => DefinedKey::numbered(ui.stem(), &[]),
+    /// The id of an array's message in the section of `tag`.
+    pub(crate) fn message(&self, tag: &LocaleTag, array: ArrayKey) -> String {
+        format!("{}.{tag}.{}", self.0, key(array))
     }
 }
 
-/// The name of the argument a template's `{n}` gives claim n's value under.
-pub(crate) fn argument(claim: ClaimIndex) -> ParamName {
-    ParamName::numbered(checked!(ArgName, "c"), claim.get())
+/// The key of a display array's message: `claim_<index>` for a claim's, the UI label's name for
+/// a UI label's.
+fn key(array: ArrayKey) -> String {
+    match array {
+        ArrayKey::Claim(claim) => format!("claim_{}", claim.get()),
+        ArrayKey::Ui(ui) => ui.name().to_owned(),
+    }
+}
+
+/// The name of the argument a template's `{n}` gives claim n's value under; an amount's number.
+pub(crate) fn argument(claim: ClaimIndex) -> String {
+    format!("c{}", claim.get())
+}
+
+/// The name of the argument that gives claim n's amount's currency.
+pub(crate) fn currency(claim: ClaimIndex) -> String {
+    format!("c{}_currency", claim.get())
 }
 
 /// The name of the argument that tells whether the template entry at `position` of an array is
 /// discarded.
-pub(crate) fn liveness(position: usize) -> ParamName {
-    ParamName::numbered(checked!(ArgName, "e"), position)
+pub(crate) fn liveness(position: usize) -> String {
+    format!("e{position}")
 }
 
 /// The value of a liveness argument for an entry no absent claim discards.
-pub(crate) const LIVE: AsciiKey = checked!(AsciiKey, "live");
+pub(crate) const LIVE: &str = "live";
 /// The value of a liveness argument for an entry an absent claim discards.
 pub(crate) const DEAD: &str = "dead";
 
-/// The kind of value a template's `{n}` gives, by claim n's value type: a typed value for a
-/// date, a time, a date and time, a currency and an amount; a message for a boolean and a
-/// frequency; the text as written otherwise.
-pub(crate) const fn argument_kind(value_type: ValueType) -> ArgKind {
+/// How a template's `{n}` shows claim n's value, by the claim's value type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shows {
+    /// As given: a text, a boolean or a frequency as the wallet words it, a currency's code.
+    Given,
+    /// Through a function of the value's literal.
+    Function(&'static str),
+    /// Through `:currency`: the amount's number with its code as the `currency` option.
+    Amount,
+}
+
+const fn shows(value_type: ValueType) -> Shows {
     match value_type {
         ValueType::Kind(ValueKind::Formatted(kind)) => match kind {
-            FormattedKind::Boolean | FormattedKind::Frequency => ArgKind::Message,
-            FormattedKind::Date => ArgKind::Date,
-            FormattedKind::Time => ArgKind::Time,
-            FormattedKind::DateTime => ArgKind::DateTime,
-            FormattedKind::Currency => ArgKind::Currency,
-            FormattedKind::CurrencyAmount => ArgKind::Amount,
-            FormattedKind::Text | FormattedKind::MiniMarkdown | FormattedKind::Url => ArgKind::Raw,
+            FormattedKind::Date => Shows::Function("siros:date"),
+            FormattedKind::Time => Shows::Function("siros:time"),
+            FormattedKind::DateTime => Shows::Function("siros:datetime"),
+            FormattedKind::CurrencyAmount => Shows::Amount,
+            FormattedKind::Text
+            | FormattedKind::Boolean
+            | FormattedKind::Frequency
+            | FormattedKind::Currency
+            | FormattedKind::MiniMarkdown
+            | FormattedKind::Url => Shows::Given,
         },
         ValueType::Plain
         | ValueType::Kind(ValueKind::Image)
         | ValueType::LabelOnly
-        | ValueType::Template(_) => ArgKind::Raw,
+        | ValueType::Template(_) => Shows::Given,
     }
 }
 
 /// Why a type's metadata does not convert.
-#[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "paso.convert")]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum ConvertError {
-    /// The metadata breaks Proof Metadata §3, or a value type is unsupported.
+    /// The metadata breaks Proof Metadata §3, or a value type or a template label is unsupported.
     #[error(transparent)]
     Metadata(#[from] Outcome),
-    /// The module is no render form: a main entry lacks the format of a typed argument.
+    /// The converted source does not load into the context: a function the build lacks, format
+    /// options no module of the context defines.
     #[error(transparent)]
-    Defined(#[from] DefinedError),
-    /// A template holds the character the conversion reads its placeholders as.
-    #[error("a template holds U+FDD0")]
-    Reserved,
-    /// A display array holds no entry for a language the converted module supports.
-    #[error("a display array holds no entry for {0}")]
-    NoEntry(#[explain(name = "locale")] LocaleTag),
+    Load(#[from] LoadError),
+    /// The context holds no module, so no locale to write the source in.
+    #[error("the context holds no module")]
+    #[explain(id = "convert.unlocalized")]
+    Unlocalized,
+    /// A display array holds no entry for a language the conversion supports.
+    #[error("a display array holds no entry for {locale}")]
+    #[explain(id = "convert.no_entry")]
+    NoEntry {
+        /// The language.
+        locale: LocaleTag,
+    },
     /// A display array mixes the wallet's own labels with the metadata's.
     #[error("a display array mixes the wallet's own labels with the metadata's")]
+    #[explain(id = "convert.mixed_own")]
     MixedOwn,
+    /// Reading a template label's `mini_markdown` kept other than one placeholder mark per
+    /// placeholder.
+    #[error("a template label's mini_markdown lost a placeholder")]
+    #[explain(id = "convert.slots")]
+    Slots,
+    /// `siros_i18n::escape` wrote no quoted pattern.
+    #[error("escape wrote no quoted pattern")]
+    #[explain(id = "convert.unquoted")]
+    Unquoted,
 }
 
-/// The defined modules of the ad-hoc metadata a DC API request's entries carry (Proof Metadata
-/// §5), as the matcher reads them, unverified, converted as [`convert`] converts a type's
-/// metadata, each once, over the main module's entries its registration's package holds.
-/// Metadata that does not convert gives no module: the profile's binding refuses its entry.
+/// The sources of the ad-hoc metadata a DC API request's entries carry (Proof Metadata §5), as
+/// the matcher reads them, unverified, converted as [`convert`] converts a type's metadata, each
+/// metadata once, none the context words already. Metadata that does not convert gives no
+/// source: the profile's binding refuses its entry.
 ///
 /// # Errors
 ///
-/// [`ConvertError::Defined`]: a main entry lacks a format a converted message calls.
+/// [`ConvertError`] other than [`ConvertError::Metadata`]: a converted source does not load into
+/// the context.
 pub fn carried(
     carried: &Carried<'_>,
-    main: &[MainLocale],
+    context: &Context,
     priority: &[LocaleTag],
-) -> Result<Vec<DefinedForm>, ConvertError> {
-    converted(carried.jwts(), main, priority)
+) -> Result<Vec<String>, ConvertError> {
+    converted(carried.jwts(), context, priority)
 }
 
-/// The defined modules of the ad-hoc metadata a request of the URI flow carries, each JWT
-/// converted once the wallet verified it for a credential (Proof Metadata §5.3), as [`carried`]
-/// converts the matcher's.
+/// The sources of the ad-hoc metadata a request of the URI flow carries, each JWT converted once
+/// the wallet verified it for a credential (Proof Metadata §5.3), as [`carried`] converts the
+/// matcher's.
 ///
 /// # Errors
 ///
-/// [`ConvertError::Defined`]: a main entry lacks a format a converted message calls.
+/// [`ConvertError`] other than [`ConvertError::Metadata`]: a converted source does not load into
+/// the context.
 #[cfg(feature = "resolve")]
 pub fn verified(
     verified: &crate::adhoc::Verified<'_>,
-    main: &[MainLocale],
+    context: &Context,
     priority: &[LocaleTag],
-) -> Result<Vec<DefinedForm>, ConvertError> {
-    converted(verified.jwts(), main, priority)
+) -> Result<Vec<String>, ConvertError> {
+    converted(verified.jwts(), context, priority)
 }
 
-/// Each JWT's metadata converted, each module once.
+/// Each JWT's metadata converted, each source once, each loaded after the ones before it.
 fn converted<'a, 'r: 'a>(
     jwts: impl Iterator<Item = (&'a PasoType<'r>, &'a crate::adhoc::Read<'r>)>,
-    main: &[MainLocale],
+    context: &Context,
     priority: &[LocaleTag],
-) -> Result<Vec<DefinedForm>, ConvertError> {
-    let mut modules: Vec<DefinedForm> = Vec::new();
+) -> Result<Vec<String>, ConvertError> {
+    let mut running = context.clone();
+    let mut sources: Vec<String> = Vec::new();
     for (kind, read) in jwts {
         let registered = Registered::of(kind.clone(), read.metadata());
-        match convert(&registered, LabelLimits::PASO, main, priority) {
-            Ok(converted) => {
-                if modules.iter().all(|known| known.id() != converted.id()) {
-                    modules.push(converted);
-                }
-            }
-            Err(defined @ ConvertError::Defined(_)) => return Err(defined),
-            Err(
-                ConvertError::Metadata(_)
-                | ConvertError::Reserved
-                | ConvertError::NoEntry(_)
-                | ConvertError::MixedOwn,
-            ) => {}
+        let conversion = match written(&registered, LabelLimits::PASO, &running, priority) {
+            Ok(conversion) => conversion,
+            Err(ConvertError::Metadata(_)) => continue,
+            Err(other) => return Err(other),
+        };
+        let Some(first) = &conversion.first else {
+            continue;
+        };
+        if words(&running, first) {
+            continue;
         }
+        running = running.module(&conversion.source)?;
+        sources.push(conversion.source);
     }
-    Ok(modules)
+    Ok(sources)
 }
 
-/// A message's parameters: each argument's name and kind.
-type Params = Keyed<ParamName, ParamKind>;
-
-/// An array to convert: what it labels, its entries, and its message's parameters.
-struct Converting<'a, 'm> {
-    array: ArrayKey,
-    entries: &'a DisplayArray<'m>,
-    params: Params,
-}
-
-/// Converts a type's display rules into its defined module for the End-User's priority list, its
-/// typed arguments formatted as the main module's entries `main` format bare values, its labels
-/// held to `limits`.
+/// Converts a type's display rules into a resource of the context's locale for the End-User's
+/// priority list, its labels held to `limits`, and checks that it loads into the context.
 ///
 /// # Errors
 ///
-/// [`ConvertError`]: its metadata refuses, a template holds U+FDD0, or a main entry lacks a format
-/// a message calls.
+/// [`ConvertError`]: its metadata refuses, the context holds no module, or the source does not
+/// load into the context.
 pub fn convert(
     registered: &Registered<'_>,
     limits: LabelLimits,
-    main: &[MainLocale],
+    context: &Context,
     priority: &[LocaleTag],
-) -> Result<DefinedForm, ConvertError> {
+) -> Result<String, ConvertError> {
+    let conversion = written(registered, limits, context, priority)?;
+    context.clone().module(&conversion.source).map(drop)?;
+    Ok(conversion.source)
+}
+
+/// The context with a type's converted source loaded, as [`convert`] writes it.
+pub(crate) fn load(
+    registered: &Registered<'_>,
+    limits: LabelLimits,
+    context: &Context,
+    priority: &[LocaleTag],
+) -> Result<Context, ConvertError> {
+    let conversion = written(registered, limits, context, priority)?;
+    Ok(context.clone().module(&conversion.source)?)
+}
+
+/// Whether the context words `id`: a message of that id resolves, or fails for a reason other
+/// than its id.
+pub(crate) fn words(context: &Context, id: &str) -> bool {
+    !matches!(
+        context.resolve(&Probe(id)),
+        Err(ResolveError::Unknown { .. })
+    )
+}
+
+/// A message of an id, without arguments.
+struct Probe<'i>(&'i str);
+
+impl Message for Probe<'_> {
+    fn id(&self) -> &str {
+        self.0
+    }
+
+    fn args(&self, _arg: &mut dyn FnMut(&str, &dyn fmt::Display)) {}
+}
+
+/// A converted source, and the id of its first message.
+struct Conversion {
+    source: String,
+    first: Option<String>,
+}
+
+/// Writes the source.
+fn written(
+    registered: &Registered<'_>,
+    limits: LabelLimits,
+    context: &Context,
+    priority: &[LocaleTag],
+) -> Result<Conversion, ConvertError> {
+    let locale = context.locale().ok_or(ConvertError::Unlocalized)?;
     let (metadata, _) = rulebook_metadata(registered, limits)?;
     let arrays = arrays(&metadata);
-    let mut messages: Vec<Converting<'_, '_>> = Vec::new();
-    for (array, entries) in &arrays {
-        if entries
-            .entries()
-            .iter()
-            .all(|entry| matches!(entry.label, LabelForm::Own(_)))
-        {
-            continue;
-        }
-        let mut params = Vec::new();
-        for (position, entry) in entries.entries().iter().enumerate() {
-            if let LabelForm::Template(text) = entry.label {
-                params.push(Entry::new(
-                    liveness(position),
-                    ParamKind::new(ArgKind::Name, Presence::Required),
-                ));
-                params.extend(template(text, &metadata.claims)?.1.into_entries());
-            }
-        }
-        messages.push(Converting {
-            array: *array,
-            entries,
-            params: Keyed::first_of(params),
-        });
-    }
-    let typed = messages.iter().any(|message| {
-        message.params.entries().iter().any(|param| {
-            matches!(
-                param.value().kind(),
-                ArgKind::Date
-                    | ArgKind::Time
-                    | ArgKind::DateTime
-                    | ArgKind::Amount
-                    | ArgKind::Currency
-            )
+    let converting: Vec<&(ArrayKey, &DisplayArray<'_>)> = arrays
+        .iter()
+        .filter(|(_, entries)| {
+            !entries
+                .entries()
+                .iter()
+                .all(|entry| matches!(entry.label, LabelForm::Own(_)))
         })
-    });
-    let tags: Vec<LocaleTag> = main.iter().map(|entry| entry.locale().clone()).collect();
-    let declaration = Keyed::first_of(
-        messages
-            .iter()
-            .map(|message| Entry::new(key(message.array), message.params.clone())),
-    );
-    let mut builder = DefinedForm::builder(
-        module_of(registered.given()),
-        LanguagePolicy::Understood,
-        declaration,
-    );
+        .collect();
+    let view = ViewId::of(registered.given());
+    let mut source = format!("@locale {locale}\n---\n");
+    let mut first = None;
     for tag in selectable(&arrays, priority) {
-        let entry =
-            lookup(&tag, &tags).and_then(|found| main.iter().find(|entry| entry.locale() == found));
-        if entry.is_none() && typed {
-            continue;
+        if converting.is_empty() {
+            break;
         }
-        let bodies = messages
-            .iter()
-            .map(|message| {
-                Ok(Entry::new(
-                    key(message.array),
-                    message_in(message, &tag, &metadata.claims)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, ConvertError>>()?;
-        builder.locale(tag, entry, &Keyed::first_of(bodies))?;
+        source.push_str(&format!("\n[{}.{tag}]\n", view.as_str()));
+        for (array, entries) in &converting {
+            if first.is_none() {
+                first = Some(view.message(&tag, *array));
+            }
+            let message = message_in(entries, &tag, &metadata.claims)?;
+            source.push_str(&format!("{} = {message}\n", key(*array)));
+        }
     }
-    Ok(builder.finish())
+    Ok(Conversion { source, first })
 }
 
 /// An array's message in a language: the pattern of the one entry the language takes, or a
-/// selection over the liveness of each template entry it takes before its last.
+/// `.match` over the liveness of each template entry it takes before its last.
 fn message_in(
-    message: &Converting<'_, '_>,
+    array: &DisplayArray<'_>,
     language: &LocaleTag,
     claims: &[ClaimMeta<'_>],
-) -> Result<Body, ConvertError> {
-    let taken = chain(message.entries, language);
+) -> Result<String, ConvertError> {
+    let taken = chain(array, language);
     let patterns = taken
         .iter()
         .map(|(_, entry)| pattern(entry, claims))
         .collect::<Result<Vec<_>, _>>()?;
     let Some((last, before)) = patterns.split_last() else {
-        return Err(ConvertError::NoEntry(language.clone()));
+        return Err(ConvertError::NoEntry {
+            locale: language.clone(),
+        });
     };
     if before.is_empty() {
-        return Ok(Body::Pattern(last.clone()));
+        return Ok(last.clone());
     }
-    let selectors = taken
+    let selectors: Vec<String> = taken
         .iter()
         .take(before.len())
         .map(|(position, _)| liveness(*position))
         .collect();
-    let mut variants: Vec<Variant> = before
-        .iter()
-        .enumerate()
-        .map(|(k, pattern)| Variant {
-            keys: (0..before.len())
-                .map(|column| (column == k).then_some(LIVE))
-                .collect(),
-            pattern: pattern.clone(),
-        })
-        .collect();
-    variants.push(Variant {
-        keys: vec![None; before.len()],
-        pattern: last.clone(),
-    });
-    Ok(Body::Select {
-        selectors,
-        variants,
-    })
+    let mut message = String::new();
+    for selector in &selectors {
+        message.push_str(&format!(".input {{${selector} :string}} "));
+    }
+    message.push_str(".match");
+    for selector in &selectors {
+        message.push_str(&format!(" ${selector}"));
+    }
+    for (k, pattern) in before.iter().enumerate() {
+        for column in 0..before.len() {
+            message.push(' ');
+            message.push_str(if column == k { LIVE } else { "*" });
+        }
+        message.push(' ');
+        message.push_str(pattern);
+    }
+    for _ in before {
+        message.push_str(" *");
+    }
+    message.push(' ');
+    message.push_str(last);
+    Ok(message)
 }
 
-/// An entry's label as a pattern.
-fn pattern(entry: &Localized<'_>, claims: &[ClaimMeta<'_>]) -> Result<Vec<Part>, ConvertError> {
+/// An entry's label as a quoted pattern.
+fn pattern(entry: &Localized<'_>, claims: &[ClaimMeta<'_>]) -> Result<String, ConvertError> {
     Ok(match entry.label {
-        LabelForm::Plain(text) => vec![Part::Text(text.as_str().to_owned())],
-        LabelForm::Markdown(text) => markup(&spans(text.as_str())),
-        LabelForm::Template(text) => template(text, claims)?.0,
+        LabelForm::Plain(text) => escape(text.as_str()),
+        LabelForm::Markdown(text) => quoted(&markup(&spans(text.as_str()))?),
+        LabelForm::Template(text) => quoted(&template(text, claims)?),
         LabelForm::Own(_) => return Err(ConvertError::MixedOwn),
     })
 }
 
-/// The styles of a span, outermost first.
-fn styles(style: Style) -> impl DoubleEndedIterator<Item = siros_i18n::Style> {
+/// A pattern's text as a quoted pattern.
+fn quoted(body: &str) -> String {
+    format!("{{{{{body}}}}}")
+}
+
+/// Text from the metadata as a pattern's literal text: [`escape`]'s quoted pattern without its
+/// quotes.
+fn literal(text: &str) -> Result<String, ConvertError> {
+    escape(text)
+        .strip_prefix("{{")
+        .and_then(|body| body.strip_suffix("}}"))
+        .map(str::to_owned)
+        .ok_or(ConvertError::Unquoted)
+}
+
+/// The markup names of a span's styles, outermost first.
+fn styles(style: Style) -> impl DoubleEndedIterator<Item = &'static str> {
     [
-        (Style::STRONG, siros_i18n::Style::Strong),
-        (Style::EM, siros_i18n::Style::Emphasis),
-        (Style::UNDERLINE, siros_i18n::Style::Underline),
+        (Style::STRONG, "strong"),
+        (Style::EM, "emphasis"),
+        (Style::UNDERLINE, "underline"),
     ]
     .into_iter()
     .filter(move |(bit, _)| style.has(*bit))
-    .map(|(_, style)| style)
+    .map(|(_, name)| name)
 }
 
-/// Styled spans as parts: each span's text inside markup that opens its styles and closes them.
-fn markup(spans: &[Span]) -> Vec<Part> {
-    let mut out = Vec::new();
+/// Styled spans as a pattern's text: each span's literal text inside markup that opens its styles
+/// and closes them.
+fn markup(spans: &[Span]) -> Result<String, ConvertError> {
+    let mut out = String::new();
     for span in spans {
-        out.extend(styles(span.style).map(Part::Open));
-        out.push(Part::Text(span.text.clone()));
-        out.extend(styles(span.style).rev().map(Part::Close));
+        open(&mut out, span.style);
+        out.push_str(&literal(&span.text)?);
+        close(&mut out, span.style);
     }
-    out
+    Ok(out)
 }
 
-/// A `template:mini_markdown` label: its spans with each placeholder naming a claim as that
-/// claim's argument, other placeholders literal; and the arguments with their kinds.
-fn template(text: &str, claims: &[ClaimMeta<'_>]) -> Result<(Vec<Part>, Params), ConvertError> {
-    if text.contains(SLOT) {
-        return Err(ConvertError::Reserved);
+/// Opens a span's styles.
+fn open(out: &mut String, style: Style) {
+    for name in styles(style) {
+        out.push_str(&format!("{{#{name}}}"));
     }
-    let named: Vec<(Placeholder, ClaimIndex)> = placeholders(text)
-        .into_iter()
-        .filter_map(|placeholder| {
-            let index = placeholder.index.filter(|index| *index < claims.len())?;
-            Some((placeholder, ClaimIndex(index)))
-        })
-        .collect();
-    let mut marked = String::with_capacity(text.len());
-    let mut copied = 0;
-    for (placeholder, _) in &named {
-        marked.push_str(text.get(copied..placeholder.span.start).unwrap_or_default());
-        marked.push(SLOT);
-        copied = placeholder.span.end;
+}
+
+/// Closes a span's styles.
+fn close(out: &mut String, style: Style) {
+    for name in styles(style).rev() {
+        out.push_str(&format!("{{/{name}}}"));
     }
-    marked.push_str(text.get(copied..).unwrap_or_default());
-    let mut indices = named.iter().map(|(_, index)| *index);
-    let mut out = Vec::new();
+}
+
+/// A `template:mini_markdown` label as a pattern's text: its spans with each placeholder naming a
+/// claim as that claim's argument, other placeholders literal.
+fn template(text: &str, claims: &[ClaimMeta<'_>]) -> Result<String, ConvertError> {
+    let (marked, named) = marked(text, claims);
+    let mut indices = named.into_iter();
+    let mut out = String::new();
     for span in spans(&marked) {
-        out.extend(styles(span.style).map(Part::Open));
-        for (k, part) in span.text.split(SLOT).enumerate() {
-            if k > 0
-                && let Some(index) = indices.next()
-            {
-                out.push(Part::Argument(argument(index)));
+        open(&mut out, span.style);
+        for (k, piece) in span.text.split(RESERVED).enumerate() {
+            if k > 0 {
+                let index = indices.next().ok_or(ConvertError::Slots)?;
+                out.push_str(&placeholder(index, value_type(claims, index)));
             }
-            if !part.is_empty() {
-                out.push(Part::Text(part.to_owned()));
-            }
+            out.push_str(&literal(piece)?);
         }
-        out.extend(styles(span.style).rev().map(Part::Close));
+        close(&mut out, span.style);
     }
-    let params = named.iter().map(|(_, index)| {
-        let value_type = claims
-            .get(index.get())
-            .and_then(|claim| claim.display.as_ref())
-            .map_or(ValueType::Plain, |display| display.value);
-        Entry::new(
-            argument(*index),
-            ParamKind::new(argument_kind(value_type), Presence::Optional),
-        )
-    });
-    Ok((out, Keyed::first_of(params)))
+    if indices.next().is_some() {
+        return Err(ConvertError::Slots);
+    }
+    Ok(out)
+}
+
+/// A claim's value type: a claim without `display` has none.
+fn value_type(claims: &[ClaimMeta<'_>], claim: ClaimIndex) -> ValueType {
+    claims
+        .get(claim.get())
+        .and_then(|claim| claim.display.as_ref())
+        .map_or(ValueType::Plain, |display| display.value)
+}
+
+/// The placeholder of claim n's argument, as its value type shows it.
+fn placeholder(claim: ClaimIndex, value_type: ValueType) -> String {
+    let name = argument(claim);
+    match shows(value_type) {
+        Shows::Given => format!("{{${name}}}"),
+        Shows::Function(function) => format!("{{${name} :{function}}}"),
+        Shows::Amount => format!("{{${name} :currency currency=${}}}", currency(claim)),
+    }
 }

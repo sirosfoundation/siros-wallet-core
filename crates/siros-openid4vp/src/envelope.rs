@@ -4,8 +4,6 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use siros_explain::{IntoArg, kind};
-
 use serde_json::value::RawValue;
 
 use crate::arrival::{DcApiRequest, Received, ReceivedForm, Unreadable};
@@ -177,10 +175,15 @@ impl<'r> Signer<'r> {
     fn read(signed: Signed<'r>) -> Result<Self, Unreadable> {
         let client_id = match signed.header().member("client_id") {
             None => None,
-            Some(Node::String(text)) => {
-                Some(ClientId::parse(text.clone()).map_err(|e| Unreadable::ClientId(e.value))?)
+            Some(Node::String(text)) => Some(
+                ClientId::parse(text.clone())
+                    .map_err(|e| Unreadable::ClientId { client_id: e.value })?,
+            ),
+            Some(other) => {
+                return Err(Unreadable::ClientId {
+                    client_id: other.written_compact(),
+                });
             }
-            Some(other) => return Err(Unreadable::ClientId(other.written_compact())),
         };
         Ok(Self { signed, client_id })
     }
@@ -254,14 +257,18 @@ impl<'r> Envelope<'r> {
                     let parameters =
                         nested(Parameters::parse(jws.payload()).map_err(Unreadable::Json)?)?;
                     if parameters.holds("client_id") {
-                        return Err(Unreadable::Placement(ClientIdPlacement::Payload));
+                        return Err(Unreadable::Placement {
+                            member: ClientIdPlacement::Payload,
+                        });
                     }
                     if jws.signatures().any(|signed| {
                         signed
                             .unprotected()
                             .is_some_and(|header| header.get("client_id").is_some())
                     }) {
-                        return Err(Unreadable::Placement(ClientIdPlacement::UnprotectedHeader));
+                        return Err(Unreadable::Placement {
+                            member: ClientIdPlacement::UnprotectedHeader,
+                        });
                     }
                     (parameters, Signatures::Many(Multisigned::read(jws)?))
                 }
@@ -390,9 +397,9 @@ fn typ(header: &ProtectedHeader) -> Result<(), Unreadable> {
     if header.typ_is(REQUEST_OBJECT) {
         Ok(())
     } else {
-        Err(Unreadable::Typ(
-            header.typ().map(|typ| typ.as_str().to_owned()),
-        ))
+        Err(Unreadable::Typ {
+            typ: header.typ().map(|typ| typ.as_str().to_owned()),
+        })
     }
 }
 
@@ -408,7 +415,7 @@ fn nested(parameters: Parameters<'_>) -> Result<Parameters<'_>, Unreadable> {
         .into_iter()
         .find(|name| parameters.holds(name.as_str()))
     {
-        Some(name) => Err(Unreadable::Nested(name)),
+        Some(name) => Err(Unreadable::Nested { parameter: name }),
         None => Ok(parameters),
     }
 }
@@ -419,8 +426,10 @@ fn client_id<'r>(parameters: &Parameters<'r>) -> Result<Option<ClientId<'r>>, Un
         None => Ok(None),
         Some(Node::String(text)) => ClientId::parse(text.clone())
             .map(Some)
-            .map_err(|e| Unreadable::ClientId(e.value)),
-        Some(other) => Err(Unreadable::ClientId(other.written_compact())),
+            .map_err(|e| Unreadable::ClientId { client_id: e.value }),
+        Some(other) => Err(Unreadable::ClientId {
+            client_id: other.written_compact(),
+        }),
     }
 }
 
@@ -452,15 +461,6 @@ impl fmt::Display for NestedParameter {
     }
 }
 
-/// A parameter is named by its name in a message.
-impl IntoArg for NestedParameter {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.as_str()
-    }
-}
-
 /// Where a multisigned request names a `client_id` outside its protected headers (U17).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientIdPlacement {
@@ -484,14 +484,5 @@ impl ClientIdPlacement {
 impl fmt::Display for ClientIdPlacement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-/// A place is named by its words in a message.
-impl IntoArg for ClientIdPlacement {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.as_str()
     }
 }

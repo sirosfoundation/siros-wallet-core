@@ -6,7 +6,7 @@
 use crate::date::DateTime;
 use serde_json::value::RawValue;
 use serde_json::Value;
-use siros_explain::{Explain, MessageId};
+use siros_explain::Explain;
 use siros_mdoc::stored::{device_signing_input, DeviceNameSpaces};
 use siros_openid4vp::cbor::Value as Cbor;
 use siros_openid4vp::host::Timestamp;
@@ -73,8 +73,8 @@ pub struct Verified {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum OwnQueryFault {
     /// The core's DCQL reader refuses it (OpenID4VP 1.0, Section 6), with the rule's message.
-    #[error("DCQL refuses it (OpenID4VP 1.0, Section 6): {}", .0.as_str())]
-    Dcql(MessageId),
+    #[error("DCQL refuses it (OpenID4VP 1.0, Section 6): {0}")]
+    Dcql(&'static str),
     /// It breaks a rule of `zkp_req` or of the catalogue.
     #[error("it breaks a rule of `zkp_req` or of the catalogue")]
     Invalid(#[source] InvalidRequest),

@@ -2,27 +2,30 @@
 
 use std::fmt;
 
-use siros_explain::{AllOf, Count, Explain, IntoArg, Listed, kind};
+use siros_explain::Explain;
 use siros_openid4vp::plugins::{Clause, Exclusion};
 use siros_openid4vp::refusal::{ErrorCode, RequestRule};
 use siros_openid4vp::request::EntryIndex;
+use siros_syntax::AllOf;
 
 use crate::approval::{DocumentNumber, Problem, SignatureQualifier};
 
 /// A rule a QES entry breaks: `invalid_transaction_data`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "qes.rules")]
 pub enum QesRule {
     /// An entry breaks the type's rules (CSC §7.1).
     #[error("QES entry {entry}: {problem}")]
+    #[explain(id = "rules.entry")]
     Entry {
         /// The entry.
         entry: EntryPosition,
         /// The rule it breaks.
+        #[source]
         problem: Problem,
     },
     /// Two entries name one query: one presentation approves one request.
     #[error("QES entries {entries} name {query}: one presentation approves one request")]
+    #[explain(id = "rules.one_request")]
     OneRequest {
         /// The entries.
         entries: Positions,
@@ -53,16 +56,7 @@ impl fmt::Display for EntryPosition {
     }
 }
 
-impl IntoArg for EntryPosition {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.get().arg()
-    }
-}
-
-/// The positions of the entries a rule names: the list `[1, 2]` in its text, an and-list in its
-/// message.
+/// The positions of the entries a rule names, written as the list `[1, 2]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Positions(AllOf<EntryPosition>);
 
@@ -91,14 +85,6 @@ impl fmt::Display for Positions {
     }
 }
 
-impl IntoArg for Positions {
-    type Kind = kind::List;
-
-    fn arg(&self) -> Listed<'_> {
-        self.0.arg()
-    }
-}
-
 impl RequestRule for QesRule {
     fn code(&self) -> ErrorCode {
         ErrorCode::INVALID_TRANSACTION_DATA
@@ -107,19 +93,21 @@ impl RequestRule for QesRule {
 
 /// Why the QES profile excludes a credential.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "qes.excluded")]
 pub enum Excluded {
     /// The credential's rulebook does not let it approve the qualifier.
     #[error("the credential cannot approve {qualifier}")]
+    #[explain(id = "excluded.qualifier")]
     Qualifier {
         /// The `signatureQualifier`.
         qualifier: SignatureQualifier,
     },
     /// The presentation cannot carry `qesApproval`.
     #[error("the presentation cannot carry qesApproval")]
+    #[explain(id = "excluded.carriage")]
     Carriage,
     /// A linked document fails its checksum.
     #[error("document {document} does not match its checksum")]
+    #[explain(id = "excluded.checksum")]
     Checksum {
         /// The document.
         document: DocumentNumber,

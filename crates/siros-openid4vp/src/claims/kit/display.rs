@@ -1,18 +1,16 @@
 //! A credential's card from its display metadata: the display entry for the wallet's locales and
 //! the rows of its claims.
 
-use super::super::{ArrayIndex, ClaimPath, Concrete};
-use super::{ClaimsFormat, Display, DisplayItem};
-use crate::ids::LocaleTag;
-use crate::json::Node;
-use siros_explain::{
-    Count, Date, DateTime, Decimal, Fraction, Offset, Second, Text, Time, Value as Typed,
+use siros_syntax::{
+    Count, Date, DateTime, Decimal, Digits, Fraction, Malformed, Offset, Second, Time,
 };
 
-use crate::rows::{BooleanText, ClaimText, Row, Value, WalletText};
+use super::super::{ArrayIndex, Concrete};
+use super::{CardError, ClaimEntry, ClaimsFormat, Display};
+use crate::ids::LocaleTag;
+use crate::json::Node;
+use crate::rows::{BooleanText, ClaimText, ExactNumber, WalletText};
 use crate::text::{DisplayText, TextError, lookup};
-
-use super::merge::ISSUER_DISPLAY;
 
 /// A display array's entry for the wallet's locales, which SD-JWT VC §7 and §8.2 and
 /// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 Lookup (§3.4) over the priority
@@ -59,18 +57,36 @@ pub fn format_entry<'n, 'e>(
     looked_up.or_else(filtered).or_else(untagged)
 }
 
-/// The view's `byte_strings`: where its `values` hold a byte string RFC 8949 §6.1 wrote as text,
-/// with its length in bytes. [`ClaimsView`](super::ClaimsView) reads their shape.
-pub(super) fn byte_strings<'v, 'a>(view: &'v Node<'a>) -> &'v [Node<'a>] {
-    view.get("byte_strings")
-        .and_then(Node::as_array)
-        .unwrap_or(&[])
+/// An entry of the view's `byte_strings` or `dates`: the `path` of a string of its `values`, and
+/// what the string holds.
+#[derive(Debug, Clone)]
+pub(crate) struct Located<'v, T> {
+    pub(crate) path: Vec<Node<'v>>,
+    pub(crate) held: T,
 }
 
-/// The view's `dates`: where its `values` hold a date, with its text. [`ClaimsView`](super::ClaimsView)
-/// reads their shape.
-pub(super) fn dates<'v, 'a>(view: &'v Node<'a>) -> &'v [Node<'a>] {
-    view.get("dates").and_then(Node::as_array).unwrap_or(&[])
+impl<'v, T> Located<'v, T> {
+    /// The entry an element of the view's `byte_strings` or `dates` writes: an object with a
+    /// `path` array and what `held` reads of it.
+    pub(super) fn read(entry: Node<'v>, held: impl Fn(&Node<'v>) -> Option<T>) -> Option<Self> {
+        let held = held(&entry)?;
+        let Node::Object(mut entry) = entry else {
+            return None;
+        };
+        match entry.take("path") {
+            Some(Node::Array(path)) => Some(Self { path, held }),
+            _ => None,
+        }
+    }
+}
+
+/// The length an entry of the view's `byte_strings` states: a byte string RFC 8949 §6.1 wrote as
+/// text has that many bytes.
+pub(super) fn length_of(entry: &Node<'_>) -> Option<Count> {
+    match entry.get("length") {
+        Some(Node::Number(length)) => Count::parse(length.text()).ok(),
+        _ => None,
+    }
 }
 
 /// The number `digits` write; `None` for another byte or past a `u16`.
@@ -113,92 +129,80 @@ pub fn tdate(text: &str) -> Option<DateTime> {
     Some(DateTime::new(full_date(date)?, at, Some(Offset::new(0)?)))
 }
 
-/// The value of an entry of the view's `dates`: its `date`, a `full-date` or a `tdate`.
-pub(super) fn date_of(entry: &Node<'_>) -> Option<Typed> {
+/// The text of an entry of the view's `dates`: its `date`, a `full-date` or a `tdate`.
+pub(super) fn date_of(entry: &Node<'_>) -> Option<ClaimText> {
     let text = entry.get("date")?.as_str()?;
     full_date(text)
-        .map(Typed::Date)
-        .or_else(|| tdate(text).map(Typed::DateTime))
+        .map(|value| ClaimText::Date { value })
+        .or_else(|| tdate(text).map(|value| ClaimText::DateTime { value }))
 }
 
-/// The entry of `entries` whose `path` is `path`.
-fn entry_at<'v, 'a>(entries: &'v [Node<'a>], path: &[Concrete<'_>]) -> Option<&'v Node<'a>> {
+/// What the entry of `entries` whose `path` is `path` holds.
+fn entry_at<'e, T>(entries: &'e [Located<'_, T>], path: &[Concrete<'_>]) -> Option<&'e T> {
     let same = |written: &[Node<'_>]| {
         written.len() == path.len()
             && written.iter().zip(path).all(|(step, at)| match (step, at) {
                 (Node::String(name), Concrete::Key(key)) => name == key,
                 (Node::Number(index), Concrete::Index(at)) => {
-                    index.as_u64() == u64::try_from(at.position()).ok()
+                    index.as_u64().map(usize::try_from) == Some(Ok(at.position()))
                 }
                 _ => false,
             })
     };
     entries
         .iter()
-        .find(|entry| entry.get("path").and_then(Node::as_array).is_some_and(same))
+        .find(|entry| same(&entry.path))
+        .map(|entry| &entry.held)
 }
 
-/// The length of the byte string at `path`; `None` for another value.
-fn byte_length(strings: &[Node<'_>], path: &[Concrete<'_>]) -> Option<Count> {
-    match entry_at(strings, path)?.get("length")? {
-        Node::Number(length) => Count::parse(length.text()),
-        _ => None,
+/// A text of a card, which the context resolves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Said {
+    /// A text of the wallet's.
+    Wallet(WalletText),
+    /// A boolean value.
+    Boolean(BooleanText),
+    /// A value, or a text as written.
+    Claim(ClaimText),
+}
+
+/// A row of a card whose texts the context resolves: a label and an optional value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SaidRow {
+    /// The label.
+    pub(crate) label: Said,
+    /// The value; `None` for a full-text row.
+    pub(crate) value: Option<Said>,
+}
+
+impl SaidRow {
+    /// A row of the label alone.
+    const fn full_text(label: Said) -> Self {
+        Self { label, value: None }
     }
-}
-
-/// The view's Credential Issuer display entries, which [`ClaimsView`](super::ClaimsView) reads as
-/// an array.
-pub(super) fn issuer_display<'v, 'a>(view: &'v Node<'a>) -> &'v [Node<'a>] {
-    view.get(ISSUER_DISPLAY)
-        .and_then(Node::as_array)
-        .unwrap_or(&[])
-}
-
-pub(super) fn metadata<'v, 'a>(view: &'v Node<'a>, name: &str) -> &'v [Node<'a>] {
-    view.get("metadata")
-        .and_then(|metadata| metadata.get(name))
-        .and_then(Node::as_array)
-        .unwrap_or(&[])
-}
-
-/// An entry of the metadata's `claims` with a pointer.
-pub(super) struct Described<'v, 'a> {
-    pub(super) path: ClaimPath<'v>,
-    pub(super) claim: &'v Node<'a>,
-    /// Its position in `claims`.
-    pub(super) position: usize,
 }
 
 fn label_of(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
-    described: &[Described<'_, '_>],
+    described: &[ClaimEntry<'_>],
     display: Display<'_>,
-) -> Result<Option<Text>, TextError> {
+) -> Result<Option<Said>, TextError> {
     let Some(found) = described.iter().find(|known| known.path.matches(path)) else {
         return Ok(None);
     };
-    let entry = format_entry(
-        found
-            .claim
-            .get("display")
-            .and_then(Node::as_array)
-            .unwrap_or(&[]),
-        display.locales,
-    );
+    let entry = format_entry(&found.display, display.locales);
     entry
         .and_then(|entry| entry.get(format.label_key()))
         .and_then(Node::as_str)
-        .map_or(Ok(None), |name| {
-            display.label(format, DisplayItem::Claim(found.position), name)
-        })
+        .map_or(Ok(None), Display::label)
 }
 
-/// A label that shows as written; `None` for white space alone, which the wallet's word or a
-/// member name then stands for.
-pub(super) fn label_text(text: &str) -> Result<Option<Text>, TextError> {
+/// A label as written, read through [`DisplayText`]; `None` for a text without a visible
+/// character ([`DisplayText::visible`]), which the wallet's word or a member name then stands for.
+pub(super) fn label_text(text: &str) -> Result<Option<String>, TextError> {
     match DisplayText::label(text) {
-        Ok(label) => Ok(Some(Text::Raw(label.into_string()))),
+        Ok(label) => Ok(Some(label.into_string())),
         Err(TextError::Empty) => Ok(None),
         Err(refused) => Err(refused),
     }
@@ -225,15 +229,17 @@ pub(super) fn metadata_texts(format: &impl ClaimsFormat, node: &Node<'_>) -> Res
 }
 
 /// The label of a claim without one in the metadata: its last member name, or the wallet's word
-/// for a claim when its path names no member or that name is white space alone.
-fn fallback_label(path: &[Concrete<'_>]) -> Result<Text, TextError> {
+/// for a claim when its path names no member or that name holds no visible character.
+fn fallback_label(path: &[Concrete<'_>]) -> Result<Said, TextError> {
     let name = path.iter().rev().find_map(|step| match step {
         Concrete::Key(key) => Some(key),
         Concrete::Index(_) => None,
     });
     Ok(name
         .map_or(Ok(None), |name| label_text(name))?
-        .unwrap_or_else(|| Text::of(&WalletText::Claim)))
+        .map_or(Said::Wallet(WalletText::Claim), |label| {
+            Said::Claim(ClaimText::Label { label })
+        }))
 }
 
 /// An object is a heading row then its members; an array of values gives each element the
@@ -242,17 +248,24 @@ fn fallback_label(path: &[Concrete<'_>]) -> Result<Text, TextError> {
 /// when its path names no member. A scalar value shows by its type: a boolean as the wallet's yes
 /// or no, `null` as the wallet's text for no value, a number as a count or an exact decimal and
 /// beyond those as the JSON text the credential wrote, a byte string by its length, a date of the
-/// view's `dates` as a typed value, which the wallet's modules format. The labels and names read
+/// view's `dates` by its literal, which the wallet's wording formats. The labels and names read
 /// through [`DisplayText`]; the credential's other strings show as written.
+///
+/// # Errors
+///
+/// [`CardError`]: a label that breaks the rule of display text, or a claim's natural number that
+/// is no count literal.
 pub(super) fn value_rows(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
     value: &Node<'_>,
-    described: &[Described<'_, '_>],
+    described: &[ClaimEntry<'_>],
     display: Display<'_>,
-    inherited: Option<&Text>,
-) -> Result<Vec<Row>, TextError> {
-    let label = label_of(format, path, described, display)?.or_else(|| inherited.cloned());
+    inherited: Option<&Said>,
+) -> Result<Vec<SaidRow>, CardError> {
+    let label = label_of(format, path, described, display)
+        .map_err(CardError::Text)?
+        .or_else(|| inherited.cloned());
     let child = |step: Concrete<'_>| -> Vec<Concrete<'_>> {
         path.iter()
             .map(Concrete::to_owned_step)
@@ -261,7 +274,7 @@ pub(super) fn value_rows(
     };
     let text = match value {
         Node::Object(object) => {
-            let mut rows: Vec<Row> = label.map(Row::full_text).into_iter().collect();
+            let mut rows: Vec<SaidRow> = label.map(SaidRow::full_text).into_iter().collect();
             for member in object.members() {
                 let step = child(Concrete::Key(member.name.clone()));
                 rows.extend(value_rows(
@@ -286,12 +299,16 @@ pub(super) fn value_rows(
                 .any(|(_, item)| matches!(item, Node::Object(_) | Node::Array(_)));
             let mut rows = Vec::new();
             let passed = if nested {
-                rows.extend(label.map(Row::full_text));
+                rows.extend(label.map(SaidRow::full_text));
                 None
             } else if shown.is_empty() {
                 label
             } else {
-                Some(label.map_or_else(|| fallback_label(path), Ok)?)
+                Some(
+                    label
+                        .map_or_else(|| fallback_label(path), Ok)
+                        .map_err(CardError::Text)?,
+                )
             };
             for (at, item) in shown {
                 let step = child(Concrete::Index(ArrayIndex::new(at)));
@@ -306,50 +323,101 @@ pub(super) fn value_rows(
             }
             return Ok(rows);
         }
-        Node::Bool(true) => Text::of(&BooleanText::Yes),
-        Node::Bool(false) => Text::of(&BooleanText::No),
-        Node::Null => Text::of(&WalletText::Null),
-        Node::Number(number) => number_value(number.text())
-            .map_or_else(|| Text::Raw(number.text().to_owned()), Text::Value),
-        Node::String(written) => byte_length(display.byte_strings, path).map_or_else(
-            || {
-                entry_at(display.dates, path)
-                    .and_then(date_of)
-                    .map_or_else(|| Text::Raw(written.to_string()), Text::Value)
+        Node::Bool(true) => Said::Boolean(BooleanText::Yes),
+        Node::Bool(false) => Said::Boolean(BooleanText::No),
+        Node::Null => Said::Wallet(WalletText::Null),
+        Node::Number(number) => Said::Claim(
+            match number_value(number.text()).map_err(CardError::Count)? {
+                Some(value) => ClaimText::Number { value },
+                None => ClaimText::Text {
+                    value: number.text().to_owned(),
+                },
             },
-            |length| Text::of(&ClaimText::Bytes { length }),
+        ),
+        Node::String(written) => Said::Claim(
+            match (
+                entry_at(display.byte_strings, path),
+                entry_at(display.dates, path),
+            ) {
+                (Some(length), _) => ClaimText::Bytes {
+                    length: length.clone(),
+                },
+                (None, Some(date)) => date.clone(),
+                (None, None) => ClaimText::Text {
+                    value: written.to_string(),
+                },
+            },
         ),
     };
-    Ok(vec![Row::new(
-        label.map_or_else(|| fallback_label(path), Ok)?,
-        Value::Text(text),
-    )])
+    Ok(vec![SaidRow {
+        label: label
+            .map_or_else(|| fallback_label(path), Ok)
+            .map_err(CardError::Text)?,
+        value: Some(text),
+    }])
 }
 
 /// A JSON number (RFC 8259 §6) as an exact value: a natural number as a count, another as a
-/// decimal; `None` beyond a decimal's 38 fraction digits or an `i128`'s units.
-fn number_value(text: &str) -> Option<Typed> {
-    let (mantissa, exponent) = match text.split_once(['e', 'E']) {
-        Some((mantissa, exponent)) => (mantissa, exponent.parse::<i32>().ok()?),
-        None => (text, 0),
+/// decimal; `None` past an `i32` exponent, a decimal's 38 fraction digits or an `i128`'s units,
+/// the only failures the JSON grammar leaves the integer parses.
+///
+/// # Errors
+///
+/// [`Malformed`]: a natural number's text is no run of ASCII digits, which no JSON number writes.
+fn number_value(text: &str) -> Result<Option<ExactNumber>, Malformed> {
+    let Some(Exact {
+        negative,
+        digits,
+        scale,
+    }) = Exact::of(text)
+    else {
+        return Ok(None);
     };
-    let (negative, unsigned) = match mantissa.strip_prefix('-') {
-        Some(unsigned) => (true, unsigned),
-        None => (false, mantissa),
-    };
-    let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
-    let scale = i32::try_from(fraction.len()).ok()? - exponent;
-    let mut digits = format!("{whole}{fraction}");
-    if scale < 0 {
-        let zeros = usize::try_from(-scale).ok().filter(|zeros| *zeros <= 38)?;
-        digits.push_str(&"0".repeat(zeros));
-    }
-    let scale = u8::try_from(scale.max(0)).ok()?;
     if !negative && scale == 0 {
-        return Count::parse(&digits).map(Typed::Count);
+        return Digits::parse(&digits).map(|digits| Some(ExactNumber::Count(Count::from(&digits))));
     }
-    let units: i128 = digits.parse().ok()?;
-    Decimal::new(if negative { -units } else { units }, scale).map(Typed::Decimal)
+    let Ok(units) = digits.parse::<i128>() else {
+        return Ok(None);
+    };
+    Ok(Decimal::new(if negative { -units } else { units }, scale).map(ExactNumber::Decimal))
+}
+
+/// A JSON number's value as a sign, digits and a scale: `0.5e1` is `05` at scale 0, `0e5` is
+/// `000000` at scale 0.
+struct Exact {
+    negative: bool,
+    digits: String,
+    scale: u8,
+}
+
+impl Exact {
+    /// The value `text` writes; `None` past an `i32` exponent or 38 places of ten.
+    fn of(text: &str) -> Option<Self> {
+        let (mantissa, exponent) = match text.split_once(['e', 'E']) {
+            Some((mantissa, exponent)) => (mantissa, exponent.parse::<i32>().ok()?),
+            None => (text, 0),
+        };
+        let (negative, unsigned) = match mantissa.strip_prefix('-') {
+            Some(unsigned) => (true, unsigned),
+            None => (false, mantissa),
+        };
+        let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+        let scale = i64::try_from(fraction.len())
+            .ok()?
+            .checked_sub(i64::from(exponent))?;
+        let mut digits = format!("{whole}{fraction}");
+        if scale < 0 {
+            let zeros = usize::try_from(scale.unsigned_abs())
+                .ok()
+                .filter(|zeros| *zeros <= 38)?;
+            digits.push_str(&"0".repeat(zeros));
+        }
+        Some(Self {
+            negative,
+            digits,
+            scale: u8::try_from(scale.max(0)).ok()?,
+        })
+    }
 }
 
 impl Concrete<'_> {

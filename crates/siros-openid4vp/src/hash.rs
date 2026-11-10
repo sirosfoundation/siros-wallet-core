@@ -2,7 +2,14 @@
 //! `transaction_data_hashes_alg` and the response's `transaction_data_hashes`, one hash per entry
 //! the presentation authorizes, with the algorithm used. The IANA "Named Information Hash
 //! Algorithm Registry" B.3.3.1 names is open, so an algorithm is a plug-in the registry takes
-//! ([`HashAlgorithm`]): phase 1 reads its name, phase 2 its digest. The core's SHA-2
+#![cfg_attr(
+    feature = "transaction-data",
+    doc = "([`HashAlgorithm`]): phase 1 reads its name, phase 2 its digest. The core's SHA-2"
+)]
+#![cfg_attr(
+    not(feature = "transaction-data"),
+    doc = "(`HashAlgorithm`): phase 1 reads its name, phase 2 its digest. The core's SHA-2"
+)]
 //! algorithms (`Sha2`) are peers of any extension's, beside SHA-3, BLAKE2 and KangarooTwelve,
 //! each behind the feature that links its crate (`sha3`, `blake2`, `k12`). [`HashName`] compiles
 //! in every build: the registry's refusals carry it.
@@ -45,7 +52,7 @@ pub static MEMBERS: [Member; 2] = [
 ];
 
 /// A Hash Name String (RFC 6920 §9.4's registry): one or more of lowercase ASCII letters, digits
-/// and `-`. An algorithm makes its own with `siros_explain::checked!`.
+/// and `-`. An algorithm makes its own with `siros_syntax::checked!`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HashName(&'static str);
 
@@ -76,15 +83,6 @@ impl HashName {
 impl fmt::Display for HashName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
-    }
-}
-
-/// A name is named by its text in a message.
-impl siros_explain::IntoArg for HashName {
-    type Kind = siros_explain::kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
     }
 }
 
@@ -179,24 +177,24 @@ impl Sha2 {
 impl HashAlgorithm for Sha2 {
     fn name(&self) -> HashName {
         match self {
-            Self::Sha256 => siros_explain::checked!(HashName, "sha-256"),
+            Self::Sha256 => siros_syntax::checked!(HashName, "sha-256"),
             Self::Sha256Truncated(Truncation::To128) => {
-                siros_explain::checked!(HashName, "sha-256-128")
+                siros_syntax::checked!(HashName, "sha-256-128")
             }
             Self::Sha256Truncated(Truncation::To120) => {
-                siros_explain::checked!(HashName, "sha-256-120")
+                siros_syntax::checked!(HashName, "sha-256-120")
             }
             Self::Sha256Truncated(Truncation::To96) => {
-                siros_explain::checked!(HashName, "sha-256-96")
+                siros_syntax::checked!(HashName, "sha-256-96")
             }
             Self::Sha256Truncated(Truncation::To64) => {
-                siros_explain::checked!(HashName, "sha-256-64")
+                siros_syntax::checked!(HashName, "sha-256-64")
             }
             Self::Sha256Truncated(Truncation::To32) => {
-                siros_explain::checked!(HashName, "sha-256-32")
+                siros_syntax::checked!(HashName, "sha-256-32")
             }
-            Self::Sha384 => siros_explain::checked!(HashName, "sha-384"),
-            Self::Sha512 => siros_explain::checked!(HashName, "sha-512"),
+            Self::Sha384 => siros_syntax::checked!(HashName, "sha-384"),
+            Self::Sha512 => siros_syntax::checked!(HashName, "sha-512"),
         }
     }
 
@@ -256,10 +254,10 @@ impl Sha3 {
 impl HashAlgorithm for Sha3 {
     fn name(&self) -> HashName {
         match self {
-            Self::Sha3_224 => siros_explain::checked!(HashName, "sha3-224"),
-            Self::Sha3_256 => siros_explain::checked!(HashName, "sha3-256"),
-            Self::Sha3_384 => siros_explain::checked!(HashName, "sha3-384"),
-            Self::Sha3_512 => siros_explain::checked!(HashName, "sha3-512"),
+            Self::Sha3_224 => siros_syntax::checked!(HashName, "sha3-224"),
+            Self::Sha3_256 => siros_syntax::checked!(HashName, "sha3-256"),
+            Self::Sha3_384 => siros_syntax::checked!(HashName, "sha3-384"),
+            Self::Sha3_512 => siros_syntax::checked!(HashName, "sha3-512"),
         }
     }
 
@@ -304,9 +302,9 @@ impl Blake2 {
 impl HashAlgorithm for Blake2 {
     fn name(&self) -> HashName {
         match self {
-            Self::Blake2s256 => siros_explain::checked!(HashName, "blake2s-256"),
-            Self::Blake2b256 => siros_explain::checked!(HashName, "blake2b-256"),
-            Self::Blake2b512 => siros_explain::checked!(HashName, "blake2b-512"),
+            Self::Blake2s256 => siros_syntax::checked!(HashName, "blake2s-256"),
+            Self::Blake2b256 => siros_syntax::checked!(HashName, "blake2b-256"),
+            Self::Blake2b512 => siros_syntax::checked!(HashName, "blake2b-512"),
         }
     }
 
@@ -347,8 +345,8 @@ impl K12 {
 impl HashAlgorithm for K12 {
     fn name(&self) -> HashName {
         match self {
-            Self::K12_256 => siros_explain::checked!(HashName, "k12-256"),
-            Self::K12_512 => siros_explain::checked!(HashName, "k12-512"),
+            Self::K12_256 => siros_syntax::checked!(HashName, "k12-256"),
+            Self::K12_512 => siros_syntax::checked!(HashName, "k12-512"),
         }
     }
 
@@ -384,13 +382,14 @@ fn listed<'e>(entry: &'e Entry<'_>) -> Option<&'e Node<'static>> {
 #[cfg(feature = "transaction-data")]
 /// B.3.3.1's rules on an entry's `transaction_data_hashes_alg`: `invalid_transaction_data`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.hashes_alg")]
 pub enum HashesAlgRule {
     /// No non-empty array of strings.
     #[error("transaction_data_hashes_alg is not a non-empty array of strings (B.3.3.1)")]
+    #[explain(id = "hashes_alg.not_array")]
     NotArray,
     /// No hash the wallet computes.
-    #[error("transaction_data_hashes_alg {names} names no hash this wallet computes (B.3.3.1)")]
+    #[error("transaction_data_hashes_alg {} names no hash this wallet computes (B.3.3.1)", .names.repr_text())]
+    #[explain(id = "hashes_alg.unknown")]
     Unknown {
         /// The names.
         names: ReprList,
@@ -409,61 +408,73 @@ impl RequestRule for HashesAlgRule {
 /// array of strings naming a registered algorithm.
 #[must_use]
 pub fn rule(entry: &Entry<'_>, hashes: Hashes<'_>) -> Option<HashesAlgRule> {
-    let value = listed(entry)?;
-    let names: Option<Vec<&str>> = value
-        .as_array()
-        .filter(|items| !items.is_empty())
-        .and_then(|items| items.iter().map(Node::as_str).collect());
-    match names {
-        None => Some(HashesAlgRule::NotArray),
-        Some(names) if names.iter().all(|name| hashes.named(name).is_none()) => {
+    listed(entry).and_then(|_| match allowed(entry) {
+        Err(rule) => Some(rule),
+        Ok(names) if names.iter().all(|name| hashes.named(name).is_none()) => {
             Some(HashesAlgRule::Unknown {
                 names: ReprList::strings(&names),
             })
         }
-        Some(_) => None,
-    }
+        Ok(_) => None,
+    })
+}
+
+#[cfg(feature = "transaction-data")]
+/// The names the entry allows: its `transaction_data_hashes_alg`, else sha-256 alone.
+fn allowed<'e>(entry: &'e Entry<'_>) -> Result<Vec<&'e str>, HashesAlgRule> {
+    let Some(value) = listed(entry) else {
+        return Ok(vec!["sha-256"]);
+    };
+    value
+        .as_array()
+        .filter(|items| !items.is_empty())
+        .and_then(|items| items.iter().map(Node::as_str).collect())
+        .ok_or(HashesAlgRule::NotArray)
 }
 
 #[cfg(feature = "transaction-data")]
 /// One registered algorithm every entry allows, an entry without a list allowing sha-256 alone:
-/// the first of the first entry's that the others allow and the registry holds.
-#[must_use]
-pub fn algorithm<'h>(entries: &[&Entry<'_>], hashes: Hashes<'h>) -> Option<&'h dyn HashAlgorithm> {
-    let allowed = |entry: &Entry<'_>| -> Vec<String> {
-        match listed(entry)
-            .and_then(Node::as_array)
-            .filter(|items| !items.is_empty())
-        {
-            Some(items) => items
-                .iter()
-                .filter_map(|item| item.as_str().map(str::to_owned))
-                .collect(),
-            None => vec!["sha-256".to_owned()],
-        }
+/// the first of the first entry's that the others allow and the registry holds; `None` without
+/// entries or without such an algorithm.
+///
+/// # Errors
+///
+/// An entry's `transaction_data_hashes_alg` breaks [`HashesAlgRule::NotArray`].
+pub fn algorithm<'h>(
+    entries: &[&Entry<'_>],
+    hashes: Hashes<'h>,
+) -> Result<Option<&'h dyn HashAlgorithm>, HashesAlgRule> {
+    let Some((first, others)) = entries.split_first() else {
+        return Ok(None);
     };
-    let (first, others) = entries.split_first()?;
-    let others: Vec<Vec<String>> = others.iter().map(|entry| allowed(entry)).collect();
-    allowed(first).iter().find_map(|name| {
+    let others = others
+        .iter()
+        .map(|entry| allowed(entry))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(allowed(first)?.into_iter().find_map(|name| {
         hashes
             .named(name)
-            .filter(|_| others.iter().all(|other| other.contains(name)))
-    })
+            .filter(|_| others.iter().all(|other| other.contains(&name)))
+    }))
 }
 
 /// Why the B.3.3.1 members cannot be written.
 #[cfg(all(feature = "transaction-data", feature = "resolve"))]
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.hashes")]
 pub enum HashesError {
     /// No algorithm every entry allows.
     #[error("no hash algorithm every entry allows (B.3.3.1)")]
+    #[explain(id = "hashes.no_common_algorithm")]
     NoCommonAlgorithm,
+    /// An entry's `transaction_data_hashes_alg` breaks its rule.
+    #[error(transparent)]
+    Listed(#[from] HashesAlgRule),
     /// A member written twice.
     #[error(transparent)]
     MemberTwice(#[from] MemberTwice),
     /// A registered algorithm's digest of another length than it states: its plug-in's bug.
     #[error("{name}'s digest holds {octets} octets, and it states {stated}")]
+    #[explain(id = "hashes.digest")]
     Digest {
         /// The algorithm.
         name: HashName,
@@ -478,7 +489,7 @@ pub enum HashesError {
 /// the algorithm when an entry listed algorithms.
 #[cfg(all(feature = "transaction-data", feature = "resolve"))]
 pub fn members(entries: &[&Entry<'_>], hashes: Hashes<'_>) -> Result<Members, HashesError> {
-    let algorithm = algorithm(entries, hashes).ok_or(HashesError::NoCommonAlgorithm)?;
+    let algorithm = algorithm(entries, hashes)?.ok_or(HashesError::NoCommonAlgorithm)?;
     let hashes = entries
         .iter()
         .map(|entry| {

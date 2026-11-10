@@ -1,14 +1,13 @@
 //! View §2-4 on each rendering: check_props.py's `check_outcome`.
 
 use serde_json::{Value, json};
-use siros_explain::{Key, Text};
-use siros_openid4vp::ids::LocaleTag;
-use siros_openid4vp::rows::Amounts;
+use siros_i18n::{Context, Text};
 use siros_paso::Rendered;
+use siros_paso::mandate::MandateLabel;
 use siros_paso::markdown::spans;
 use siros_paso::outcome::Outcome;
 
-use crate::common::{Screen, env};
+use crate::common::plain;
 
 use super::replay::{Array, Replay, shows_template};
 use super::{Tally, at, concrete, given, kind_of, mandate_claims, select};
@@ -20,9 +19,9 @@ use super::{Tally, at, concrete, given, kind_of, mandate_claims, select};
 pub(super) fn outcome(
     kind: &str,
     entry: &Value,
-    (types, given_text): (&Value, Option<&str>),
+    types: &Value,
     rendered: &Result<Rendered, Outcome>,
-    locales: &[&str],
+    (locales, context): (&[&str], &Context),
     tally: &mut Tally,
 ) {
     let view = match rendered {
@@ -56,14 +55,6 @@ pub(super) fn outcome(
     if !["en", "de"].contains(&locale) {
         tally.add("display_locale a regional tag");
     }
-    // The test app's screen: the converted module in the selected locale.
-    let entry_type = entry["type"].as_str().expect("type");
-    let screen = Screen::of(
-        entry_type,
-        given_text.expect("the metadata's text"),
-        &env(locales, Amounts::Formatted),
-        &LocaleTag::parse(locale).expect("a tag"),
-    );
     // A label's text as written: a mini_markdown label's spans without their styles.
     let written = |label: &Value, text: &str, typed_by: &str| match label
         .get(typed_by)
@@ -104,17 +95,18 @@ pub(super) fn outcome(
                 .iter()
                 .find(|claim| claim.displayed && json!(claim.path) == json!(path))
                 .expect("a displayed Mandate claim");
-            assert!(
-                matches!(row.row.label.text(), Text::Query(query) if matches!(query.key(), Key::Message(_))),
-                "P-label own {row:?}"
-            );
+            let own: Vec<Text> = MandateLabel::ALL
+                .iter()
+                .map(|label| context.resolve(label).expect("the test app words it"))
+                .collect();
+            assert!(own.contains(&row.row.label), "P-label own {row:?}");
             claim.value_type.clone()
         } else {
             let claim = &claims[row.claim.get()];
             let want = replay
                 .entry(Array::Claim(row.claim.get()), locale)
                 .expect("P-replay: the claim's array matches");
-            let shown = screen.plain(&row.row.label);
+            let shown = plain(&row.row.label);
             let (shows, template) = matches(&shown, want, "name", "display_type");
             assert!(shows, "P-replayed label {shown:?} against {want}");
             if template {
@@ -178,11 +170,8 @@ pub(super) fn outcome(
     assert_eq!(got, want, "P-coverage");
     let ui = meta.get("ui_labels");
     let ui_array = |key: &str| ui.and_then(|u| u.get(key)).and_then(Value::as_array);
-    let shown = |text: &Text| screen.plain(text);
-    let mut labels = vec![(
-        "security_hint",
-        view.actions.hint.as_ref().map(|hint| shown(hint)),
-    )];
+    let shown = plain;
+    let mut labels = vec![("security_hint", view.actions.hint.as_ref().map(shown))];
     if !mandate {
         labels.extend([
             ("transaction_title", Some(shown(&view.title))),

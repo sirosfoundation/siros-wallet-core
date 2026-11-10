@@ -10,7 +10,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use sha2::Digest;
-use siros_explain::AllOf;
+use siros_i18n::Context;
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, TrustConfig};
 use siros_openid4vp::envelope::Envelope;
@@ -29,16 +29,16 @@ use siros_openid4vp::routing::{ChannelKind, ModeName};
 use siros_openid4vp::rows::Env;
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch, ResponseUriAnswer};
 use siros_openid4vp::wallet::Wallet;
+use siros_syntax::AllOf;
 use siros_testkit::fixtures::{self, B26_KEY, Held, first_selection};
 use siros_testkit::jose::{P256Scalar, VERIFIER_SECRET, Zip, compact_jws, encrypt_to, sign};
 use siros_testkit::prefix::Registration;
-use siros_testkit::render::App;
 use siros_testkit::x509::{Leaf, certificate, header, point, x5c, x509_hash};
 use siros_testkit::{Published, TestChoice, TestMode, TestTrust};
 
-use crate::common::{HaipHost, registry};
+use crate::common::{HaipHost, own_modules, registry};
 
-use super::{NOW, english, read_sd_jwt};
+use super::{AMOUNTS, NOW, english, read_sd_jwt};
 
 /// The Origin of the DC API flows.
 pub(super) const ORIGIN: &str = "https://verifier.example";
@@ -79,9 +79,10 @@ pub(super) fn config() -> TrustConfig {
 pub(super) fn leaf() -> Vec<u8> {
     certificate(&Leaf {
         subject: DNS,
-        point: point(VERIFIER_SECRET.octets()),
+        point: point(VERIFIER_SECRET.octets()).expect("a point"),
         dns: &[DNS],
     })
+    .expect("the root signs")
 }
 
 /// A request's parameters: its mode, `client_metadata` with B.2.6's key, the PID query, then
@@ -119,7 +120,13 @@ fn registry_with(more: impl FnOnce(&mut RegistryBuilder<HaipHost>)) -> Registry<
     builder.build().expect("the registry")
 }
 
-/// An envelope authenticated under the trust service's decisions.
+/// The English wallet's own context, which words a binding's texts.
+fn own() -> &'static Context {
+    own_modules(&english(), AMOUNTS)
+}
+
+/// An envelope authenticated under the trust service's decisions, its binding worded by the
+/// English wallet.
 pub(super) fn authentic<'e, H: CoreHost>(
     envelope: &'e Envelope<'e>,
     registry: &'e Registry<H>,
@@ -129,7 +136,12 @@ pub(super) fn authentic<'e, H: CoreHost>(
     envelope
         .questions(registry, &config(), host)
         .and_then(|pending| {
-            pending.authenticate(|evaluation| trust.decide(evaluation), &config(), host)
+            pending.authenticate(
+                |evaluation| trust.decide(evaluation),
+                &config(),
+                own(),
+                host,
+            )
         })
         .unwrap_or_else(|rejected| panic!("authenticated: {:?}", rejected.failure()))
 }
@@ -177,20 +189,20 @@ fn built<T>(
         registry,
         published,
         host,
-        |wallet, request, env| crate::common::wallet_app(wallet, request, env, host),
+        |wallet, request, env| crate::common::wallet_app(wallet, request, env, AMOUNTS, host),
         read,
     )
 }
 
-/// What `read` takes from phase 2's outcome of phase 1's first selection under the app `app` gives,
-/// phase 2's fetches answered from `published`.
+/// What `read` takes from phase 2's outcome of phase 1's first selection in the context `app`
+/// gives, phase 2's fetches answered from `published`.
 pub(super) fn built_by<H: CoreHost + Build, T>(
     authenticated: &Authenticated<'_>,
     held: &[Held],
     registry: &Registry<H>,
     published: &Published,
     host: &H,
-    app: impl FnOnce(&Wallet<'_>, &Request<'_>, &Env) -> App,
+    app: impl FnOnce(&Wallet<'_>, &Request<'_>, &Env) -> Context,
     read: impl FnOnce(&Built<'_>) -> T,
 ) -> Result<T, Outcome> {
     let env = english();
@@ -201,21 +213,12 @@ pub(super) fn built_by<H: CoreHost + Build, T>(
     )
     .expect("a wallet");
     let request = Request::parse(authenticated.envelope()).expect("the request");
-    let app = app(&wallet, &request, &env);
-    let rendering = app.rendering().expect("the rendering");
-    let ids = first_selection(&request, &wallet, registry, &env, &rendering).expect("a selection");
+    let context = app(&wallet, &request, &env);
+    let ids = first_selection(&request, &wallet, registry, &env, &context).expect("a selection");
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    Prepared::prepare(
-        authenticated,
-        &ids,
-        &wallet,
-        registry,
-        &env,
-        &rendering,
-        host,
-    )
-    .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
-    .map(|built| read(&built))
+    Prepared::prepare(authenticated, &ids, &wallet, registry, &env, &context, host)
+        .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
+        .map(|built| read(&built))
 }
 
 /// A DC API arrival from the Origin.
@@ -384,9 +387,8 @@ fn a_credential_with_a_refused_metadata_text_is_excluded_and_its_peer_answers() 
     let wallet = Wallet::new(vec![held.credential().expect("a credential")]).expect("a wallet");
     let accepted = Accepted::new(&request, &registry).expect("the request keeps every rule");
     let env = english();
-    let app = crate::common::wallet_app(&wallet, &request, &env, &host);
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("no fault");
+    let context = crate::common::wallet_app(&wallet, &request, &env, AMOUNTS, &host);
+    let matched = Match::run(&accepted, &wallet, &env, &context).expect("no fault");
     assert_eq!(matched.excluded()[0].by, ExcludedBy::Display);
     assert_eq!(matched.unmet(), UnmetCode::AccessDenied);
 }
@@ -420,7 +422,12 @@ fn f3_f4_a_signed_dc_api_request_answers_its_origin() {
     // F3: x509_san_dns, dc_api.jwt; x509_hash, dc_api.
     for (client_id, mode) in [(SAN.to_owned(), "dc_api.jwt"), (x509_hash(&leaf), "dc_api")] {
         let payload = parameters(mode, &format!(r#","client_id":"{client_id}"{origins}"#));
-        let jws = compact_jws(&VERIFIER_SECRET, &header(&x5c(&leaf)), &payload).expect("signs");
+        let jws = compact_jws(
+            &VERIFIER_SECRET,
+            &header(&x5c(&leaf).expect("the chain")),
+            &payload,
+        )
+        .expect("signs");
         let data = format!(r#"{{"request":"{jws}"}}"#);
         let received = dc_api("openid4vp-v1-signed", &data);
         let envelope = Envelope::parse(&received, &registry).expect("an envelope");
@@ -443,7 +450,7 @@ fn f3_f4_a_signed_dc_api_request_answers_its_origin() {
     // F4: two signatures, each with its client_id in its protected header (A.3.2.2, U17); the
     // first, under an unknown prefix, fails, and the second authenticates (A11).
     let payload = URL_SAFE_NO_PAD.encode(parameters("dc_api.jwt", &origins));
-    let x5c: Vec<String> = x5c(&leaf);
+    let x5c: Vec<String> = x5c(&leaf).expect("the chain");
     let signature = |client_id: &str| {
         let protected = URL_SAFE_NO_PAD.encode(format!(
             r#"{{"alg":"ES256","typ":"oauth-authz-req+jwt","client_id":"{client_id}","x5c":{}}}"#,
@@ -502,7 +509,12 @@ pub(super) fn link(client_id: &str, method: &str) -> String {
 
 /// The Request Object of the payload, signed with the leaf in `x5c`.
 pub(super) fn signed_object(payload: &str) -> String {
-    compact_jws(&VERIFIER_SECRET, &header(&x5c(&leaf())), payload).expect("signs")
+    compact_jws(
+        &VERIFIER_SECRET,
+        &header(&x5c(&leaf()).expect("the chain")),
+        payload,
+    )
+    .expect("signs")
 }
 
 /// The URI flows' Authorization Response: `state` as received, the Key Binding JWT's `aud` the
@@ -665,7 +677,8 @@ fn f9_a_request_refused_before_authentication_replies_plain_on_its_route() {
     // A8 after the decision listed the Response URI: the signature by another key.
     let payload = uri_payload(SAN, "direct_post.jwt", "");
     let other = P256Scalar::new([7; 32]).expect("a scalar");
-    let forged = compact_jws(&other, &header(&x5c(&leaf())), &payload).expect("signs");
+    let forged =
+        compact_jws(&other, &header(&x5c(&leaf()).expect("the chain")), &payload).expect("signs");
     let uri = link(SAN, "");
     let mut body = String::new();
     let received = by_uri(&uri, &registry, &host, |_| forged, &mut body);
@@ -677,7 +690,12 @@ fn f9_a_request_refused_before_authentication_replies_plain_on_its_route() {
     let rejected = envelope
         .questions(&registry, &config(), &host)
         .and_then(|pending| {
-            pending.authenticate(|evaluation| listing.decide(evaluation), &config(), &host)
+            pending.authenticate(
+                |evaluation| listing.decide(evaluation),
+                &config(),
+                own(),
+                &host,
+            )
         })
         .map(drop)
         .expect_err("A8");
@@ -885,7 +903,7 @@ fn f11_f12_an_sca_payment_answers_by_uri_and_over_the_dc_api() {
 /// to the bound Response URI.
 #[test]
 fn f13_an_extension_mode_answers_by_uri_through_the_core() {
-    const NAME: ModeName = siros_explain::checked!(ModeName, "post.test");
+    const NAME: ModeName = siros_syntax::checked!(ModeName, "post.test");
     let mode = TestMode {
         choice: TestChoice::Key {
             place: 0,

@@ -6,11 +6,11 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-use common::{CUSTOM, Card, PAY, Screen, Seen, en, entry, env, png, shown, sri};
-use siros_i18n::Style;
+use common::{CUSTOM, Card, PAY, Seen, en, entry, env, plain, png, shown, sri};
+use siros_i18n::{Style, Styles};
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::media::MediaType;
-use siros_openid4vp::rows::{Amounts, Image, RemoteImage, Value};
+use siros_openid4vp::rows::{Image, RemoteImage, Value};
 use siros_paso::outcome::Outcome;
 use siros_paso::rulebook::{Family, PasoType};
 use siros_paso::value::{FormattedKind, ValueKind};
@@ -23,7 +23,7 @@ fn render_typed(kind: &str, meta: &str, payload: &str, locales: &[&str]) -> Resu
     let card = Card::sd_jwt(&format!(r#"{{"{kind}": {meta}}}"#));
     let entry_json =
         format!(r#"{{"type": "{kind}", "credential_ids": ["q"], "payload": {payload}}}"#);
-    let env = env(locales, Amounts::Formatted);
+    let env = env(locales);
     let rendered = PasoProfile::default()
         .render(
             &entry(&entry_json),
@@ -31,10 +31,10 @@ fn render_typed(kind: &str, meta: &str, payload: &str, locales: &[&str]) -> Resu
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &env,
+            common::context(&env),
         )
         .expect("no fault")?;
-    let screen = Screen::of(kind, meta, &env, &rendered.view.locale);
-    Ok(Seen { rendered, screen })
+    Ok(Seen { rendered })
 }
 
 fn render(meta: &str, payload: &str) -> Result<Seen, Outcome> {
@@ -63,7 +63,7 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
         r#"{"transaction_id": "t", "amount": "1.00 EUR", "who": "x {1} y"}"#,
     )
     .expect("renders");
-    assert_eq!(rendered.plain(&rendered.view.title), "Pay x {1} y €1.00");
+    assert_eq!(plain(&rendered.view.title), "Pay x {1} y €1.00");
     // An index past the claims stays literal, as does a brace no digits and `}` close.
     assert_eq!(
         labels(&render(
@@ -152,12 +152,13 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
         r#"{"transaction_id": "t", "amount": "49.99 EUR", "n": "x"}"#,
     )
     .expect("renders");
-    let formatted = rendered.formatted(&rendered.view.rows[1].row.label);
-    let strong = formatted
+    let strong = rendered.view.rows[1]
+        .row
+        .label
         .spans()
         .iter()
-        .find(|span| span.styles() == [Style::Strong])
-        .map(|span| span.text());
+        .find(|span| span.styles == Styles::empty().with(Style::Strong))
+        .map(|span| span.text.as_str());
     assert_eq!(strong, Some("€49.99"));
 }
 
@@ -247,6 +248,7 @@ fn an_integrity_companion_is_covered_and_an_unfetched_image_renders_pending() {
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &en(),
+            common::context(&en()),
         )
         .expect("no fault")
         .expect("renders");
@@ -385,11 +387,11 @@ fn a_labels_kind_is_its_display_type() {
         .rows
         .iter()
         .map(|row| {
-            rendered
-                .formatted(&row.row.label)
+            row.row
+                .label
                 .spans()
                 .iter()
-                .map(|span| (span.text().to_owned(), span.styles().to_vec()))
+                .map(|span| (span.text.clone(), span.styles.iter().collect()))
                 .collect()
         })
         .collect();
@@ -400,6 +402,58 @@ fn a_labels_kind_is_its_display_type() {
             vec![span("*A*", &[])],
             vec![span("B", &[Style::Emphasis]), span(" {1}", &[])],
             vec![span("C", &[Style::Emphasis]), span(" x", &[])],
+        ]
+    );
+}
+
+/// An issuer's label holding MessageFormat 2's syntax and text outside Unicode Normalization Form
+/// C (U+1E0A U+0323, which NFC writes U+1E0C U+0307) shows as its characters in each form of Proof
+/// Metadata §3.3, through the source the registration carries: `view::convert` escapes every text
+/// it takes from the metadata. The workspace's `--all-features` runs it with siros-i18n's `nfc`,
+/// and `cargo test -p siros-paso --all-features --test rendering` without it: both show the same
+/// characters.
+#[test]
+fn an_issuers_label_shows_as_its_characters() {
+    const LABEL: &str = ".match {$x} {#strong} | \\ end \u{1E0A}\u{323}";
+    let json = LABEL.replace('\\', r"\\");
+    let meta = claims(&format!(
+        r#"{{"path": ["a"], "display": [{{"locale": "en", "name": "{json}"}}]}}, {{"path": ["b"], "display": [{{"locale": "en", "name": "**{json}**", "display_type": "mini_markdown"}}]}}, {{"path": ["c"], "display": [{{"locale": "en", "name": "{json} {{0}}", {TEMPLATE}}}]}}"#
+    ));
+    let card = Card::sd_jwt(&format!(r#"{{"{CUSTOM}": {meta}}}"#));
+    let env = en();
+    let context = common::registered(common::context(&env), &[&card], &env);
+    let rendered = PasoProfile::default()
+        .render(
+            &entry(&format!(
+                r#"{{"type": "{CUSTOM}", "credential_ids": ["q"], "payload": {{"transaction_id": "t", "a": "x", "b": "y", "c": "z"}}}}"#
+            )),
+            siros_openid4vp::routing::ChannelKind::DcApi,
+            &card.credential(),
+            common::placement(&card.credential().format),
+            &env,
+            &context,
+        )
+        .expect("no fault")
+        .expect("renders");
+    let spans: Vec<Vec<(String, Vec<Style>)>> = rendered
+        .view
+        .rows
+        .iter()
+        .map(|row| {
+            row.row
+                .label
+                .spans()
+                .iter()
+                .map(|span| (span.text.clone(), span.styles.iter().collect()))
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        spans,
+        [
+            vec![(LABEL.to_owned(), vec![])],
+            vec![(LABEL.to_owned(), vec![Style::Strong])],
+            vec![(format!("{LABEL} t"), vec![])],
         ]
     );
 }

@@ -49,7 +49,7 @@ pub(crate) fn claims(
     let claims = processor.object(root, 0, Level::Root)?;
     match processor.pending.values().map(|pending| pending.id).min() {
         None => Ok(claims),
-        Some(id) => Err(ParseError::UnreferencedDisclosure(id)),
+        Some(disclosure) => Err(ParseError::UnreferencedDisclosure { disclosure }),
     }
 }
 
@@ -64,7 +64,7 @@ impl Processor {
     /// The disclosure `digest` references, if the credential holds it (§7.1, step 3.c.i).
     fn reference(&mut self, digest: Digest) -> Result<Option<Pending>, ParseError> {
         if !self.seen.insert(digest.clone()) {
-            return Err(ParseError::RepeatedDigest(digest));
+            return Err(ParseError::RepeatedDigest { digest });
         }
         Ok(self.pending.remove(&digest))
     }
@@ -125,7 +125,7 @@ impl Processor {
                 });
             };
             if matches!(name.as_str(), SD | ELLIPSIS | SD_ALG) {
-                return Err(reserved(ReservedFault::Disclosed(name)));
+                return Err(reserved(ReservedFault::Disclosed { claim: name }));
             }
             let value = self.value(&value, depth + 1)?;
             members.push(Member {
@@ -133,7 +133,9 @@ impl Processor {
                 claim: IssuedClaim::new(value, Some(disclosure)),
             });
         }
-        Object::new(members).map_err(|repeated| ParseError::ClaimNameExists(repeated.name))
+        Object::new(members).map_err(|repeated| ParseError::ClaimNameExists {
+            claim: repeated.name,
+        })
     }
 
     /// §7.1, step 3.c.iii: an element `{"...": digest}` is the value its disclosure reveals, or

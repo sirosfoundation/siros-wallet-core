@@ -15,7 +15,6 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Fault, Member, MemberValue};
 use siros_openid4vp::wallet::{Credential, Holder};
 
-use crate::FAULT;
 use crate::alg::SigningAlg;
 use crate::error::PresentFault;
 use crate::key_binding::{Audience, Binding, KbNonce, KbSignature, NumericDate};
@@ -26,8 +25,7 @@ use crate::view::SdJwtMembers;
 /// A fault of `credential` for the cause `why`.
 fn fault(credential: &Credential<'_>, why: PresentFault) -> Fault {
     let shown = why.to_string();
-    Fault::caused(
-        FAULT,
+    crate::caused(
         detail!(
             "{id}: {shown}",
             id = credential.id.to_string(),
@@ -53,7 +51,9 @@ pub(crate) fn present<H: Has<dyn Haip> + Has<dyn Platform>>(
     match credential.facts.holder {
         Holder::Unbound => {
             if let Some(member) = presenting.members.names().next() {
-                let why = PresentFault::NoKeyForMember(member.to_string());
+                let why = PresentFault::NoKeyForMember {
+                    member: member.to_string(),
+                };
                 return Err(fault(credential, why).into());
             }
             Ok(Presentation::text(selected.as_str()))
@@ -136,7 +136,9 @@ fn members<'p>(presenting: &Presenting<'p>) -> Result<Vec<(Cow<'p, str>, Node<'p
         .iter()
         .map(|(member, value)| {
             let Member::Claim(name) = member else {
-                let why = PresentFault::NoClaim(member.to_string());
+                let why = PresentFault::NoClaim {
+                    member: member.to_string(),
+                };
                 return Err(fault(credential, why));
             };
             let value = match value {
@@ -145,7 +147,9 @@ fn members<'p>(presenting: &Presenting<'p>) -> Result<Vec<(Cow<'p, str>, Node<'p
                     .map(Node::into_owned)
                     .map_err(|e| fault(credential, PresentFault::MemberJson(e)))?,
                 MemberValue::Bytes(_) | MemberValue::Cbor(_) => {
-                    let why = PresentFault::Binary(name.to_string());
+                    let why = PresentFault::Binary {
+                        member: name.to_string(),
+                    };
                     return Err(fault(credential, why));
                 }
             };

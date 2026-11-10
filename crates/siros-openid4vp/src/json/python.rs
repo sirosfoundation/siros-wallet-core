@@ -23,14 +23,13 @@ impl fmt::Display for PythonRepr<'_, '_> {
         match self.0 {
             Node::Null => f.write_str("None"),
             Node::Bool(value) => f.write_str(if *value { "True" } else { "False" }),
-            Node::Number(number) => match (number.integer(), number.double()) {
-                (Some(digits), _) => f.write_str(digits),
-                (None, Some(value)) => match FiniteDouble::of(value) {
+            Node::Number(number) => match number.integer() {
+                Some(digits) => f.write_str(digits),
+                None => match FiniteDouble::of(number.double) {
                     Some(finite) => write!(f, "{finite}"),
-                    None if value.is_nan() => f.write_str("nan"),
-                    None => f.write_str(if value > 0.0 { "inf" } else { "-inf" }),
+                    None if number.double.is_nan() => f.write_str("nan"),
+                    None => f.write_str(if number.double > 0.0 { "inf" } else { "-inf" }),
                 },
-                (None, None) => f.write_str(number.text()),
             },
             Node::String(text) => write!(f, "{}", Quoted(text)),
             Node::Array(items) => {
@@ -78,9 +77,7 @@ impl FiniteDouble {
 impl fmt::Display for FiniteDouble {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let scientific = format!("{:e}", self.0);
-        let (mantissa, exponent) = scientific
-            .split_once('e')
-            .unwrap_or((scientific.as_str(), "0"));
+        let (mantissa, exponent) = scientific.split_once('e').ok_or(fmt::Error)?;
         let exponent: i32 = exponent.parse().map_err(|_| fmt::Error)?;
         let (sign, mantissa) = mantissa
             .strip_prefix('-')
@@ -94,14 +91,15 @@ impl fmt::Display for FiniteDouble {
             } else if shift >= digits.len() {
                 format!("{digits}{}.0", "0".repeat(shift - digits.len()))
             } else {
-                let (whole, fraction) = digits
-                    .split_at_checked(shift)
-                    .unwrap_or((digits.as_str(), ""));
+                let whole: String = digits.chars().take(shift).collect();
+                let fraction: String = digits.chars().skip(shift).collect();
                 format!("{whole}.{fraction}")
             };
             write!(f, "{sign}{fixed}")
         } else {
-            let (first, rest) = digits.split_at_checked(1).unwrap_or((digits.as_str(), ""));
+            let mut chars = digits.chars();
+            let first: String = chars.by_ref().take(1).collect();
+            let rest = chars.as_str();
             let fraction = if rest.is_empty() {
                 String::new()
             } else {

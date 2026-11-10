@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use std::fmt;
 
 use dyn_clone::DynClone;
-use siros_explain::{Explain, IntoArg, kind};
+use siros_explain::Explain;
 
 use crate::envelope::{Channel, Parameters};
 use crate::ids::{KeyId, NamedResponseUri};
@@ -61,15 +61,6 @@ impl ModeName {
 impl fmt::Display for ModeName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
-    }
-}
-
-/// A mode is named by its text in a message.
-impl IntoArg for ModeName {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
     }
 }
 
@@ -162,15 +153,6 @@ impl fmt::Display for ResponseTypeName {
     }
 }
 
-/// A response type is named by its text in a message.
-impl IntoArg for ResponseTypeName {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
-    }
-}
-
 /// A response type whose Authorization Response carries the VP Token (§8: `vp_token`, `vp_token
 /// id_token`; RFC 6749 §8.4: "New response types ... are defined and registered").
 ///
@@ -196,7 +178,14 @@ dyn_clone::clone_trait_object!(ResponseType);
 /// `names` is a constant: the registry refuses a name another registered part declares
 /// (`RegistryError::NameTwice`) and the names the core writes, `vp_token`, `state`, `error`,
 /// `error_description` and `error_uri` (`RegistryError::NameReserved`). The phase-2 half
-/// [`ResponseParametersHost`] writes members of declared names alone, each name once, for the
+#[cfg_attr(
+    feature = "resolve",
+    doc = "[`ResponseParametersHost`] writes members of declared names alone, each name once, for the"
+)]
+#[cfg_attr(
+    not(feature = "resolve"),
+    doc = "`ResponseParametersHost`, with the feature `resolve`, writes members of declared names alone, each name once, for the"
+)]
 /// response type the request names, each value JSON; the core refuses another name and a name
 /// written twice with a `Fault` caused by `resolve::ParameterBreach`, and writes the members
 /// after `vp_token` and `state`. `siros-testkit`'s `TestResponseParameters` is the double.
@@ -234,7 +223,7 @@ pub struct VpToken;
 
 impl ResponseType for VpToken {
     fn name(&self) -> ResponseTypeName {
-        siros_explain::checked!(ResponseTypeName, "vp_token")
+        siros_syntax::checked!(ResponseTypeName, "vp_token")
     }
 }
 
@@ -501,48 +490,50 @@ impl<'r> Echo<'r> {
 
 /// A routing rule a request breaks, each with its code.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.routing")]
 pub enum RoutingRule {
     /// P1: `response_type` absent (RFC 6749 §3.1.1).
     #[error("P1 response_type is absent")]
-    #[explain(id = "p1_absent")]
+    #[explain(id = "routing.p1_absent")]
     ResponseTypeAbsent,
     /// P1: `response_type` naming no registered response type (RFC 6749 §4.1.2.1).
-    #[error("P1 response_type {0} names no response type the wallet answers")]
-    #[explain(id = "p1_other")]
-    ResponseType(#[explain(name = "response_type")] ReprItem),
+    #[error("P1 response_type {} names no response type the wallet answers", .response_type.repr_text())]
+    #[explain(id = "routing.p1_other")]
+    ResponseType {
+        /// The value.
+        response_type: ReprItem,
+    },
     /// C5 over the DC API: absent, or no registered DC API response mode (A.2).
-    #[error("C5 response_mode {mode} is no DC API response mode")]
-    #[explain(id = "c5")]
+    #[error("C5 response_mode {} is no DC API response mode", .mode.repr_text())]
+    #[explain(id = "routing.c5")]
     DcApi {
         /// The mode.
         mode: ReprOption,
     },
     /// C5 by URI: absent, no registered URI mode, or one that carries errors alone (§5.2, HAIP
     /// §5.1; reading 2, 24).
-    #[error("C5 response_mode {mode} is no mode the wallet answers in by URI")]
-    #[explain(id = "c5_uri")]
+    #[error("C5 response_mode {} is no mode the wallet answers in by URI", .mode.repr_text())]
+    #[explain(id = "routing.c5_uri")]
     Uri {
         /// The mode.
         mode: ReprOption,
     },
     /// P5: `redirect_uri` beside a `response_uri` mode (§8.2).
     #[error("P5 redirect_uri is present with response_mode {mode}")]
-    #[explain(id = "p5")]
+    #[explain(id = "routing.p5")]
     RedirectUri {
         /// The mode.
         mode: String,
     },
     /// P6: `state` not URL-safe ASCII (§5.2).
     #[error("P6 state is not a non-empty string of URL-safe ASCII")]
-    #[explain(id = "p6")]
+    #[explain(id = "routing.p6")]
     State,
 }
 
 impl RequestRule for RoutingRule {
     fn code(&self) -> ErrorCode {
         match self {
-            Self::ResponseType(_) => ErrorCode::UNSUPPORTED_RESPONSE_TYPE,
+            Self::ResponseType { .. } => ErrorCode::UNSUPPORTED_RESPONSE_TYPE,
             Self::ResponseTypeAbsent
             | Self::DcApi { .. }
             | Self::Uri { .. }
@@ -606,7 +597,9 @@ impl<'r> Routing<'r> {
             Some(named) => {
                 let registered = named.as_str().and_then(|name| routes.response_type(name));
                 if registered.is_none() {
-                    refusals.push(RoutingRule::ResponseType(ReprItem::repr(named)));
+                    refusals.push(RoutingRule::ResponseType {
+                        response_type: ReprItem::repr(named),
+                    });
                 }
                 registered
             }
@@ -745,7 +738,8 @@ impl EntryNaming {
 /// What a format's request rules read beyond the query (the zkp_req proposal's M4): the request,
 /// its mode, whether transaction data names the query, and the Verifier's `vp_formats_supported`
 /// value for the format. Only `Accepted::new` makes one, from the request's routing, and phase 2
-/// inside an [`AnsweredContext`].
+#[cfg_attr(feature = "resolve", doc = "inside an [`AnsweredContext`].")]
+#[cfg_attr(not(feature = "resolve"), doc = "inside an `AnsweredContext`.")]
 #[derive(Debug, Clone)]
 pub struct QueryContext<'q> {
     request: &'q Request<'q>,
