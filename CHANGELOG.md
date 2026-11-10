@@ -163,7 +163,9 @@ All notable changes to this workspace. The format follows
   a matcher built without `nfc` resolves the registration to the wallet's texts.
   `Registration::open` reads the header, the directory and the base; `Registration::context` loads
   the sources of the types a request names into a clone of the base's context and reads no other
-  entry. The wallet registers again when its language changes.
+  entry. The writer and `Registration::context` load a source byte-equal to an earlier type's once:
+  types whose metadata is one object share one converted source. The wallet registers again when
+  its language changes.
 - `siros-credman::emit` is the matcher's entry emission: every choice of a display as Credential
   Manager draws it, each text resolved through the registration's context. It fails as a whole on
   the first choice that does not emit (`NotEmitted`, naming the entry and holding the cause). A

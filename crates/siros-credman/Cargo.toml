@@ -24,6 +24,8 @@ icu_properties = { workspace = true }
 siros-i18n = { workspace = true }
 siros-syntax = { workspace = true }
 thiserror = { workspace = true }
+# The transaction sources already loaded: the writer and the reader load a byte-equal source once.
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 siros-credman = { path = ".", features = ["register"] }

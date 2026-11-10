@@ -3341,6 +3341,7 @@ name = "siros-credman"
 version = "0.1.0"
 dependencies = [
  "icu_properties",
+ "rustc-hash",
  "siros-credman",
  "siros-explain",
  "siros-i18n",

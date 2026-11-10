@@ -2,6 +2,7 @@
 //! written once every request's context loads from them into the same messages with siros-i18n's
 //! `nfc` and without it.
 
+use rustc_hash::FxHashSet;
 use siros_explain::Explain;
 use siros_i18n::{Context, LoadError};
 use siros_openid4vp::ids::TransactionType;
@@ -105,9 +106,9 @@ fn priority(base: &Base) -> String {
 
 /// The base's sources loaded again in their order, then each type's source loaded into a clone of
 /// that context alone, and every type's source into one clone in ascending order, each through
-/// `Context::module_in_nfc`. A request's context loads the sources of the types it names into a
-/// clone of the base's context in that order, so it loads, and a build without siros-i18n's `nfc`
-/// loads it into the same messages.
+/// `Context::module_in_nfc`, a source byte-equal to an earlier type's once. A request's context
+/// loads the sources of the types it names into a clone of the base's context in that order, so it
+/// loads, and a build without siros-i18n's `nfc` loads it into the same messages.
 ///
 /// # Errors
 ///
@@ -121,7 +122,12 @@ fn loads(base: &Base, types: &[&Entry<TransactionType<'_>, String>]) -> Result<(
         |at, cause| RegisterError::Source { at, cause },
     )?;
     let mut together = context.clone();
+    let mut seen: FxHashSet<&str> = FxHashSet::default();
     for entry in types {
+        // Types whose metadata is one object convert to one source, which words its ids once.
+        if !seen.insert(entry.value().as_str()) {
+            continue;
+        }
         let refused = |cause: LoadError| RegisterError::Transaction {
             kind: entry.key().clone().into_owned(),
             cause,

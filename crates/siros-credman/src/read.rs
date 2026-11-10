@@ -5,6 +5,7 @@
 use std::io::{self, Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 
+use rustc_hash::FxHashSet;
 use siros_explain::Explain;
 use siros_i18n::{Bidi, Context, LocaleTag};
 use siros_openid4vp::ids::TransactionType;
@@ -685,9 +686,9 @@ impl<R: Read + Seek> Registration<R> {
     }
 
     /// The matcher's context for `request`: a clone of [`Base::context`] that loads the source of
-    /// each registered type the request's `transaction_data` names, ascending by type. It reads no
-    /// other entry. A type the registration does not register loads nothing: its profile converts
-    /// the metadata the request carries.
+    /// each registered type the request's `transaction_data` names, ascending by type, a source
+    /// byte-equal to one it loaded once. It reads no other entry. A type the registration does
+    /// not register loads nothing: its profile converts the metadata the request carries.
     ///
     /// # Errors
     ///
@@ -699,15 +700,22 @@ impl<R: Read + Seek> Registration<R> {
         kinds.sort_unstable();
         kinds.dedup();
         let mut context = self.base.context().clone();
+        let mut loaded: FxHashSet<String> = FxHashSet::default();
         for kind in kinds {
-            if let Some(source) = self.transaction(kind)? {
-                context = context
-                    .module(&source)
-                    .map_err(|cause| ContextError::Transaction {
-                        kind: kind.clone(),
-                        cause,
-                    })?;
+            let Some(source) = self.transaction(kind)? else {
+                continue;
+            };
+            // Types whose metadata is one object convert to one source, which words its ids once.
+            if loaded.contains(&source) {
+                continue;
             }
+            context = context
+                .module(&source)
+                .map_err(|cause| ContextError::Transaction {
+                    kind: kind.clone(),
+                    cause,
+                })?;
+            loaded.extend([source]);
         }
         Ok(context)
     }
