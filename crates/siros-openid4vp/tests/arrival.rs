@@ -66,6 +66,13 @@ fn a_dc_api_request_names_a_registered_protocol_of_a_1() {
     );
     let signed = format!(r#"{{"request":"{}"}}"#, compact(HEADER, PARAMETERS));
     assert!(dc_api("openid4vp-v1-signed", &signed, &DcApiProtocols::SIGNED).is_ok());
+    // A build without `signed` registers the unsigned protocol alone.
+    assert_eq!(
+        dc_api("openid4vp-v1-signed", &signed, &DcApiProtocols::UNSIGNED).map(drop),
+        Err(Unreadable::Unregistered {
+            protocol: DcApiProtocol::Signed
+        })
+    );
 }
 
 #[test]

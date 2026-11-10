@@ -64,7 +64,8 @@ impl fmt::Display for DcApiProtocol {
 }
 
 /// The DC API protocols the wallet registers with the platform: [`DcApiProtocols::ALL`] under
-/// HAIP's width, [`DcApiProtocols::SIGNED`] for a deployment that admits signed requests alone.
+/// HAIP's width, [`DcApiProtocols::SIGNED`] for a deployment that admits signed requests alone,
+/// [`DcApiProtocols::UNSIGNED`] for a build without the feature `signed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DcApiProtocols(&'static [DcApiProtocol]);
 
@@ -73,6 +74,8 @@ impl DcApiProtocols {
     pub const ALL: Self = Self(&DcApiProtocol::ALL);
     /// The signed and the multisigned protocol.
     pub const SIGNED: Self = Self(&[DcApiProtocol::Signed, DcApiProtocol::Multisigned]);
+    /// The unsigned protocol.
+    pub const UNSIGNED: Self = Self(&[DcApiProtocol::Unsigned]);
 
     /// Whether the wallet registers the protocol.
     #[must_use]
