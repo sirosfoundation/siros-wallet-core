@@ -3347,6 +3347,7 @@ dependencies = [
  "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -21,6 +21,8 @@ siros-explain = { workspace = true }
 siros-i18n = { workspace = true }
 siros-syntax = { workspace = true }
 thiserror = { workspace = true }
+# The extended grapheme clusters a field's cut keeps whole.
+unicode-segmentation = { workspace = true }
 
 [dev-dependencies]
 siros-credman = { path = ".", features = ["register"] }

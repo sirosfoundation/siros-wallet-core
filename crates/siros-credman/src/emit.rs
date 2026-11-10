@@ -133,7 +133,7 @@ pub enum Unshown {
     /// The context resolves no title for the empty choice.
     #[error(transparent)]
     Resolve(#[from] ResolveError),
-    /// A row's label is white space alone.
+    /// A row's label holds no visible character.
     #[error(transparent)]
     Field(#[from] NoName),
 }

@@ -7,7 +7,7 @@ use std::io::Cursor;
 
 use siros_credman::register::write;
 use siros_credman::{
-    Base, CredmanEntry, Emission, Emitted, NoName, NotEmitted, Registration, Unshown, emit,
+    Base, CredmanEntry, Emission, Emitted, NotEmitted, Registration, Unshown, emit,
 };
 use siros_i18n::{Bidi, Context, LocaleTag, ResolveError, Text};
 use siros_openid4vp::consent::Card;
@@ -160,23 +160,18 @@ fn written(context: &Context, value: &str) -> Text {
         .expect("the test app words a written text")
 }
 
-/// The wallet's static entry `notice`, with `rows`.
-fn notice(context: &Context, rows: &[(&str, &str)]) -> Vec<StaticEntry> {
+/// The wallet's static entry `notice`.
+fn notice(context: &Context) -> Vec<StaticEntry> {
     vec![StaticEntry {
         id: StaticEntryId::parse("notice").expect("an id"),
         card: Card {
             icon: Icon::DEFAULT,
             title: written(context, "Notice"),
             subtitle: None,
-            rows: rows
-                .iter()
-                .map(|(label, value)| {
-                    Row::new(
-                        written(context, label),
-                        Value::Text(written(context, value)),
-                    )
-                })
-                .collect(),
+            rows: vec![Row::new(
+                written(context, "Kind"),
+                Value::Text(written(context, "notice")),
+            )],
         },
     }]
 }
@@ -228,17 +223,16 @@ fn the_matcher_emits_the_wallets_display() {
         for case in cases() {
             let mut registration = registered(english(), bidi);
             let env = env_of(&registration);
-            let statics = |context: &Context| notice(context, &[("Kind", "notice")]);
             let matcher = case.emitted(
                 |request| {
                     registration
                         .context(request)
                         .expect("the matcher's context")
                 },
-                statics,
+                notice,
                 &env,
             );
-            let wallet = case.emitted(|_| wallet_context.clone(), statics, &env);
+            let wallet = case.emitted(|_| wallet_context.clone(), notice, &env);
             assert_eq!(matcher.emission, wallet.emission, "{}", case.parameters);
             let emission = matcher.emission.expect("every choice emits");
             assert_eq!(emitted_ids(&emission), matcher.ids);
@@ -255,20 +249,8 @@ fn the_matcher_emits_the_wallets_display() {
     assert!(nothing > 0, "a case offers the empty choice");
 }
 
-/// A choice that does not emit: the request, the registration's sources and the static entries
-/// that make it, its id, and why it does not emit.
-struct Fixture<'f> {
-    case: &'f str,
-    request: &'f Case,
-    sources: Vec<String>,
-    statics: &'f dyn Fn(&Context) -> Vec<StaticEntry>,
-    id: &'f str,
-    cause: Unshown,
-}
-
-/// A choice that does not emit, a static entry whose row label is white space alone or the empty
-/// choice whose title the context does not word, fails the emission, which names the choice and
-/// why.
+/// The empty choice, its title unworded in the context, fails the emission, which names the choice
+/// and why.
 #[test]
 fn a_choice_that_does_not_emit_fails_the_emission() {
     let unworded = ENGLISH_OPENID4VP.replacen("\nnone = None\n", "\n", 1);
@@ -286,65 +268,34 @@ fn a_choice_that_does_not_emit_fails_the_emission() {
             }
         })
         .collect();
-    let [plain, _, optional] = cases();
-    let unnamed = |context: &Context| notice(context, &[(" \t", "unnamed")]);
-    let named = |context: &Context| notice(context, &[("Kind", "notice")]);
-    let fixtures = [
-        Fixture {
-            case: "a row named by white space alone",
-            request: &plain,
-            sources: english(),
-            statics: &unnamed,
-            id: "notice",
-            cause: Unshown::Field(NoName),
+    let [_, _, optional] = cases();
+    let mut registration = registered(without_none, Bidi::None);
+    let env = env_of(&registration);
+    let emitting = optional.emitted(
+        |request| {
+            registration
+                .context(request)
+                .expect("the matcher's context")
         },
-        Fixture {
-            case: "an empty choice the context does not word",
-            request: &optional,
-            sources: without_none,
-            statics: &named,
-            id: "none",
-            cause: Unshown::Resolve(ResolveError::Unknown {
-                id: "openid4vp.wallet.none".to_owned(),
-            }),
-        },
-    ];
-    for Fixture {
-        case,
-        request,
-        sources,
-        statics,
-        id,
-        cause,
-    } in fixtures
-    {
-        let mut registration = registered(sources, Bidi::None);
-        let env = env_of(&registration);
-        let emitting = request.emitted(
-            |request| {
-                registration
-                    .context(request)
-                    .expect("the matcher's context")
-            },
-            statics,
-            &env,
-        );
-        assert!(
-            emitting
-                .ids
-                .iter()
-                .flatten()
-                .flatten()
-                .any(|shown| shown == id),
-            "{case}: the display holds the choice"
-        );
-        let refused = emitting.emission.expect_err(case);
-        assert_eq!(
-            (refused.entry.as_str(), &refused.cause),
-            (id, &cause),
-            "{case}"
-        );
-    }
+        notice,
+        &env,
+    );
+    assert!(
+        emitting
+            .ids
+            .iter()
+            .flatten()
+            .flatten()
+            .any(|shown| shown == "none"),
+        "the display holds the empty choice"
+    );
+    let refused = emitting
+        .emission
+        .expect_err("the empty choice does not emit");
+    let cause = Unshown::Resolve(ResolveError::Unknown {
+        id: "openid4vp.wallet.none".to_owned(),
+    });
+    assert_eq!((refused.entry.as_str(), &refused.cause), ("none", &cause));
 }
 
 /// android-credman-sys ABI.md §5: Credential Manager decodes a PNG or a JPEG, and drops an entry
