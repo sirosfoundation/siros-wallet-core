@@ -60,6 +60,7 @@ a socket, a clock, or a keystore.
 | `siros-explain` | The error contract: a stable id and named arguments, each its `Display` |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
 | `siros-derive-internals` | The derives' field rules: arguments, `Option`, `Display` bounds, the id marker, the `check` row |
+| `siros-syntax` | Checked texts, keyed and non-empty lists, and values in their literal forms: numbers, amounts in the currencies of ISO 4217 List One (SIX, 2026-09-17), dates and times |
 
 Rust 1.89 is the floor of every crate (`rust-version` in `Cargo.toml`).
 

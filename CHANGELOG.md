@@ -18,6 +18,14 @@ All notable changes to this workspace. The format follows
   row that `check::rows` reads.
 - `siros-derive-internals`: the derives' field rules, which
   siros-explain-derive calls through its `Derive` trait.
+- `siros-syntax` holds the checked texts and values: `checked!`, `Keyed` with
+  `Entry` and `Repeated`, the non-empty `AllOf`, and `Count`, `Decimal`,
+  `Amount`, `Currency` with ISO 4217 List One (SIX's `list-one.xml`, published
+  2026-09-17, vendored and read by the build script), `Date`, `Time`,
+  `OffsetTime`, `Offset` and `DateTime`. Each value type writes its literal form
+  as `Display` and parses exactly that form, refusing any other text with
+  `Malformed`. `Digits`, one or more ASCII digits as written, give their count
+  through `Count::from`. Its errors derive `Explain`.
 - Each is edition 2024 and unpublished.
 
 ### Changed
