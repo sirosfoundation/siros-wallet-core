@@ -4,6 +4,7 @@ use std::fmt;
 
 use siros_explain::Explain;
 use siros_i18n::{Bidi, Context, LoadError, LocaleTag};
+use siros_openid4vp::ids::TransactionType;
 use siros_syntax::AllOf;
 
 /// The bytes a registration starts with.
@@ -27,21 +28,18 @@ pub enum Kind {
     Priority,
     /// The wallet's bidi choice. Code 3, one entry.
     Bidi,
-    /// The app's on-error choice. Code 4, one entry.
-    OnError,
-    /// One of the wallet's MF2 sources for the matcher. Code 5, one entry or more.
+    /// One of the wallet's MF2 sources for the matcher. Code 4, one entry or more.
     Source,
-    /// A registered transaction type's converted View source. Code 6, any number of entries.
+    /// A registered transaction type's converted View source. Code 5, any number of entries.
     Transaction,
 }
 
 impl Kind {
     /// Every kind, in the directory's order.
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 5] = [
         Self::Locale,
         Self::Priority,
         Self::Bidi,
-        Self::OnError,
         Self::Source,
         Self::Transaction,
     ];
@@ -53,9 +51,8 @@ impl Kind {
             Self::Locale => 1,
             Self::Priority => 2,
             Self::Bidi => 3,
-            Self::OnError => 4,
-            Self::Source => 5,
-            Self::Transaction => 6,
+            Self::Source => 4,
+            Self::Transaction => 5,
         }
     }
 
@@ -71,40 +68,9 @@ impl fmt::Display for Kind {
             Self::Locale => "locale",
             Self::Priority => "priority",
             Self::Bidi => "bidi",
-            Self::OnError => "on_error",
             Self::Source => "source",
             Self::Transaction => "transaction",
         })
-    }
-}
-
-/// What the matcher emits when a text of its entries does not resolve or a row has no name: the
-/// app's choice, which the registration carries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum OnRenderError {
-    /// No entry.
-    NoEntry,
-    /// The entries whose texts resolved.
-    Rendered,
-}
-
-impl OnRenderError {
-    /// The byte its entry holds.
-    #[cfg(feature = "register")]
-    pub(crate) const fn byte(self) -> u8 {
-        match self {
-            Self::NoEntry => 0,
-            Self::Rendered => 1,
-        }
-    }
-
-    /// The choice its entry's byte writes; `None` for a byte no choice writes.
-    pub(crate) const fn of(byte: u8) -> Option<Self> {
-        match byte {
-            0 => Some(Self::NoEntry),
-            1 => Some(Self::Rendered),
-            _ => None,
-        }
     }
 }
 
@@ -134,50 +100,99 @@ pub(crate) fn canonical_tag(text: &str) -> Option<LocaleTag> {
         .filter(|tag| tag.as_str() == text)
 }
 
-/// The entries every request reads: the matcher's context and `Env` come from them, and its
-/// emission's on-error choice.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The entries every request reads, and the matcher's context before a request, which they load.
+/// Only [`Base::load`] makes one, so a base's sources load.
+#[derive(Debug, Clone)]
 pub struct Base {
-    /// The locale the wallet wrote the registration in: every source's `@locale`. The wallet
-    /// registers anew when its language changes.
-    pub locale: LocaleTag,
-    /// The End-User's ranked language tags: the matcher's `Env::priority`, over which the claims
-    /// kit picks a display entry (`format_entry`) and siros-paso runs PaSO View §4's Lookup.
-    pub priority: AllOf<LocaleTag>,
-    /// The wallet's bidi choice, which the matcher's context applies.
-    pub bidi: Bidi,
-    /// The app's choice for an entry that does not show.
-    pub on_error: OnRenderError,
-    /// The wallet's MF2 resources for the matcher, in load order, its formats first.
-    pub sources: AllOf<String>,
+    locale: LocaleTag,
+    priority: AllOf<LocaleTag>,
+    bidi: Bidi,
+    sources: AllOf<String>,
+    context: Context,
 }
 
 impl Base {
-    /// The matcher's context before a request: the sources loaded in their order under `bidi`.
-    /// The wallet builds it to check a registration before writing it.
+    /// The base whose context loads `sources` in their order under `bidi`, in the locale
+    /// `locale`. The wallet registers anew when its language changes.
     ///
     /// # Errors
     ///
     /// [`ContextError::Source`] for the first source the context refuses, and
     /// [`ContextError::Locale`] when the sources declare another locale than `locale`.
-    pub fn context(&self) -> Result<Context, ContextError> {
-        let mut context = Context::new().bidi(self.bidi);
-        for (at, source) in self.sources.items().iter().enumerate() {
-            context = context
-                .module(source)
-                .map_err(|cause| ContextError::Source { at, cause })?;
+    pub fn load(
+        locale: LocaleTag,
+        priority: AllOf<LocaleTag>,
+        bidi: Bidi,
+        sources: AllOf<String>,
+    ) -> Result<Self, ContextError> {
+        let context = sources.items().iter().enumerate().try_fold(
+            Context::new().bidi(bidi),
+            |context, (at, source)| {
+                context
+                    .module(source)
+                    .map_err(|cause| ContextError::Source { at, cause })
+            },
+        )?;
+        if context.locale() != Some(&locale) {
+            return Err(ContextError::Locale {
+                declared: context.locale().cloned(),
+                locale,
+            });
         }
-        match context.locale() {
-            Some(locale) if *locale == self.locale => Ok(context),
-            declared => Err(ContextError::Locale {
-                locale: self.locale.clone(),
-                declared: declared.cloned(),
-            }),
-        }
+        Ok(Self {
+            locale,
+            priority,
+            bidi,
+            sources,
+            context,
+        })
+    }
+
+    /// The locale the wallet wrote the registration in: every source's `@locale`.
+    #[must_use]
+    pub const fn locale(&self) -> &LocaleTag {
+        &self.locale
+    }
+
+    /// The End-User's ranked language tags: the matcher's `Env::priority`, over which the claims
+    /// kit picks a display entry (`format_entry`) and siros-paso runs PaSO View §4's Lookup.
+    #[must_use]
+    pub const fn priority(&self) -> &AllOf<LocaleTag> {
+        &self.priority
+    }
+
+    /// The wallet's bidi choice, which the context applies.
+    #[must_use]
+    pub const fn bidi(&self) -> Bidi {
+        self.bidi
+    }
+
+    /// The wallet's MF2 resources for the matcher, in load order, its formats first.
+    #[must_use]
+    pub const fn sources(&self) -> &AllOf<String> {
+        &self.sources
+    }
+
+    /// The matcher's context before a request: the sources loaded.
+    #[must_use]
+    pub const fn context(&self) -> &Context {
+        &self.context
     }
 }
 
-/// Why the matcher's context does not build from a registration's sources.
+/// Bases are equal when their entries are: each loads its context from them.
+impl PartialEq for Base {
+    fn eq(&self, other: &Self) -> bool {
+        self.locale == other.locale
+            && self.priority == other.priority
+            && self.bidi == other.bidi
+            && self.sources == other.sources
+    }
+}
+
+impl Eq for Base {}
+
+/// Why the matcher's context does not load a registration's sources.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum ContextError {
     /// A base source the context refuses.
@@ -191,11 +206,11 @@ pub enum ContextError {
         cause: LoadError,
     },
     /// A transaction type's source the context refuses.
-    #[error("the source of the transaction type {kind:?} does not load")]
+    #[error("the source of the transaction type \"{kind}\" does not load")]
     #[explain(id = "context.transaction")]
     Transaction {
         /// The type.
-        kind: String,
+        kind: TransactionType<'static>,
         /// The refusal.
         #[source]
         cause: LoadError,
@@ -206,7 +221,7 @@ pub enum ContextError {
     Locale {
         /// The locale the registration records.
         locale: LocaleTag,
-        /// The sources' `@locale`; `None` when no source sets one.
+        /// The sources' `@locale`; `None` for a context without one.
         declared: Option<LocaleTag>,
     },
 }

@@ -4,18 +4,20 @@ Android Credential Manager's side of the SIROS wallet core's matcher: the regist
 builds its wording from, the entries it adds for the core's consent display, and the delegation of
 each set (A9, K4).
 
+- [`Base::load`]: the entries every request reads, made by loading the wallet's MF2 sources into
+  the matcher's `siros_i18n::Context` in the registration's locale. The context resolves every
+  text on the wallet's code path.
+- `register::write` (feature `register`): the wallet's writer of the registration. It writes once
+  the source of each transaction type loads beside the base's, so every request's context loads.
 - [`Registration`]: the matcher's reader of the registration, through `std::io::Read + Seek`. It
   reads the header, the directory and the base entries, then the source of each registered
-  transaction type a request names, and no other byte. Every offset and length is checked against
-  the blob's size; a registration that breaks a rule of its format is a [`Malformed`] naming the
-  rule.
-- [`Base::context`] and [`Registration::context`]: the matcher's `siros_i18n::Context`, built from
-  the wallet's MF2 sources, which resolves every text on the wallet's code path.
-- `register::write` (feature `register`): the wallet's writer of the registration.
+  transaction type a request names ([`Registration::context`]), and no other byte. Every offset
+  and length is checked against the blob's size; a registration that breaks a rule of its format
+  is a [`Malformed`] naming the rule.
 - [`emit`]: each choice of the core's display as Credential Manager draws it, a Standard or a
   Payment entry ([`CredmanEntry`]), each row a [`Field`] of at most [`FIELD_MAX`] characters, and
-  the empty choice's title. An entry that does not show ends the emission or stays out of its
-  slot, as the app's [`OnRenderError`] states.
+  the empty choice's title. The first choice that does not emit fails the emission
+  ([`NotEmitted`]).
 - [`WalletDisplay::of`] (A9) and [`Delegation::of`] (K4): whether a set needs the wallet's
   display, and the delegation the matcher sends for its entries. [`Fulfilment::check`]: the
   wallet refuses a background fulfilment of a set that needs its display with `access_denied`.
@@ -27,23 +29,21 @@ The wallet writes the registration; the matcher opens it and builds its context 
 ```rust
 use std::io::Cursor;
 
-use siros_credman::{Base, OnRenderError, Registration};
+use siros_credman::{Base, Registration};
 use siros_i18n::{Bidi, LocaleTag};
 use siros_syntax::{AllOf, Keyed};
 
 let english = LocaleTag::parse("en")?;
-let base = Base {
-    locale: english.clone(),
-    priority: AllOf::one(english),
-    bidi: Bidi::Default,
-    on_error: OnRenderError::Rendered,
-    sources: AllOf::one("@locale en\n---\n".to_owned()),
-};
-// The wallet checks its sources, then writes the registration (feature `register`).
-assert_eq!(base.context()?.locale(), Some(&base.locale));
+// The wallet loads its sources, then writes the registration (feature `register`).
+let base = Base::load(
+    english.clone(),
+    AllOf::one(english),
+    Bidi::Default,
+    AllOf::one("@locale en\n---\n".to_owned()),
+)?;
 let blob = siros_credman::register::write(&base, &Keyed::empty())?;
 
-// The matcher opens it and reads what every request reads.
+// The matcher opens it: it reads what every request reads and loads the base's context.
 let registration = Registration::open(Cursor::new(blob))?;
 assert_eq!(registration.base(), &base);
 assert_eq!(registration.transactions().len(), 0);
@@ -51,8 +51,8 @@ assert_eq!(registration.transactions().len(), 0);
 ```
 
 For a request, the matcher passes `registration.context(&request)` to `Match::run` and
-`Views::of`, with an `Env` of `base.priority`'s tags, and hands the display, the same context and
-`base.on_error` to [`emit`].
+`Views::of`, with an `Env` of the base's priority tags, and hands the display and the same context
+to [`emit`].
 
 ## Features
 
@@ -100,9 +100,8 @@ their names' UTF-8 bytes.
 | 1 | locale | exactly 1 | empty | The tag of the locale the wallet wrote the registration in, every source's `@locale` |
 | 2 | priority | exactly 1 | empty | The End-User's ranked tags, at least one, a comma (`0x2C`) between two |
 | 3 | bidi | exactly 1 | empty | One byte: `0` MF2's Default Bidi Strategy, `1` none |
-| 4 | on_error | exactly 1 | empty | One byte: `0` no entry, `1` the entries whose texts resolved |
-| 5 | source | 1 or more | empty | One of the wallet's MF2 resources, UTF-8; the entries in load order, the formats' options first |
-| 6 | transaction | 0 or more | The transaction data type (OpenID4VP §5.1), each once | The type's converted View source, an MF2 resource, UTF-8 |
+| 4 | source | 1 or more | empty | One of the wallet's MF2 resources, UTF-8; the entries in load order, the formats' options first |
+| 5 | transaction | 0 or more | The transaction data type (OpenID4VP §5.1), each once | The type's converted View source, an MF2 resource, UTF-8 |
 
 A tag is RFC 4647 §2.1's `1*8ALPHA *("-" 1*8alphanum)` in RFC 5646 §2.1.1's case, as
 `siros_i18n::LocaleTag` writes it: the first subtag and every subtag after a one-character
@@ -113,7 +112,6 @@ its first letter in uppercase and the rest in lowercase, any other in lowercase.
 
 - A registration holds at most 4,294,967,295 bytes.
 - A name holds at most 65,535 bytes.
-- An entry holds any number of bytes its kind's rule allows, 0 included.
 
 ### Reading
 
@@ -134,18 +132,26 @@ A reader refuses a registration at the first rule it breaks, checked in this ord
    6. `Tiling`: the entry's bytes start where the bytes before them end.
    7. `Order`: the kind's code is at least the previous record's, and a transaction's name is at
       least the previous transaction's name, compared by UTF-8 bytes.
-   8. `Repeated`: no second locale, priority, bidi or on_error entry, and no transaction type
-      twice.
+   8. `Repeated`: no second locale, priority or bidi entry, and no transaction type twice.
 7. `Trailing`: the last entry ends at the blob's end.
-8. `Missing`: the directory lists a locale, a priority, a bidi, an on_error and a source entry,
-   checked in that order.
+8. `Missing`: the directory lists a locale, a priority, a bidi and a source entry, checked in that
+   order.
 9. The entries' bytes, each read when it is needed: `Locale` and `Priority` for a tag that breaks
-   the tag rule, `Bidi` and `OnError` for other than one byte `0` or `1`, `Text` for a source or a
-   transaction source that is no UTF-8.
+   the tag rule, `Bidi` for other than one byte `0` or `1`, `Text` for a source or a transaction
+   source that is no UTF-8.
+10. The sources, loaded into the matcher's context ([`ContextError`]): `Source` for a base source
+    the context refuses, `Locale` for base sources whose `@locale` is not the locale entry's tag,
+    `Transaction` for a transaction source the context refuses.
 
 [`Registration::open`] reads the header, the directory and the base entries (locale, priority,
-bidi, on_error and every source), and checks every rule but a transaction source's `Text`.
+bidi and every source), checks every rule but a transaction source's, and loads the base sources
+in their order into one context under the bidi choice ([`Base::load`]).
 [`Registration::context`] reads the source of each registered type a request's `transaction_data`
-names, and no other entry. The context loads the base sources in their order under the bidi
-choice, then each such transaction source ascending by type, and refuses a source whose `@locale`
-is not the locale entry's tag ([`ContextError`]).
+names, and no other entry, and loads each into a clone of that context, ascending by type.
+
+### Writing
+
+`register::write` writes a [`Base`], whose sources load. It loads each transaction source into a
+clone of the base's context, alone and after the sources of the types before it, and refuses the
+first that does not load (`RegisterError::Transaction`). Every request's context then loads from
+what it writes. A reader checks every rule of a blob it opens, whoever wrote it.

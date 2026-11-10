@@ -1,8 +1,8 @@
 //! The matcher's entry emission: each choice of a display as Credential Manager draws it, every
 //! text plain. The display's texts are those the matcher's context resolved, the wallet's code
 //! path; the context resolves the empty choice's title. Every entry is laid out before the first
-//! is added; an entry that does not show ends the emission or stays out of its slot, as the app's
-//! [`OnRenderError`] states.
+//! is added, and a choice that does not emit fails the emission: its cause is a defect of the
+//! wallet's wording or of a converter.
 
 use siros_explain::Explain;
 use siros_i18n::{Context, ResolveError, Text};
@@ -11,7 +11,6 @@ use siros_openid4vp::rows::{Icon, Row, WalletText};
 
 use crate::entry::{CredmanEntry, EntryIcon, PaymentEntry, StandardEntry};
 use crate::field::{Field, NoName};
-use crate::registration::OnRenderError;
 
 /// A Standard entry as Credential Manager draws it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,15 +78,6 @@ impl std::fmt::Display for EntryId {
     }
 }
 
-/// An entry that does not show.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RefusedEntry {
-    /// The entry.
-    pub id: EntryId,
-    /// Why it does not show.
-    pub reason: NotEmitted,
-}
-
 /// One choice of a slot as the matcher adds it, with the id the platform returns when the
 /// End-User picks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,13 +101,10 @@ pub enum Emitted {
     },
 }
 
-/// The display's sets as the matcher adds them: per set, per slot, its choices, and each entry
-/// that does not show with its reason. Under [`OnRenderError::NoEntry`] an entry that does not
-/// show leaves no set; under [`OnRenderError::Rendered`] it stays out of its slot.
+/// The display's sets as the matcher adds them: per set, per slot, its choices.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Emission {
     sets: Vec<Vec<Vec<Emitted>>>,
-    refused: Vec<RefusedEntry>,
 }
 
 impl Emission {
@@ -126,25 +113,26 @@ impl Emission {
     pub fn sets(&self) -> &[Vec<Vec<Emitted>>] {
         &self.sets
     }
-
-    /// Each entry that does not show.
-    #[must_use]
-    pub fn refused(&self) -> &[RefusedEntry] {
-        &self.refused
-    }
 }
 
-/// Why an entry does not show.
+/// A choice of the display that does not emit, which fails the emission.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-pub enum NotEmitted {
-    /// The context resolves no text for the entry.
-    #[error("the matcher's context resolves no text for the entry")]
-    #[explain(id = "emission.resolve")]
-    Resolve {
-        /// The refusal.
-        #[source]
-        cause: ResolveError,
-    },
+#[error("the entry {entry} does not emit")]
+#[explain(id = "emission.entry")]
+pub struct NotEmitted {
+    /// The choice.
+    pub entry: EntryId,
+    /// Why it does not emit.
+    #[source]
+    pub cause: Unshown,
+}
+
+/// Why a choice does not emit.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+pub enum Unshown {
+    /// The context resolves no title for the empty choice.
+    #[error(transparent)]
+    Resolve(#[from] ResolveError),
     /// A row's label is white space alone.
     #[error(transparent)]
     Field(#[from] NoName),
@@ -152,64 +140,58 @@ pub enum NotEmitted {
 
 /// The display's choices as Credential Manager draws them, each text plain. `context` is the
 /// matcher's, which resolved the display's texts; it resolves the empty choice's title.
-/// `on_error` is the registration's.
-#[must_use]
-pub fn emit(display: &Display<'_>, context: &Context, on_error: OnRenderError) -> Emission {
-    let mut none: Option<Result<Text, ResolveError>> = None;
+///
+/// # Errors
+///
+/// [`NotEmitted`] for the first choice, in the display's order, that does not emit.
+pub fn emit(display: &Display<'_>, context: &Context) -> Result<Emission, NotEmitted> {
     let mut sets = Vec::with_capacity(display.sets().len());
-    let mut refused = Vec::new();
     for set in display.sets() {
         let mut slots = Vec::with_capacity(set.len());
         for slot in set {
-            let mut choices = Vec::with_capacity(slot.len());
-            for choice in slot {
-                let id = EntryId::of(choice);
-                match emitted(choice, &id, context, &mut none) {
-                    Ok(emitted) => choices.push(emitted),
-                    Err(reason) => refused.push(RefusedEntry { id, reason }),
-                }
-            }
-            slots.push(choices);
+            slots.push(
+                slot.iter()
+                    .map(|choice| {
+                        emitted(choice, context).map_err(|cause| NotEmitted {
+                            entry: EntryId::of(choice),
+                            cause,
+                        })
+                    })
+                    .collect::<Result<Vec<Emitted>, NotEmitted>>()?,
+            );
         }
         sets.push(slots);
     }
-    if !refused.is_empty() && on_error == OnRenderError::NoEntry {
-        sets.clear();
-    }
-    Emission { sets, refused }
+    Ok(Emission { sets })
 }
 
-/// The choice `id` names as the matcher adds it. `none` holds the empty choice's title once
-/// `context` resolved it.
-fn emitted(
-    choice: &Choice<'_>,
-    id: &EntryId,
-    context: &Context,
-    none: &mut Option<Result<Text, ResolveError>>,
-) -> Result<Emitted, NotEmitted> {
+/// The choice as the matcher adds it.
+///
+/// # Errors
+///
+/// [`Unshown`]: `context` resolves no title for the empty choice, or a row's label is white
+/// space alone.
+fn emitted(choice: &Choice<'_>, context: &Context) -> Result<Emitted, Unshown> {
+    let id = EntryId::of(choice);
     let entry = match choice {
         Choice::Nothing => {
-            let title = none
-                .get_or_insert_with(|| context.resolve(&WalletText::None))
-                .clone()
-                .map_err(|cause| NotEmitted::Resolve { cause })?;
             return Ok(Emitted::Nothing {
-                id: id.clone(),
+                id,
                 icon: EntryIcon::of(&Icon::NONE),
-                title: title.to_string(),
+                title: context.resolve(&WalletText::None)?.to_string(),
             });
         }
         Choice::Static(entry) => CredmanEntry::of_static(entry),
         Choice::Entry(view) => CredmanEntry::of(&view.entry),
     };
     Ok(Emitted::Entry {
-        id: id.clone(),
+        id,
         shown: shown(&entry)?,
     })
 }
 
 /// An entry's texts as plain text.
-fn shown(entry: &CredmanEntry) -> Result<Shown, NotEmitted> {
+fn shown(entry: &CredmanEntry) -> Result<Shown, NoName> {
     let plain = |text: &Text| text.to_string();
     let optional = |text: &Option<Text>| text.as_ref().map(plain);
     let fields =

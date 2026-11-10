@@ -1,6 +1,6 @@
 //! The matcher's reader of a registration (the crate README's "Format"). Opening one reads the
-//! header, the directory, every span checked against the blob's size, and the base entries; a
-//! transaction type's source is read when a request names the type.
+//! header, the directory, every span checked against the blob's size, and the base entries, and
+//! loads the base's context; a transaction type's source is read when a request names the type.
 
 use std::io::{self, Read, Seek, SeekFrom};
 use std::marker::PhantomData;
@@ -12,7 +12,7 @@ use siros_openid4vp::request::{Entry, Request};
 use siros_syntax::AllOf;
 
 use crate::registration::{
-    Base, COMMA, ContextError, HEADER, Kind, MAGIC, OnRenderError, VERSION, bidi_of, canonical_tag,
+    Base, COMMA, ContextError, HEADER, Kind, MAGIC, VERSION, bidi_of, canonical_tag,
 };
 
 /// A rule of the format a registration breaks (the crate README's "Format"). An `entry` is a
@@ -164,13 +164,6 @@ pub enum Malformed {
         /// The entry.
         entry: usize,
     },
-    /// An on-error entry other than the byte 0 or 1.
-    #[error("entry {entry}, the on-error choice, is not the byte 0 or 1")]
-    #[explain(id = "malformed.on_error")]
-    OnError {
-        /// The entry.
-        entry: usize,
-    },
     /// A source or a transaction type's source that is no UTF-8 text.
     #[error("entry {entry}, a source, is no UTF-8 text")]
     #[explain(id = "malformed.text")]
@@ -210,7 +203,7 @@ pub enum ReadError {
     /// The registration breaks a rule of its format.
     #[error(transparent)]
     Malformed(#[from] Malformed),
-    /// The registration's sources do not build the matcher's context.
+    /// The registration's sources do not load into the matcher's context.
     #[error(transparent)]
     Context(#[from] ContextError),
 }
@@ -235,10 +228,6 @@ enum PriorityPart {}
 /// The bidi entry.
 #[derive(Debug)]
 enum BidiPart {}
-
-/// The on-error entry.
-#[derive(Debug)]
-enum OnErrorPart {}
 
 /// A source entry.
 #[derive(Debug)]
@@ -280,18 +269,6 @@ impl Part for BidiPart {
             _ => None,
         }
         .ok_or(Malformed::Bidi { entry })
-    }
-}
-
-impl Part for OnErrorPart {
-    type Value = OnRenderError;
-
-    fn decode(bytes: Vec<u8>, entry: usize) -> Result<OnRenderError, Malformed> {
-        match bytes.as_slice() {
-            [byte] => OnRenderError::of(*byte),
-            _ => None,
-        }
-        .ok_or(Malformed::OnError { entry })
     }
 }
 
@@ -433,7 +410,6 @@ struct Found {
     locale: Option<Span<LocalePart>>,
     priority: Option<Span<PriorityPart>>,
     bidi: Option<Span<BidiPart>>,
-    on_error: Option<Span<OnErrorPart>>,
     sources: Vec<Span<SourcePart>>,
     transactions: Vec<Registered>,
 }
@@ -444,7 +420,6 @@ struct Directory {
     locale: Span<LocalePart>,
     priority: Span<PriorityPart>,
     bidi: Span<BidiPart>,
-    on_error: Span<OnErrorPart>,
     sources: AllOf<Span<SourcePart>>,
     transactions: Vec<Registered>,
 }
@@ -477,7 +452,6 @@ impl Found {
             Kind::Locale => once(&mut self.locale, bounds, kind),
             Kind::Priority => once(&mut self.priority, bounds, kind),
             Kind::Bidi => once(&mut self.bidi, bounds, kind),
-            Kind::OnError => once(&mut self.on_error, bounds, kind),
             Kind::Source => {
                 self.sources.push(bounds.span());
                 Ok(())
@@ -517,9 +491,6 @@ impl Found {
                 kind: Kind::Priority,
             })?,
             bidi: self.bidi.ok_or(Malformed::Missing { kind: Kind::Bidi })?,
-            on_error: self.on_error.ok_or(Malformed::Missing {
-                kind: Kind::OnError,
-            })?,
             sources: AllOf::new(self.sources).ok_or(Malformed::Missing { kind: Kind::Source })?,
             transactions: self.transactions,
         })
@@ -623,7 +594,8 @@ fn read<R: Read + Seek, P: Part>(reader: &mut R, span: Span<P>) -> Result<P::Val
     Ok(P::decode(bytes, span.entry)?)
 }
 
-/// A registration in a reader, its header, directory and base entries read.
+/// A registration in a reader: its header, directory and base entries read, and its base's
+/// context loaded.
 #[derive(Debug)]
 pub struct Registration<R> {
     reader: R,
@@ -632,7 +604,7 @@ pub struct Registration<R> {
 }
 
 impl<R> Registration<R> {
-    /// The base entries: what every request reads.
+    /// The base entries, which every request reads, and their context.
     #[must_use]
     pub const fn base(&self) -> &Base {
         &self.base
@@ -655,13 +627,14 @@ impl<R> Registration<R> {
 
 impl<R: Read + Seek> Registration<R> {
     /// The registration `reader` holds from its start to its end: the header, the directory and
-    /// the base entries read, and every rule of the crate README's "Format" checked but a
-    /// transaction source's text, which [`Registration::transaction`] checks.
+    /// the base entries read, the base's sources loaded ([`Base::load`]), and every rule of the
+    /// crate README's "Format" checked but those of a transaction source, which
+    /// [`Registration::transaction`] and [`Registration::context`] check.
     ///
     /// # Errors
     ///
-    /// [`ReadError::Malformed`] for the first rule the registration breaks, and the reader's
-    /// failure.
+    /// [`ReadError::Malformed`] for the first rule the registration breaks,
+    /// [`ReadError::Context`] for base sources that do not load, and the reader's failure.
     pub fn open(mut reader: R) -> Result<Self, ReadError> {
         let size = reader.seek(SeekFrom::End(0))?;
         let size = u32::try_from(size).map_err(|_| Malformed::Size { size })?;
@@ -686,13 +659,12 @@ impl<R: Read + Seek> Registration<R> {
             .ok_or(Malformed::Directory { length, size })?;
         let bytes = bytes_at(&mut reader, HEADER, length)?;
         let directory = Directory::parse(&bytes, start, size)?;
-        let base = Base {
-            locale: read(&mut reader, directory.locale)?,
-            priority: read(&mut reader, directory.priority)?,
-            bidi: read(&mut reader, directory.bidi)?,
-            on_error: read(&mut reader, directory.on_error)?,
-            sources: directory.sources.try_map(|span| read(&mut reader, *span))?,
-        };
+        let base = Base::load(
+            read(&mut reader, directory.locale)?,
+            read(&mut reader, directory.priority)?,
+            read(&mut reader, directory.bidi)?,
+            directory.sources.try_map(|span| read(&mut reader, *span))?,
+        )?;
         Ok(Self {
             reader,
             base,
@@ -712,27 +684,27 @@ impl<R: Read + Seek> Registration<R> {
             .transpose()
     }
 
-    /// The matcher's context for `request`: [`Base::context`], then the source of each registered
-    /// type the request's `transaction_data` names, ascending by type. It reads no other entry. A
-    /// type the registration does not register loads nothing: its profile converts the metadata
-    /// the request carries.
+    /// The matcher's context for `request`: a clone of [`Base::context`] that loads the source of
+    /// each registered type the request's `transaction_data` names, ascending by type. It reads no
+    /// other entry. A type the registration does not register loads nothing: its profile converts
+    /// the metadata the request carries.
     ///
     /// # Errors
     ///
-    /// [`ReadError::Context`] for a source the context refuses or another locale,
-    /// [`Malformed::Text`] for a source that is no UTF-8 text, and the reader's failure.
+    /// [`ReadError::Context`] for a source the context refuses, [`Malformed::Text`] for a source
+    /// that is no UTF-8 text, and the reader's failure.
     pub fn context(&mut self, request: &Request<'_>) -> Result<Context, ReadError> {
         let mut kinds: Vec<&TransactionType<'static>> =
             request.entries().iter().map(Entry::kind).collect();
         kinds.sort_unstable();
         kinds.dedup();
-        let mut context = self.base.context()?;
+        let mut context = self.base.context().clone();
         for kind in kinds {
             if let Some(source) = self.transaction(kind)? {
                 context = context
                     .module(&source)
                     .map_err(|cause| ContextError::Transaction {
-                        kind: kind.as_str().to_owned(),
+                        kind: kind.clone(),
                         cause,
                     })?;
             }

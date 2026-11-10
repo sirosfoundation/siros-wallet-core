@@ -1,6 +1,8 @@
-//! The registration writer, which the wallet links: the bytes of the crate README's "Format".
+//! The registration writer, which the wallet links: the bytes of the crate README's "Format",
+//! written once every request's context loads from them.
 
 use siros_explain::Explain;
+use siros_i18n::LoadError;
 use siros_openid4vp::ids::TransactionType;
 use siros_syntax::{Entry, Keyed};
 
@@ -13,6 +15,17 @@ const ENTRY: u32 = 11;
 /// Why a registration is not written.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum RegisterError {
+    /// A transaction type's source that does not load into a clone of the base's context, alone
+    /// or after the sources of the types before it.
+    #[error("the source of the transaction type \"{kind}\" does not load")]
+    #[explain(id = "register.transaction")]
+    Transaction {
+        /// The type.
+        kind: TransactionType<'static>,
+        /// The refusal.
+        #[source]
+        cause: LoadError,
+    },
     /// A transaction type longer than a name holds.
     #[error("a transaction type of {length} bytes passes the 65535 a name holds")]
     #[explain(id = "register.name")]
@@ -69,7 +82,7 @@ impl<'w> Out<'w> {
 /// The priority entry's text: the tags in their order, a comma after each but the last.
 fn priority(base: &Base) -> String {
     let mut text = String::new();
-    for (at, tag) in base.priority.items().iter().enumerate() {
+    for (at, tag) in base.priority().items().iter().enumerate() {
         if at > 0 {
             text.push(COMMA);
         }
@@ -78,12 +91,35 @@ fn priority(base: &Base) -> String {
     text
 }
 
-/// The registration of `base` and of each transaction type's converted View source: the
-/// header, the directory and the entries, in the directory's order (the crate README's
-/// "Format").
+/// Each type's source loaded into a clone of the base's context alone, and every source into one
+/// clone in ascending order. A request's context loads the sources of the types it names into a
+/// clone in that order, so it loads.
 ///
 /// # Errors
 ///
+/// [`RegisterError::Transaction`] for the first source either context refuses.
+fn loads(base: &Base, types: &[&Entry<TransactionType<'_>, String>]) -> Result<(), RegisterError> {
+    let mut together = base.context().clone();
+    for entry in types {
+        let refused = |cause: LoadError| RegisterError::Transaction {
+            kind: entry.key().clone().into_owned(),
+            cause,
+        };
+        if let Err(cause) = base.context().clone().module(entry.value()) {
+            return Err(refused(cause));
+        }
+        together = together.module(entry.value()).map_err(refused)?;
+    }
+    Ok(())
+}
+
+/// The registration of `base` and of each transaction type's converted View source: the
+/// header, the directory and the entries, in the directory's order (the crate README's
+/// "Format"). Every request's context loads from what it writes.
+///
+/// # Errors
+///
+/// [`RegisterError::Transaction`] for a type's source that does not load,
 /// [`RegisterError::Name`] for a transaction type past 65,535 bytes,
 /// [`RegisterError::Size`] for a registration past 4,294,967,295 bytes, and
 /// [`RegisterError::Memory`] for bytes that find no memory.
@@ -91,22 +127,21 @@ pub fn write(
     base: &Base,
     transactions: &Keyed<TransactionType<'_>, String>,
 ) -> Result<Vec<u8>, RegisterError> {
-    let priority = priority(base);
-    let bidi = [bidi_byte(base.bidi)];
-    let on_error = [base.on_error.byte()];
     let mut types: Vec<&Entry<TransactionType<'_>, String>> =
         transactions.entries().iter().collect();
     types.sort_unstable_by(|a, b| a.key().cmp(b.key()));
+    loads(base, &types)?;
+    let priority = priority(base);
+    let bidi = [bidi_byte(base.bidi())];
     let entries = [
-        (Kind::Locale, base.locale.as_str().as_bytes()),
+        (Kind::Locale, base.locale().as_str().as_bytes()),
         (Kind::Priority, priority.as_bytes()),
         (Kind::Bidi, &bidi[..]),
-        (Kind::OnError, &on_error[..]),
     ]
     .into_iter()
     .map(|(kind, bytes)| Out::of(kind, "", bytes))
     .chain(
-        base.sources
+        base.sources()
             .items()
             .iter()
             .map(|source| Out::of(Kind::Source, "", source.as_bytes())),

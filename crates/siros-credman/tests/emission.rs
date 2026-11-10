@@ -1,13 +1,13 @@
-//! The matcher's emission over its registration: the context it builds from the registration's
+//! The matcher's emission over its registration: the context it loads from the registration's
 //! sources resolves what the wallet's resolves, so it emits the entries of the wallet's display;
-//! an entry that does not show ends the emission or stays out of its slot, as the registration's
-//! on-error choice states; an icon Credential Manager does not draw gives way to the wallet's.
+//! a choice that does not emit fails the emission; an icon Credential Manager does not draw gives
+//! way to the wallet's.
 
 use std::io::Cursor;
 
 use siros_credman::register::write;
 use siros_credman::{
-    Base, CredmanEntry, Emission, Emitted, NoName, NotEmitted, OnRenderError, Registration, emit,
+    Base, CredmanEntry, Emission, Emitted, NoName, NotEmitted, Registration, Unshown, emit,
 };
 use siros_i18n::{Bidi, Context, LocaleTag, ResolveError, Text};
 use siros_openid4vp::consent::Card;
@@ -80,19 +80,18 @@ fn cases() -> [Case; 3] {
 /// A display's choice ids, per set and slot, and the emission of the display.
 struct Emitting {
     ids: Vec<Vec<Vec<String>>>,
-    emission: Emission,
+    emission: Result<Emission, NotEmitted>,
 }
 
 impl Case {
     /// The display of the request matched over the wallet under the context `context_of` gives
     /// for the request, the static entries `statics` resolves opening every set, and its
-    /// emission under `on_error`.
+    /// emission.
     fn emitted(
         &self,
         context_of: impl FnOnce(&Request<'_>) -> Context,
         statics: impl Fn(&Context) -> Vec<StaticEntry>,
         env: &Env,
-        on_error: OnRenderError,
     ) -> Emitting {
         let registry = registry();
         let received = unsigned(&self.parameters).expect("received");
@@ -122,7 +121,7 @@ impl Case {
             .collect();
         Emitting {
             ids,
-            emission: emit(&shown, &context, on_error),
+            emission: emit(&shown, &context),
         }
     }
 }
@@ -182,19 +181,15 @@ fn notice(context: &Context, rows: &[(&str, &str)]) -> Vec<StaticEntry> {
     }]
 }
 
-/// The registration of the test app's English `sources` under `bidi` and `on_error`, opened.
-fn registered(
-    sources: Vec<String>,
-    bidi: Bidi,
-    on_error: OnRenderError,
-) -> Registration<Cursor<Vec<u8>>> {
-    let base = Base {
-        locale: tag("en"),
-        priority: AllOf::one(tag("en")),
+/// The registration of the test app's English `sources` under `bidi`, opened.
+fn registered(sources: Vec<String>, bidi: Bidi) -> Registration<Cursor<Vec<u8>>> {
+    let base = Base::load(
+        tag("en"),
+        AllOf::one(tag("en")),
         bidi,
-        on_error,
-        sources: AllOf::new(sources).expect("sources"),
-    };
+        AllOf::new(sources).expect("sources"),
+    )
+    .expect("the sources load");
     let blob = write(&base, &Keyed::empty()).expect("written");
     Registration::open(Cursor::new(blob)).expect("opened")
 }
@@ -211,7 +206,7 @@ fn english() -> Vec<String> {
 /// The `Env` of a registration's priority list.
 fn env_of(registration: &Registration<Cursor<Vec<u8>>>) -> Env {
     Env::new(
-        registration.base().priority.items().to_vec(),
+        registration.base().priority().items().to_vec(),
         Vec::new(),
         siros_openid4vp::rows::Choice::First,
     )
@@ -231,9 +226,8 @@ fn the_matcher_emits_the_wallets_display() {
             .try_fold(Context::new().bidi(bidi), Context::module)
             .expect("the wallet's context");
         for case in cases() {
-            let mut registration = registered(english(), bidi, OnRenderError::Rendered);
+            let mut registration = registered(english(), bidi);
             let env = env_of(&registration);
-            let on_error = registration.base().on_error;
             let statics = |context: &Context| notice(context, &[("Kind", "notice")]);
             let matcher = case.emitted(
                 |request| {
@@ -243,17 +237,12 @@ fn the_matcher_emits_the_wallets_display() {
                 },
                 statics,
                 &env,
-                on_error,
             );
-            let wallet = case.emitted(|_| wallet_context.clone(), statics, &env, on_error);
+            let wallet = case.emitted(|_| wallet_context.clone(), statics, &env);
             assert_eq!(matcher.emission, wallet.emission, "{}", case.parameters);
-            assert!(
-                matcher.emission.refused().is_empty(),
-                "{:?}",
-                matcher.emission.refused()
-            );
-            assert_eq!(emitted_ids(&matcher.emission), matcher.ids);
-            for emitted in matcher.emission.sets().iter().flatten().flatten() {
+            let emission = matcher.emission.expect("every choice emits");
+            assert_eq!(emitted_ids(&emission), matcher.ids);
+            for emitted in emission.sets().iter().flatten().flatten() {
                 if let Emitted::Nothing { id, icon, title } = emitted {
                     assert_eq!(id.as_str(), "none");
                     assert_eq!(icon.icon(), &Icon::NONE);
@@ -266,22 +255,22 @@ fn the_matcher_emits_the_wallets_display() {
     assert!(nothing > 0, "a case offers the empty choice");
 }
 
-/// An entry that does not show: the request, the registration's sources and the static entries
-/// that make it, its id, and why it does not show.
+/// A choice that does not emit: the request, the registration's sources and the static entries
+/// that make it, its id, and why it does not emit.
 struct Fixture<'f> {
     case: &'f str,
     request: &'f Case,
     sources: Vec<String>,
     statics: &'f dyn Fn(&Context) -> Vec<StaticEntry>,
     id: &'f str,
-    reason: NotEmitted,
+    cause: Unshown,
 }
 
-/// The registration's on-error choice: an entry whose row label is white space alone, or the
-/// empty choice whose title the context does not word, ends the emission (`NoEntry`) or stays
-/// out of its slot (`Rendered`), and the emission names it with its reason.
+/// A choice that does not emit, a static entry whose row label is white space alone or the empty
+/// choice whose title the context does not word, fails the emission, which names the choice and
+/// why.
 #[test]
-fn an_entry_that_does_not_show_ends_the_emission_or_stays_out() {
+fn a_choice_that_does_not_emit_fails_the_emission() {
     let unworded = ENGLISH_OPENID4VP.replacen("\nnone = None\n", "\n", 1);
     assert_ne!(
         unworded, ENGLISH_OPENID4VP,
@@ -307,7 +296,7 @@ fn an_entry_that_does_not_show_ends_the_emission_or_stays_out() {
             sources: english(),
             statics: &unnamed,
             id: "notice",
-            reason: NotEmitted::Field(NoName),
+            cause: Unshown::Field(NoName),
         },
         Fixture {
             case: "an empty choice the context does not word",
@@ -315,11 +304,9 @@ fn an_entry_that_does_not_show_ends_the_emission_or_stays_out() {
             sources: without_none,
             statics: &named,
             id: "none",
-            reason: NotEmitted::Resolve {
-                cause: ResolveError::Unknown {
-                    id: "openid4vp.wallet.none".to_owned(),
-                },
-            },
+            cause: Unshown::Resolve(ResolveError::Unknown {
+                id: "openid4vp.wallet.none".to_owned(),
+            }),
         },
     ];
     for Fixture {
@@ -328,58 +315,35 @@ fn an_entry_that_does_not_show_ends_the_emission_or_stays_out() {
         sources,
         statics,
         id,
-        reason,
+        cause,
     } in fixtures
     {
-        for on_error in [OnRenderError::NoEntry, OnRenderError::Rendered] {
-            let mut registration = registered(sources.clone(), Bidi::None, on_error);
-            let env = env_of(&registration);
-            let on_error = registration.base().on_error;
-            let emitting = request.emitted(
-                |request| {
-                    registration
-                        .context(request)
-                        .expect("the matcher's context")
-                },
-                statics,
-                &env,
-                on_error,
-            );
-            let occurrences = emitting
+        let mut registration = registered(sources, Bidi::None);
+        let env = env_of(&registration);
+        let emitting = request.emitted(
+            |request| {
+                registration
+                    .context(request)
+                    .expect("the matcher's context")
+            },
+            statics,
+            &env,
+        );
+        assert!(
+            emitting
                 .ids
                 .iter()
                 .flatten()
                 .flatten()
-                .filter(|shown| *shown == id)
-                .count();
-            assert!(occurrences > 0, "{case}: the display holds the entry");
-            let refused: Vec<(&str, &NotEmitted)> = emitting
-                .emission
-                .refused()
-                .iter()
-                .map(|refused| (refused.id.as_str(), &refused.reason))
-                .collect();
-            assert_eq!(refused, vec![(id, &reason); occurrences], "{case}");
-            match on_error {
-                OnRenderError::NoEntry => {
-                    assert!(emitting.emission.sets().is_empty(), "{case}");
-                }
-                OnRenderError::Rendered => {
-                    let kept: Vec<Vec<Vec<String>>> = emitting
-                        .ids
-                        .iter()
-                        .map(|set| {
-                            set.iter()
-                                .map(|slot| {
-                                    slot.iter().filter(|shown| *shown != id).cloned().collect()
-                                })
-                                .collect()
-                        })
-                        .collect();
-                    assert_eq!(emitted_ids(&emitting.emission), kept, "{case}");
-                }
-            }
-        }
+                .any(|shown| shown == id),
+            "{case}: the display holds the choice"
+        );
+        let refused = emitting.emission.expect_err(case);
+        assert_eq!(
+            (refused.entry.as_str(), &refused.cause),
+            (id, &cause),
+            "{case}"
+        );
     }
 }
 

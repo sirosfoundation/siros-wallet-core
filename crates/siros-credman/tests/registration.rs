@@ -1,12 +1,13 @@
 //! The registration's format, as the crate README's "Format" lays it out: the writer writes that
 //! layout and the reader gives back what was written; a registration that breaks a rule is
-//! refused with that rule's error; a request reads the header, the directory, the base entries
-//! and the source of the transaction type it names, and no other byte.
+//! refused with that rule's error; sources that do not load are refused by the base, the writer
+//! and the reader; a request reads the header, the directory, the base entries and the source of
+//! the transaction type it names, and no other byte.
 
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 
 use siros_credman::register::{RegisterError, write};
-use siros_credman::{Base, ContextError, Kind, Malformed, OnRenderError, ReadError, Registration};
+use siros_credman::{Base, ContextError, Kind, Malformed, ReadError, Registration};
 use siros_i18n::{Bidi, Context, LoadError, LocaleTag, ResolveError};
 use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::request::Request;
@@ -84,27 +85,36 @@ fn kind(text: &str) -> TransactionType<'static> {
 }
 
 /// The records of a registration that keeps every rule: locale `en`, priority `en,de-CH`, the
-/// Default Bidi Strategy, the entries that resolved, one source and the type `t1`.
+/// Default Bidi Strategy, one source and the type `t1`.
 fn honest() -> Vec<Record> {
     vec![
         record(1, b"en"),
         record(2, b"en,de-CH"),
         record(3, &[0]),
-        record(4, &[1]),
-        record(5, SOURCE.as_bytes()),
-        named(6, b"t1", SOURCE.as_bytes()),
+        record(4, SOURCE.as_bytes()),
+        named(5, b"t1", SOURCE.as_bytes()),
     ]
 }
 
 /// What the honest records hold.
 fn honest_base() -> Base {
-    Base {
-        locale: tag("en"),
-        priority: AllOf::new(vec![tag("en"), tag("de-CH")]).expect("tags"),
-        bidi: Bidi::Default,
-        on_error: OnRenderError::Rendered,
-        sources: AllOf::one(SOURCE.to_owned()),
-    }
+    Base::load(
+        tag("en"),
+        AllOf::new(vec![tag("en"), tag("de-CH")]).expect("tags"),
+        Bidi::Default,
+        AllOf::one(SOURCE.to_owned()),
+    )
+    .expect("the honest base loads")
+}
+
+fn types(given: &[(&str, &str)]) -> Keyed<TransactionType<'static>, String> {
+    Keyed::new(
+        given
+            .iter()
+            .map(|(name, source)| Entry::new(kind(name), (*source).to_owned()))
+            .collect(),
+    )
+    .expect("distinct types")
 }
 
 /// The request whose `transaction_data` names `kinds`.
@@ -123,30 +133,29 @@ fn request_naming(kinds: &[&str]) -> String {
 }
 
 /// The writer writes the README's layout, and the reader gives back each entry written: the
-/// base, and every transaction type's source, the types listed ascending.
+/// base, and every transaction type's source, the types listed ascending; a request naming every
+/// type loads its context.
 #[test]
 fn the_reader_gives_back_what_the_writer_writes() {
-    let transactions = Keyed::new(vec![Entry::new(kind("t1"), SOURCE.to_owned())]).expect("types");
     assert_eq!(
-        write(&honest_base(), &transactions).expect("written"),
+        write(&honest_base(), &types(&[("t1", SOURCE)])).expect("written"),
         laid_out(&honest(), &[]),
         "the writer writes the README's layout"
     );
     let bases = [
         honest_base(),
-        Base {
-            locale: tag("zh-Hant-TW"),
-            priority: AllOf::new(vec![tag("zh-Hant-TW"), tag("en"), tag("de-CH-x-phonebk")])
-                .expect("tags"),
-            bidi: Bidi::None,
-            on_error: OnRenderError::NoEntry,
-            sources: AllOf::new(vec![
-                "first".to_owned(),
-                String::new(),
-                "third, \u{2068}بالعربية\u{2069}".to_owned(),
+        Base::load(
+            tag("zh-Hant-TW"),
+            AllOf::new(vec![tag("zh-Hant-TW"), tag("en"), tag("de-CH-x-phonebk")]).expect("tags"),
+            Bidi::None,
+            AllOf::new(vec![
+                "@locale zh-Hant-TW\n---\n".to_owned(),
+                "@locale zh-Hant-TW\n---\n[first]\nlabel = first\n".to_owned(),
+                "@locale zh-Hant-TW\n---\n[third]\nlabel = third, بالعربية\n".to_owned(),
             ])
             .expect("sources"),
-        },
+        )
+        .expect("the base loads"),
     ];
     // Given out of order: the directory lists them ascending by their UTF-8 bytes.
     let given = [
@@ -155,17 +164,28 @@ fn the_reader_gives_back_what_the_writer_writes() {
         ("Ünicode", "a type past ASCII"),
         ("t1", "t1's source"),
     ];
-    let transactions = Keyed::new(
-        given
-            .iter()
-            .map(|(name, source)| Entry::new(kind(name), (*source).to_owned()))
-            .collect(),
-    )
-    .expect("distinct types");
     let mut ascending: Vec<&str> = given.iter().map(|(name, _)| *name).collect();
     ascending.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+    let text = request_naming(&ascending);
+    let received = unsigned(&text).expect("received");
+    let request = request_of(&received).expect("request");
     for base in bases {
-        let blob = write(&base, &transactions).expect("written");
+        let source = |at: usize, label: &str| {
+            format!(
+                "@locale {}\n---\n[type{at}]\nlabel = {label}\n",
+                base.locale()
+            )
+        };
+        let sources: Vec<(&str, String)> = given
+            .iter()
+            .enumerate()
+            .map(|(at, (name, label))| (*name, source(at, label)))
+            .collect();
+        let keyed: Vec<(&str, &str)> = sources
+            .iter()
+            .map(|(name, source)| (*name, source.as_str()))
+            .collect();
+        let blob = write(&base, &types(&keyed)).expect("written");
         let mut registration = Registration::open(Cursor::new(blob)).expect("opened");
         assert_eq!(registration.base(), &base);
         let listed: Vec<&str> = registration
@@ -173,14 +193,23 @@ fn the_reader_gives_back_what_the_writer_writes() {
             .map(TransactionType::as_str)
             .collect();
         assert_eq!(listed, ascending);
-        for (name, source) in given {
+        for (name, source) in &sources {
             assert_eq!(
                 registration.transaction(&kind(name)).expect("read"),
-                Some(source.to_owned()),
+                Some(source.clone()),
                 "{name:?}"
             );
         }
         assert_eq!(registration.transaction(&kind("t2")).expect("read"), None);
+        let context = registration
+            .context(&request)
+            .expect("a written registration loads");
+        assert_eq!(
+            context
+                .resolve(&Bare("type3.label"))
+                .map(|text| text.to_string()),
+            Ok("t1's source".to_owned())
+        );
     }
 }
 
@@ -188,11 +217,7 @@ fn the_reader_gives_back_what_the_writer_writes() {
 /// refuses a type of 65,536.
 #[test]
 fn a_type_longer_than_a_name_holds_is_not_written() {
-    let written = |name: &str| {
-        let transactions =
-            Keyed::new(vec![Entry::new(kind(name), SOURCE.to_owned())]).expect("a type");
-        write(&honest_base(), &transactions)
-    };
+    let written = |name: &str| write(&honest_base(), &types(&[(name, SOURCE)]));
     let longest = "t".repeat(65_535);
     let blob = written(&longest).expect("written");
     let mut registration = Registration::open(Cursor::new(blob)).expect("opened");
@@ -267,16 +292,16 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
     let length = |entry: usize| u32_at(&honest_blob, start_of(&records, entry) + 5);
     let span = {
         let mut blob = honest_blob.clone();
-        let field = start_of(&records, 5) + 5;
-        let grown = (length(5) + 1).to_le_bytes();
+        let field = start_of(&records, 4) + 5;
+        let grown = (length(4) + 1).to_le_bytes();
         blob[field..field + 4].copy_from_slice(&grown);
         blob
     };
     let tiling = {
         let mut blob = honest_blob.clone();
-        let (bidi, on_error) = (start_of(&records, 2) + 1, start_of(&records, 3) + 1);
-        blob[bidi..bidi + 4].copy_from_slice(&offset(3).to_le_bytes());
-        blob[on_error..on_error + 4].copy_from_slice(&offset(2).to_le_bytes());
+        let (priority, bidi) = (start_of(&records, 1) + 1, start_of(&records, 2) + 1);
+        blob[priority..priority + 4].copy_from_slice(&offset(2).to_le_bytes());
+        blob[bidi..bidi + 4].copy_from_slice(&offset(1).to_le_bytes());
         blob
     };
     let mut trailing = honest_blob.clone();
@@ -303,24 +328,24 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
         ),
         (
             "a directory that ends inside a record",
-            laid_out(&honest(), &[6]),
-            Malformed::Entry { entry: 6 },
+            laid_out(&honest(), &[5]),
+            Malformed::Entry { entry: 5 },
         ),
         (
             "an unknown kind",
-            with(&|records| records[5].code = 7),
-            Malformed::Kind { entry: 5, code: 7 },
+            with(&|records| records[4].code = 6),
+            Malformed::Kind { entry: 4, code: 6 },
         ),
         (
             "a name that is no UTF-8",
-            with(&|records| records[5].name = vec![0xFF]),
-            Malformed::Name { entry: 5 },
+            with(&|records| records[4].name = vec![0xFF]),
+            Malformed::Name { entry: 4 },
         ),
         (
             "a named source",
-            with(&|records| records[4].name = b"x".to_vec()),
+            with(&|records| records[3].name = b"x".to_vec()),
             Malformed::Named {
-                entry: 4,
+                entry: 3,
                 kind: Kind::Source,
             },
         ),
@@ -328,9 +353,9 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
             "a span past the blob's end",
             span,
             Malformed::Span {
-                entry: 5,
-                offset: offset(5),
-                length: length(5) + 1,
+                entry: 4,
+                offset: offset(4),
+                length: length(4) + 1,
                 size,
             },
         ),
@@ -338,9 +363,9 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
             "entries out of their bytes' order",
             tiling,
             Malformed::Tiling {
-                entry: 2,
-                offset: offset(3),
-                end: offset(2),
+                entry: 1,
+                offset: offset(2),
+                end: offset(1),
             },
         ),
         (
@@ -358,8 +383,8 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
         ),
         (
             "a transaction type before the previous one",
-            with(&|records| records.insert(5, named(6, b"t2", SOURCE.as_bytes()))),
-            Malformed::Order { entry: 6 },
+            with(&|records| records.insert(4, named(5, b"t2", SOURCE.as_bytes()))),
+            Malformed::Order { entry: 5 },
         ),
         (
             "a second locale",
@@ -371,9 +396,9 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
         ),
         (
             "a transaction type twice",
-            with(&|records| records.push(named(6, b"t1", SOURCE.as_bytes()))),
+            with(&|records| records.push(named(5, b"t1", SOURCE.as_bytes()))),
             Malformed::Repeated {
-                entry: 6,
+                entry: 5,
                 kind: Kind::Transaction,
             },
         ),
@@ -384,7 +409,7 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
         ),
         (
             "no source",
-            with(&|records| drop(records.remove(4))),
+            with(&|records| drop(records.remove(3))),
             Malformed::Missing { kind: Kind::Source },
         ),
         (
@@ -403,19 +428,19 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
             Malformed::Bidi { entry: 2 },
         ),
         (
-            "an on-error entry of two bytes",
-            with(&|records| records[3].bytes = vec![0, 1]),
-            Malformed::OnError { entry: 3 },
+            "a bidi entry of two bytes",
+            with(&|records| records[2].bytes = vec![0, 0]),
+            Malformed::Bidi { entry: 2 },
         ),
         (
             "a source that is no UTF-8",
-            with(&|records| records[4].bytes = vec![0xC3]),
-            Malformed::Text { entry: 4 },
+            with(&|records| records[3].bytes = vec![0xC3]),
+            Malformed::Text { entry: 3 },
         ),
         (
             "a transaction source that is no UTF-8",
-            with(&|records| records[5].bytes = vec![0xC3]),
-            Malformed::Text { entry: 5 },
+            with(&|records| records[4].bytes = vec![0xC3]),
+            Malformed::Text { entry: 4 },
         ),
     ];
     for (case, blob, want) in fixtures {
@@ -431,50 +456,97 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
     );
 }
 
-/// The context's rules over a registration that keeps the format's: a source that does not load,
-/// sources of another locale than the locale entry's, and a transaction source of another
-/// locale, each refused with its error.
+/// Sources that do not load: [`Base::load`] refuses a base source that does not load and
+/// sources of another locale; the writer refuses a type's source that loads only after another
+/// type's, and two types' sources that word one id; the reader refuses a blob whose base source,
+/// or whose named type's source, does not load.
 #[test]
-fn sources_that_do_not_build_the_context_are_refused() {
-    let opened = |records: Vec<Record>| {
-        Registration::open(Cursor::new(laid_out(&records, &[]))).expect("the format holds")
+fn sources_that_do_not_load_are_refused() {
+    let base = |locale: &str, sources: &[&str]| {
+        Base::load(
+            tag(locale),
+            AllOf::one(tag("en")),
+            Bidi::Default,
+            AllOf::new(sources.iter().map(|source| (*source).to_owned()).collect())
+                .expect("sources"),
+        )
     };
-    let mut records = honest();
-    records[4].bytes = b"@locale en\n---\nbroken = {\n".to_vec();
+    let broken = "@locale en\n---\nbroken = {\n";
     assert!(
         matches!(
-            opened(records).base().context(),
+            base("en", &[SOURCE, broken]),
             Err(ContextError::Source {
-                at: 0,
+                at: 1,
                 cause: LoadError::Syntax { .. }
             })
         ),
-        "a source that does not load"
+        "a base source that does not load"
     );
-    let mut records = honest();
-    records[0].bytes = b"de".to_vec();
     assert_eq!(
-        opened(records).base().context().map(|_| ()),
+        base("de", &[SOURCE]).map(|_| ()),
         Err(ContextError::Locale {
             locale: tag("de"),
             declared: Some(tag("en")),
         }),
         "sources of another locale"
     );
+
+    // t1 calls :number, whose options t0's source defines: t1 loads after t0, and alone it does
+    // not.
+    let [cldr, ..] = Language::English.sources();
+    let counting = "@locale en\n---\n[t1]\ncount = {$value :number}\n";
+    assert_eq!(
+        write(&honest_base(), &types(&[("t0", cldr), ("t1", counting)])),
+        Err(RegisterError::Transaction {
+            kind: kind("t1"),
+            cause: LoadError::Option {
+                id: "t1.count".to_owned(),
+                function: "number".to_owned(),
+            },
+        }),
+        "a source that loads only after another type's"
+    );
+    let zero = "@locale en\n---\n[gate]\nlabel = Zero\n";
+    let one = "@locale en\n---\n[gate]\nlabel = One\n";
+    assert_eq!(
+        write(&honest_base(), &types(&[("t0", zero), ("t1", one)])),
+        Err(RegisterError::Transaction {
+            kind: kind("t1"),
+            cause: LoadError::Repeated {
+                id: "gate.label".to_owned(),
+            },
+        }),
+        "two sources that word one id"
+    );
+
     let mut records = honest();
-    records[5].bytes = b"@locale de\n---\n".to_vec();
+    records[3].bytes = broken.as_bytes().to_vec();
+    assert!(
+        matches!(
+            Registration::open(Cursor::new(laid_out(&records, &[]))),
+            Err(ReadError::Context(ContextError::Source {
+                at: 0,
+                cause: LoadError::Syntax { .. }
+            }))
+        ),
+        "a blob whose base source does not load"
+    );
+    let mut records = honest();
+    records[4].bytes = b"@locale de\n---\n".to_vec();
     let text = request_naming(&["t1"]);
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
+    let mut registration =
+        Registration::open(Cursor::new(laid_out(&records, &[]))).expect("the base loads");
     assert!(
         matches!(
-            opened(records).context(&request),
+            registration.context(&request),
             Err(ReadError::Context(ContextError::Transaction {
                 ref kind,
                 cause: LoadError::Locale { .. }
-            })) if kind == "t1"
+            })) if kind.as_str() == "t1"
         ),
-        "a transaction source of another locale"
+        "a blob whose named type's source does not load"
     );
 }
 
@@ -533,27 +605,21 @@ fn a_request_reads_the_base_and_the_source_of_the_type_it_names() {
     let sources = Language::English.sources();
     let t0 = "@locale en\n---\n[gate]\nt0 = Type zero\n";
     let t1 = "@locale en\n---\n[gate]\nt1 = Type one\n";
-    let base = Base {
-        locale: tag("en"),
-        priority: AllOf::new(vec![tag("en"), tag("de")]).expect("tags"),
-        bidi: Bidi::None,
-        on_error: OnRenderError::Rendered,
-        sources: AllOf::new(sources.iter().map(|s| (*s).to_owned()).collect()).expect("sources"),
-    };
-    let transactions = Keyed::new(vec![
-        Entry::new(kind("t1"), t1.to_owned()),
-        Entry::new(kind("t0"), t0.to_owned()),
-    ])
-    .expect("types");
-    let blob = write(&base, &transactions).expect("written");
-    // The README's layout: 4 base records, a record per source, 2 named transaction records.
-    let records = 4 + sources.len() + 2;
+    let base = Base::load(
+        tag("en"),
+        AllOf::new(vec![tag("en"), tag("de")]).expect("tags"),
+        Bidi::None,
+        AllOf::new(sources.iter().map(|s| (*s).to_owned()).collect()).expect("sources"),
+    )
+    .expect("the base loads");
+    let blob = write(&base, &types(&[("t1", t1), ("t0", t0)])).expect("written");
+    // The README's layout: 3 base records, a record per source, 2 named transaction records.
+    let records = 3 + sources.len() + 2;
     let directory = 11 * records + 2 * "t0".len();
     let base_lengths: Vec<(String, usize)> = [
         ("locale".to_owned(), "en".len()),
         ("priority".to_owned(), "en,de".len()),
         ("bidi".to_owned(), 1),
-        ("on_error".to_owned(), 1),
     ]
     .into_iter()
     .chain(

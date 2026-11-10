@@ -33,9 +33,9 @@ pub use delegation::{
     WalletDisplayNeeded,
 };
 pub use emit::{
-    Emission, Emitted, EntryId, NotEmitted, PaymentShown, RefusedEntry, Shown, StandardShown, emit,
+    Emission, Emitted, EntryId, NotEmitted, PaymentShown, Shown, StandardShown, Unshown, emit,
 };
 pub use entry::{CredmanEntry, EntryIcon, PaymentEntry, StandardEntry};
 pub use field::{Extent, FIELD_MAX, Field, FieldName, FieldText, NoName};
 pub use read::{Malformed, ReadError, Registration};
-pub use registration::{Base, ContextError, Kind, OnRenderError};
+pub use registration::{Base, ContextError, Kind};
