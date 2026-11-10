@@ -8,17 +8,13 @@ repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 publish = false
+readme = "README.md"
 
 [dependencies]
 siros-explain = { workspace = true }
 thiserror = { workspace = true }
 
-[build-dependencies]
-# The ISO 4217 table, which the build script remaps; the crate is not linked.
-iso_currency = { workspace = true }
-
 [dev-dependencies]
-iso_currency = { workspace = true }
 # tests/check.rs reads the rows this crate's derives register.
 siros-explain = { workspace = true, features = ["check"] }
 

@@ -97,7 +97,6 @@ digits =
   RWF 0
   SEK 2
   SLE 2
-  SLL 0
   SOS 0
   SYP 0
   TND 3
@@ -163,7 +162,6 @@ narrow =
   CNY ¥
   COP $
   CRC ₡
-  CUC $
   CUP $
   CZK Kč
   DKK kr
@@ -181,7 +179,6 @@ narrow =
   GYD $
   HKD $
   HNL L
-  HRK kn
   HUF Ft
   IDR Rp
   ILS ₪
@@ -257,7 +254,6 @@ names =
   BAM other מארק סחיר של בוסניה והרצגובינה
   BBD other דולר ברבדיאני
   BDT other טאקה בנגלדשי
-  BGN other לב בולגרי
   BHD other דינר בחרייני
   BIF other פרנק בורונדי
   BMD other דולר ברמודה
@@ -276,7 +272,6 @@ names =
   CNY other יואן סיני
   COP other פסו קולומביאני
   CRC other קולון קוסטה־ריקני
-  CUC other פסו קובני להמרה
   CUP other פסו קובני
   CVE other אסקודו כף ורדה
   CZK other קורונה צ׳כית
@@ -300,7 +295,6 @@ names =
   GYD other דולר גיאני
   HKD other דולר הונג קונגי
   HNL other למפירה הונדורי
-  HRK other קונה קרואטי
   HTG other גורד האיטי
   HUF other פורינט הונגרי
   IDR one רופיה אינדונזית
@@ -379,7 +373,6 @@ names =
   SGD other דולר סינגפורי
   SHP other פאונד סנט הלני
   SLE other ליאון סיירה לאוני
-  SLL other ליאון סיירה לאוני - 1964-2022
   SOS other שילינג סומלי
   SRD other דולר סורינאמי
   SSP other לירה דרום-סודנית
