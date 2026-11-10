@@ -55,21 +55,22 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-      - name: The errors and syntax crates without their default features
-        run: cargo clippy --locked -p siros-derive-internals -p siros-explain -p siros-explain-derive -p siros-syntax --lib --no-default-features -- -D warnings
+      - name: The errors, syntax and message crates without their default features
+        run: cargo clippy --locked -p siros-derive-internals -p siros-explain -p siros-explain-derive -p siros-syntax -p siros-i18n -p siros-i18n-derive -p siros-cldr --lib --no-default-features -- -D warnings
       # The clippy steps enforce the lints each crate root denies outside its
       # tests; the script fails on a root without them and on an allow of them
       # outside the tests, and finds the panics no lint covers.
       - name: No panic outside the tests
         run: python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
-      - name: The errors and syntax crates' documentation builds
-        run: cargo doc --no-deps --locked --all-features -p siros-derive-internals -p siros-explain -p siros-explain-derive -p siros-syntax
+      - name: The errors, syntax and message crates' documentation builds
+        run: cargo doc --no-deps --locked --all-features -p siros-derive-internals -p siros-explain -p siros-explain-derive -p siros-syntax -p siros-i18n -p siros-i18n-derive -p siros-cldr
         env:
           RUSTDOCFLAGS: -D warnings
 
   per-merge:
     name: Per-merge tier
-    # siros-i18n's ignored tests: its renderings against ICU4X 2.4's over CLDR 49.0.0.
+    # siros-i18n's ignored tests: its differentials against ICU4X 2.4 over CLDR 49.0.0 (dates,
+    # times and years; plural categories, numbers and amounts in every currency).
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -152,12 +153,12 @@ jobs:
             cargo check --locked -p "$crate"
             cargo check --locked -p "$crate" --no-default-features
           done
-      - name: The errors and syntax crates, with and without their default features, warnings denied
+      - name: The errors, syntax and message crates, with and without their default features, warnings denied
         env:
           RUSTFLAGS: -D warnings
         run: |
           set -euo pipefail
-          for crate in siros-derive-internals siros-explain siros-explain-derive siros-syntax; do
+          for crate in siros-derive-internals siros-explain siros-explain-derive siros-syntax siros-i18n siros-i18n-derive siros-cldr; do
             cargo check --locked -p "$crate"
             cargo check --locked -p "$crate" --no-default-features
           done

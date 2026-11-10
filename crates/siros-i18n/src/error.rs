@@ -1,583 +1,408 @@
-//! Why a module does not load, why a package or a text is refused, and why a presentation has no
-//! language.
+//! Why a module does not load, why a message does not resolve, and why a context fails its
+//! check.
 
-#[cfg(feature = "render")]
 use std::fmt;
 
-#[cfg(feature = "render")]
-use siros_explain::{IntoArg, ModuleId, kind};
+use siros_explain::Explain;
 
-#[cfg(feature = "render")]
-use crate::form::BareKind;
-#[cfg(feature = "render")]
 use crate::locale::LocaleTag;
-#[cfg(feature = "render")]
-use crate::package::module_name;
 
-/// Why a module was refused when it loaded.
-#[cfg(feature = "load")]
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "i18n.module")]
-pub enum ModuleError {
-    /// A source breaks the resource format.
-    #[error("the module's source {source_index}, line {line}: {rule}")]
-    Resource {
-        /// The source's index among the sources given.
-        source_index: usize,
-        /// The line, from 1.
-        line: usize,
-        /// The rule the line breaks.
-        rule: ResourceRule,
-    },
-    /// A locale's source is given twice.
-    #[error("the module's source for {0} is given twice")]
-    Locale(#[explain(name = "locale")] String),
-    /// The declaration holds a message outside the module's domain.
-    #[error("the declared message {0} lies outside the module's domain")]
-    Outside(#[explain(name = "message")] String),
-    /// The declaration holds two different messages under one identifier.
-    #[error("the declaration of {0} holds two messages")]
-    Declaration(#[explain(name = "message")] String),
-    /// A converter's declaration names a parameter outside the tokens.
-    #[error("the declaration of {key} names the parameter {name}, which is no token")]
-    ParameterName {
-        /// The message.
-        key: String,
-        /// The parameter's name.
-        name: String,
-    },
-    /// A source gives a key twice.
-    #[error("{key} is given twice in {locale}")]
-    Repeated {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
-    },
-    /// A key lacks a message in a locale the module supports.
-    #[error("{key} has no message in {locale}")]
-    Missing {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
-    },
-    /// A source gives a message for a key the declaration lacks.
-    #[error("{key} in {locale} is no key of the declaration")]
-    Undeclared {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
-    },
-    /// A message is no MF2 message.
-    #[error("{key} in {locale} is no MessageFormat 2 message: byte {at}")]
+/// Why [`Context::module`](crate::Context::module) refused a module: the first rule it breaks.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+pub enum LoadError {
+    /// The module breaks a rule of the resource format, of MessageFormat 2's syntax or data
+    /// model, or of the markup the engine styles.
+    #[error("line {line}: {rule}")]
+    #[explain(id = "load.syntax")]
     Syntax {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
-        /// The offset, in bytes, where the grammar fails.
-        at: usize,
-    },
-    /// A message breaks a rule of MF2's data model.
-    #[error("{key} in {locale} is no valid MessageFormat 2 message: {rule}")]
-    Invalid {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
+        /// The line, from 1, where the construct that breaks the rule starts.
+        line: usize,
         /// The rule.
-        rule: Validity,
+        #[source]
+        rule: SyntaxRule,
     },
-    /// A message names an argument its key does not declare.
-    #[error("{key} in {locale} names {argument}, which its key does not declare")]
-    Argument {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
-        /// The argument.
-        argument: String,
+    /// The module words an id the context or the module already words, gives an option of a
+    /// format section twice, or defines a `[formats.<format>]` section the context already
+    /// holds. `id` is the message's id, `formats.<format>.<option>`, or `formats.<format>`.
+    #[error("{id} is given twice")]
+    #[explain(id = "load.repeated")]
+    Repeated {
+        /// The id.
+        id: String,
     },
-    /// A placeholder calls a function no registered format module provides.
-    #[error("{key} in {locale} calls :{function}, which no registered format module provides")]
+    /// The module's `@locale` is absent, or differs from the context's.
+    #[error("the module's locale {} differs from the context's {}", Shown(.locale.as_ref()), Shown(.context.as_ref()))]
+    #[explain(id = "load.locale")]
+    Locale {
+        /// The module's locale; `None` when it names none.
+        locale: Option<LocaleTag>,
+        /// The context's locale; `None` before its first module.
+        context: Option<LocaleTag>,
+    },
+    /// A message calls a function the build does not compile in.
+    #[error("{id} calls :{function}, which the build lacks")]
+    #[explain(id = "load.function")]
     Function {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
-        /// The function.
+        /// The message's id.
+        id: String,
+        /// The function, without its colon.
         function: String,
     },
-    /// A function refuses its operand, its options, or its use.
-    #[error("{key} in {locale} calls {{{call}}}: {refusal}")]
-    Kind {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
-        /// The call: its operand as written, when it has one, and its function, the implicit one
-        /// included: `$name :number`, `|literal| :string`, `:number`.
-        call: String,
-        /// What the function refuses.
-        refusal: Refusal,
+    /// A message calls a function whose format options no module loaded so far defines. A
+    /// wallet loads its formats module first.
+    #[error("{id} calls :{function}, whose format options no module defines")]
+    #[explain(id = "load.option")]
+    Option {
+        /// The message's id.
+        id: String,
+        /// The function, without its colon.
+        function: String,
     },
-    /// A registered format module refuses the main module's format of a bare value.
-    #[error("{locale} formats no bare {kind} through :{function}: {refusal}")]
-    Bare {
-        /// The value's kind.
-        kind: BareKind,
-        /// The locale.
-        locale: String,
-        /// The function its kind calls.
-        function: &'static str,
-        /// What the function refuses.
-        refusal: Refusal,
-    },
-    /// Markup names a style the renderer does not apply.
-    #[error("{key} in {locale} names the markup {markup}")]
-    Markup {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
-        /// The markup's name.
-        markup: String,
-    },
-    /// Markup carries options, which no style takes.
-    #[error("{key} in {locale} gives the markup {markup} options")]
-    MarkupOption {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
-        /// The markup's name.
-        markup: String,
-    },
-    /// Markup leaves a style unbalanced: a close without its open, an open never closed, a close
-    /// across another open style, a style opened inside itself, or a standalone style.
-    #[error("{key} in {locale} leaves the markup {markup} unbalanced")]
-    Nesting {
-        /// The key.
-        key: String,
-        /// The locale.
-        locale: String,
-        /// The markup's name.
-        markup: String,
-    },
-    /// A source defines options of a format the module's messages do not call.
-    #[error("{locale} defines options of {format}, which the module's messages do not call")]
+    /// A `[formats.<format>]` section the build's format refuses.
+    #[error("[formats.{format}]: {rule}")]
+    #[explain(id = "load.format")]
     Format {
         /// The format.
         format: String,
-        /// The locale.
-        locale: String,
+        /// The rule.
+        #[source]
+        rule: FormatRule,
     },
-    /// A source defines an option its format does not take.
-    #[error("{locale} defines {option} of {format}, which the format does not take")]
-    UnknownOption {
-        /// The format.
-        format: String,
-        /// The option.
-        option: String,
-        /// The locale.
-        locale: String,
+    /// A message's call its function refuses when the module loads: MessageFormat 2's message
+    /// function errors.
+    #[error("{id} calls :{function}: {refusal}")]
+    #[explain(id = "load.call")]
+    Call {
+        /// The message's id.
+        id: String,
+        /// The function that refuses, without its colon.
+        function: String,
+        /// What it refuses.
+        #[source]
+        refusal: Refusal,
     },
-    /// The module lacks an option of a format it uses, for a language it supports.
-    #[error("the module defines no {option} of {format} for {locale}")]
-    Option {
-        /// The format.
-        format: &'static str,
-        /// The option.
-        option: &'static str,
-        /// The language.
-        locale: String,
-    },
-    /// A format module refuses an option's text.
-    #[error("{option} of {format} for {locale} is no valid value: {text}")]
-    OptionText {
-        /// The format.
-        format: &'static str,
-        /// The option.
-        option: &'static str,
-        /// The language.
-        locale: String,
-        /// The text as written.
+    /// A name, a variant key or a selector literal that Unicode Normalization Form C changes,
+    /// which `Context::module_in_nfc` (feature `nfc`) refuses: a build without the feature holds
+    /// it as written.
+    #[error("{id} holds {text:?}, which NFC changes")]
+    #[explain(id = "load.unnormalized")]
+    Unnormalized {
+        /// The message's id.
+        id: String,
+        /// The name, the key or the literal, as written.
         text: String,
     },
-    /// A format module reads an option its `options` do not name.
-    #[error("{format} reads {option}, which its options do not name")]
-    UndeclaredOption {
-        /// The format.
-        format: &'static str,
-        /// The option.
-        option: &'static str,
-    },
-    /// Two registered format modules share an identity or a function.
-    #[error("two registered format modules provide {0}")]
-    Compiler(#[explain(name = "name")] &'static str),
-    /// A registered format module lists an option twice.
-    #[error("the format module {format} lists its option {option} twice")]
-    Listed {
-        /// The format.
-        format: &'static str,
-        /// The option.
-        option: &'static str,
+    /// The engine misses a value of the message or an entry of the context that it holds by
+    /// construction: a defect of siros-i18n.
+    #[error("{id}: siros-i18n misses a value it holds by construction")]
+    #[explain(id = "load.defect")]
+    Defect {
+        /// The message's id.
+        id: String,
     },
 }
 
-/// The resource format's rules (W3C i18n-discuss's message resource syntax).
-#[cfg(feature = "load")]
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "i18n.resource")]
-pub enum ResourceRule {
-    /// The line is no line of the grammar.
+/// A lookup that misses a value, an entry or a section the engine holds by construction. The
+/// public errors report it as their `Defect`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Defect;
+
+/// The rules of syntax a module follows: the resource format's (the W3C i18n-discuss message
+/// resource syntax), MessageFormat 2's syntax and data model (spec/errors.md "Syntax Errors",
+/// "Data Model Errors"), and the markup the engine styles.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+pub enum SyntaxRule {
+    /// The line is no comment, metadata, frontmatter, section head or entry, or holds a
+    /// character a line takes only escaped.
     #[error("the line is no comment, metadata, frontmatter, section head or entry")]
+    #[explain(id = "syntax.line")]
     Line,
     /// A backslash starts no escape of the resource format.
     #[error("a backslash starts no escape")]
+    #[explain(id = "syntax.escape")]
     Escape,
-    /// The frontmatter is missing or given twice.
-    #[error("the resource has no frontmatter or two")]
+    /// The frontmatter `---` is missing or given twice.
+    #[error("the resource has no frontmatter, or two")]
+    #[explain(id = "syntax.frontmatter")]
     Frontmatter,
     /// A section head or an entry comes before the frontmatter.
     #[error("a section head or an entry comes before the frontmatter")]
+    #[explain(id = "syntax.order")]
     Order,
-    /// Metadata other than the resource's locale.
+    /// Metadata other than one `@locale` and one `@dir` before the frontmatter.
     #[error("the metadata {name} is no metadata of a module")]
+    #[explain(id = "syntax.metadata")]
     Metadata {
         /// The metadata's name.
         name: String,
     },
-    /// The resource names no locale, or two.
-    #[error("the resource names no locale before its frontmatter, or two")]
-    NoLocale,
     /// The locale is no language tag.
     #[error("{tag} is no language tag")]
+    #[explain(id = "syntax.tag")]
     Tag {
         /// The text.
         tag: String,
     },
     /// The direction is neither `ltr` nor `rtl`.
     #[error("the direction {direction} is neither ltr nor rtl")]
+    #[explain(id = "syntax.direction")]
     Direction {
         /// The text.
         direction: String,
     },
-}
-
-/// MF2's data model rules (MessageFormat 2, errors.md "Data Model Errors").
-#[cfg(feature = "load")]
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "i18n.validity")]
-pub enum Validity {
+    /// A message leaves MessageFormat 2's syntax.
+    #[error("the message {id} leaves MessageFormat 2's syntax at byte {at}")]
+    #[explain(id = "syntax.message")]
+    Message {
+        /// The message's id.
+        id: String,
+        /// The offset, in bytes of the message, where the grammar fails.
+        at: usize,
+    },
     /// A variant's keys are not as many as the selectors.
-    #[error("Variant Key Mismatch")]
-    VariantKeyMismatch,
+    #[error("Variant Key Mismatch in {id}")]
+    #[explain(id = "syntax.variant_key_mismatch")]
+    VariantKeyMismatch {
+        /// The message's id.
+        id: String,
+    },
     /// No variant has only catch-all keys.
-    #[error("Missing Fallback Variant")]
-    MissingFallbackVariant,
+    #[error("Missing Fallback Variant in {id}")]
+    #[explain(id = "syntax.missing_fallback_variant")]
+    MissingFallbackVariant {
+        /// The message's id.
+        id: String,
+    },
     /// A selector references no declaration with a function.
-    #[error("Missing Selector Annotation: ${variable}")]
+    #[error("Missing Selector Annotation in {id}: ${variable}")]
+    #[explain(id = "syntax.missing_selector_annotation")]
     MissingSelectorAnnotation {
+        /// The message's id.
+        id: String,
         /// The selector.
         variable: String,
     },
     /// A variable is declared twice, or after a declaration names it.
-    #[error("Duplicate Declaration: ${variable}")]
+    #[error("Duplicate Declaration in {id}: ${variable}")]
+    #[explain(id = "syntax.duplicate_declaration")]
     DuplicateDeclaration {
+        /// The message's id.
+        id: String,
         /// The variable.
         variable: String,
     },
     /// An expression or markup names an option twice.
-    #[error("Duplicate Option Name: {option}")]
+    #[error("Duplicate Option Name in {id}: {option}")]
+    #[explain(id = "syntax.duplicate_option_name")]
     DuplicateOptionName {
+        /// The message's id.
+        id: String,
         /// The option.
         option: String,
     },
     /// Two variants have the same keys.
-    #[error("Duplicate Variant")]
-    DuplicateVariant,
+    #[error("Duplicate Variant in {id}")]
+    #[explain(id = "syntax.duplicate_variant")]
+    DuplicateVariant {
+        /// The message's id.
+        id: String,
+    },
+    /// Markup names a style the engine does not apply.
+    #[error("{id} names the markup {markup}")]
+    #[explain(id = "syntax.markup")]
+    Markup {
+        /// The message's id.
+        id: String,
+        /// The markup's name.
+        markup: String,
+    },
+    /// Markup carries options, which no style takes.
+    #[error("{id} gives the markup {markup} options")]
+    #[explain(id = "syntax.markup_option")]
+    MarkupOption {
+        /// The message's id.
+        id: String,
+        /// The markup's name.
+        markup: String,
+    },
+    /// Markup does not nest: a close without its open, an open never closed, a close across
+    /// another open style, a style opened inside itself, or a standalone style.
+    #[error("{id} leaves the markup {markup} unbalanced")]
+    #[explain(id = "syntax.nesting")]
+    Nesting {
+        /// The message's id.
+        id: String,
+        /// The markup's name.
+        markup: String,
+    },
 }
 
-/// What a function refuses in a placeholder or a declaration, as its format module's load half
-/// reports it.
-#[cfg(feature = "load")]
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "i18n.refusal")]
+/// Why a format refuses a `[formats.<format>]` section.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+pub enum FormatRule {
+    /// No format of the engine has this name.
+    #[error("no format has this name")]
+    #[explain(id = "format.unknown")]
+    Unknown,
+    /// The section gives an option the format does not take.
+    #[error("the format takes no option {option}")]
+    #[explain(id = "format.undefined")]
+    Undefined {
+        /// The option.
+        option: String,
+    },
+    /// The section lacks an option the format reads.
+    #[error("the section lacks the option {option}")]
+    #[explain(id = "format.missing")]
+    Missing {
+        /// The option.
+        option: &'static str,
+    },
+    /// An option's text is outside the format's grammar for it.
+    #[error("the option {option} is no valid value")]
+    #[explain(id = "format.text")]
+    Text {
+        /// The option.
+        option: &'static str,
+    },
+}
+
+/// What a function refuses in a call (MessageFormat 2, spec/errors.md "Message Function
+/// Errors").
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum Refusal {
-    /// The operand: its kind, its literal, or its absence (MF2's Bad Operand).
+    /// The operand: its absence, or a literal the function does not read (Bad Operand).
     #[error("the function refuses its operand")]
+    #[explain(id = "refusal.operand")]
     Operand,
-    /// An option or its value (MF2's Bad Option).
+    /// An option, its value, or a variable given for it (Bad Option).
     #[error("the function refuses its option {option}")]
+    #[explain(id = "refusal.option")]
     Option {
         /// The option.
         option: String,
     },
-    /// The use as a selector (MF2's Bad Selector).
+    /// A variant key the function's selection does not read (Bad Variant Key).
+    #[error("the function's selection reads no key {key}")]
+    #[explain(id = "refusal.key")]
+    Key {
+        /// The key.
+        key: String,
+    },
+    /// The use as a selector (Bad Selector).
     #[error("the function's value selects no variant")]
+    #[explain(id = "refusal.selector")]
     Selector,
     /// The use in a placeholder.
     #[error("the function's value does not format")]
+    #[explain(id = "refusal.formatter")]
     Formatter,
 }
 
-/// A format module's refusal of one language's option: of its text, which the loader reports as
-/// [`ModuleError::OptionText`], or of an option outside the format's `options`, reported as
-/// [`ModuleError::UndeclaredOption`]. Only [`FormatOption::refuse`](crate::FormatOption::refuse)
-/// and [`LanguageFormats::require`](crate::LanguageFormats::require) make one.
-#[cfg(feature = "load")]
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "i18n.format")]
-#[error("the format refuses {option}")]
-pub struct RefusedOption {
-    option: &'static str,
-    #[explain(skip)]
-    cause: OptionRefusal,
-}
-
-/// Why a format module refuses an option.
-#[cfg(feature = "load")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OptionRefusal {
-    /// The format refuses the option's text, given as the module writes it.
-    Text(String),
-    /// The format reads an option its `options` do not name.
-    Undeclared,
-}
-
-#[cfg(feature = "load")]
-impl RefusedOption {
-    pub(crate) fn new(option: &'static str, text: &str) -> Self {
-        Self {
-            option,
-            cause: OptionRefusal::Text(text.to_owned()),
-        }
-    }
-
-    pub(crate) const fn undeclared(option: &'static str) -> Self {
-        Self {
-            option,
-            cause: OptionRefusal::Undeclared,
-        }
-    }
-
-    /// The option.
-    #[must_use]
-    pub const fn option(&self) -> &'static str {
-        self.option
-    }
-
-    /// Why the format refuses it.
-    #[must_use]
-    pub const fn cause(&self) -> &OptionRefusal {
-        &self.cause
-    }
-}
-
-/// Why a text did not render. No fallback text reaches the End-User: the screen or the matcher's
-/// entries that needed the text are not shown.
-#[cfg(feature = "render")]
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "i18n.render")]
-pub enum RenderError {
-    /// The query names a message no module of the package holds: its module is absent, or its
-    /// module lacks its key.
-    #[error("the query names no message of the package's modules")]
-    Unknown,
-    /// The text draws from a module of the package that the screen does not hold.
-    #[error("the text draws from the module {module}, which the screen does not hold")]
-    Outside {
-        /// The module.
-        module: String,
+/// Why [`Context::resolve`](crate::Context::resolve) refused a message. No fallback text reaches
+/// the End-User.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+pub enum ResolveError {
+    /// No module of the context words the id.
+    #[error("no module words {id}")]
+    #[explain(id = "resolve.unknown")]
+    Unknown {
+        /// The message's id.
+        id: String,
     },
-    /// A compiled placeholder names a format module the build does not register.
-    #[error("the build registers no format module {0}")]
-    Format(#[explain(name = "format")] String),
-    /// A format module reported an MF2 formatting error.
-    #[error("the message does not format: {0}")]
-    Message(#[explain(name = "kind")] &'static str),
-    /// A query's arguments differ from its message's declaration: a name the message does not
-    /// declare, a declared name left out, or a value of another kind.
-    #[error("the query's arguments are not its message's")]
-    Arguments,
-    /// A placeholder or a selector names an optional argument the query leaves out.
-    #[error("the message shows {argument}, which the query leaves out")]
-    AbsentArgument {
-        /// The argument.
-        argument: String,
-    },
-    /// The text is an optional value the input left out.
-    #[error("the text is a value the input left out")]
-    Absent,
-    /// A bare value or list, and no main module of the package compiles its kind's format.
-    #[error("no main module of the package formats a bare {kind}")]
-    Bare {
-        /// The kind.
-        kind: BareKind,
-    },
-    /// Two registered render halves share an identity.
-    #[error("the build registers the format module {0} twice")]
-    Registered(#[explain(name = "format")] &'static str),
-    /// A compiled placeholder's bytes do not read as its format module writes them.
-    #[error("a compiled placeholder of the format module {0} is malformed")]
-    Compiled(#[explain(name = "format")] &'static str),
-    /// The package refused an entry the text needs.
-    #[error(transparent)]
-    Package(#[from] PackageError),
-}
-
-/// Why a package, or a step that reads or builds one, was refused.
-#[cfg(feature = "render")]
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "i18n.package")]
-pub enum PackageError {
-    /// The bytes name another format version, or none.
-    #[error("the bytes are no package of this format version")]
-    Version,
-    /// The header's root differs from the root the reader was given.
-    #[error("the package's root is not the root it was read under")]
-    Root,
-    /// An entry does not match the root through its audit path.
-    #[error("the package's entry {entry} does not match its root")]
-    Integrity {
-        /// The entry's index.
-        entry: usize,
-    },
-    /// An entry or a node of its audit path lies outside the package's bytes.
-    #[error("the package's entry {entry} or its audit path lies outside its bytes")]
-    Bounds {
-        /// The entry's index.
-        entry: usize,
-    },
-    /// An entry matches the root and does not read as the format writes it.
-    #[error("the package's entry {entry} matches its root and is malformed")]
-    Malformed {
-        /// The entry's index.
-        entry: usize,
-    },
-    /// Another version of the renderer built the package, so its precomputed texts are another
-    /// renderer's.
-    #[error("the package was built by renderer {built}")]
-    Renderer {
-        /// The version that built it.
-        built: u16,
-    },
-    /// The package holds no module of this identity.
-    #[error("the package holds no module {0}")]
-    Module(#[explain(name = "module")] ModuleName),
-    /// A package builder given a locale twice.
-    #[error("the locale {0} is given twice")]
-    RepeatedLocale(#[explain(name = "locale")] LocaleTag),
-    /// A package builder or a screen given a module twice.
-    #[error("the module {0} is given twice")]
-    RepeatedModule(#[explain(name = "module")] ModuleName),
-    /// A package builder given a module's key twice.
-    #[error("the key {key} of the module {module} is given twice")]
-    RepeatedKey {
-        /// The module.
-        module: ModuleName,
-        /// The key.
+    /// The message's wording reads an argument the message does not give.
+    #[error("{id} reads the argument {key}, which the message does not give")]
+    #[explain(id = "resolve.unresolved")]
+    Unresolved {
+        /// The message's id.
+        id: String,
+        /// The argument's key.
         key: String,
     },
-    /// A key the module does not hold.
-    #[error("the module {module} holds no key {key}")]
-    Key {
-        /// The module.
-        module: ModuleName,
-        /// The key.
+    /// A function refuses its operand's text.
+    #[error("{id}: :{function} refuses its operand")]
+    #[explain(id = "resolve.operand")]
+    Operand {
+        /// The message's id.
+        id: String,
+        /// The function, without its colon.
+        function: String,
+    },
+    /// A function refuses an option's value, which a variable gives: an argument's text, or a
+    /// declared call's value; or the call's `u:dir` names no direction.
+    #[error("{id}: :{function} refuses its option {option}")]
+    #[explain(id = "resolve.option")]
+    Option {
+        /// The message's id.
+        id: String,
+        /// The function, without its colon.
+        function: String,
+        /// The option.
+        option: String,
+    },
+    /// The message gives the key twice, or a value whose `Display` fails.
+    #[error("{id} gives the argument {key} twice, or a value that does not display")]
+    #[explain(id = "resolve.argument")]
+    Argument {
+        /// The message's id.
+        id: String,
+        /// The argument's key, as the build compares it: in NFC with the feature `nfc`.
         key: String,
     },
-    /// The bytes run past the package's last entry or end before it.
-    #[error("the package's bytes do not end where its last entry ends")]
-    Length,
-    /// A package builder given no locale.
-    #[error("the package names no locale")]
-    NoLocale,
-    /// A registration's builder given a credential twice.
-    #[error("the credential {0} is given twice")]
-    RepeatedCredential(#[explain(name = "credential")] String),
-    /// A registration's builder given a transaction type twice.
-    #[error("the transaction type {0} is given twice")]
-    RepeatedTransaction(#[explain(name = "transaction")] String),
-}
-
-/// Why a presentation has no language.
-#[cfg(feature = "render")]
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "i18n.language")]
-pub enum NoLanguage {
-    /// No tag of the priority list serves every module, and a module, the one named, enforces
-    /// understood languages.
-    #[error(
-        "no language the End-User understands serves every module, and the module {0} requires one"
-    )]
-    NotUnderstood(#[explain(name = "module")] ModuleName),
-    /// No tag of the app's fallback list serves every module, or the list is empty.
-    #[error("no fallback language serves every module of the presentation")]
-    NoFallback,
-    /// The module a profile selected a locale for holds no entry of that locale.
-    #[error("the module {module} holds no entry of {locale}, which its profile selected")]
-    Selected {
-        /// The module.
-        module: ModuleName,
-        /// The locale.
-        locale: LocaleTag,
+    /// The engine misses a value of the message, an entry of the context or a format section
+    /// that it holds by construction: a defect of siros-i18n.
+    #[error("{id}: siros-i18n misses a value it holds by construction")]
+    #[explain(id = "resolve.defect")]
+    Defect {
+        /// The message's id.
+        id: String,
     },
 }
 
-#[cfg(feature = "render")]
-impl NoLanguage {
-    /// A selected module lacking its locale.
-    pub(crate) fn selected(selected: &crate::screen::Selected) -> Self {
-        Self::Selected {
-            module: ModuleName::of(selected.module()),
-            locale: selected.locale().clone(),
-        }
-    }
+/// Why `Context::check` failed: the first of its rules a row breaks.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+pub enum CheckError {
+    /// Two rows share an id: two crates chose one scope.
+    #[error("two rows declare {id}")]
+    #[explain(id = "check.repeated")]
+    Repeated {
+        /// The id.
+        id: String,
+    },
+    /// No module of the context words a row's id.
+    #[error("no module words {id}")]
+    #[explain(id = "check.unworded")]
+    Unworded {
+        /// The id.
+        id: String,
+    },
+    /// A message's wording reads an argument its row lacks.
+    #[error("the wording of {id} reads {key}, which its row lacks")]
+    #[explain(id = "check.unknown")]
+    Unknown {
+        /// The id.
+        id: String,
+        /// The argument's key.
+        key: String,
+    },
+    /// The engine misses a value of the message or an entry of the context that it holds by
+    /// construction: a defect of siros-i18n.
+    #[error("{id}: siros-i18n misses a value it holds by construction")]
+    #[explain(id = "check.defect")]
+    Defect {
+        /// The id.
+        id: String,
+    },
 }
 
-/// A module by its identity and its name: `main`, a crate's domain, or a defined module's plug-in
-/// and digest in hexadecimal.
-#[cfg(feature = "render")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModuleName {
-    id: ModuleId,
-    name: String,
-}
+/// A locale an error names, or `none`.
+struct Shown<'a>(Option<&'a LocaleTag>);
 
-#[cfg(feature = "render")]
-impl ModuleName {
-    /// The name of `id`.
-    #[must_use]
-    pub fn of(id: ModuleId) -> Self {
-        Self {
-            id,
-            name: module_name(id),
-        }
-    }
-
-    /// The module's identity.
-    #[must_use]
-    pub const fn id(&self) -> ModuleId {
-        self.id
-    }
-}
-
-#[cfg(feature = "render")]
-impl fmt::Display for ModuleName {
+impl fmt::Display for Shown<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.name)
-    }
-}
-
-#[cfg(feature = "render")]
-impl IntoArg for ModuleName {
-    type Kind = kind::Raw;
-
-    fn arg(&self) -> &str {
-        &self.name
+        match self.0 {
+            Some(locale) => locale.fmt(f),
+            None => f.write_str("none"),
+        }
     }
 }

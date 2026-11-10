@@ -2,19 +2,17 @@
 
 use std::fmt;
 
-use siros_explain::{IntoArg, kind};
-
 /// A language tag, as a module's locale or an entry of a priority list: RFC 4647 §2.1's
 /// `1*8ALPHA *("-" 1*8alphanum)`, held in RFC 5646 §2.1.1's case: the language in lowercase, a
 /// four-letter script in title case, a two-letter region in uppercase, everything after a
-/// singleton in lowercase. Tags that differ in case alone are one tag. Only [`LocaleTag::parse`]
-/// makes one.
+/// singleton in lowercase, the tag's first subtag a singleton included. Tags that differ in case
+/// alone are one tag. Only [`LocaleTag::parse`] makes one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LocaleTag(Box<str>);
 
 /// A text that is no language tag.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "i18n.locale")]
+#[explain(id = "locale.invalid_tag")]
 #[error("{tag} is no language tag")]
 pub struct InvalidTag {
     /// The text.
@@ -60,7 +58,7 @@ impl LocaleTag {
             } else {
                 canonical.push_str(&lower);
             }
-            after_singleton |= !first && bytes.len() == 1;
+            after_singleton |= bytes.len() == 1;
         }
         Ok(Self(canonical.into_boxed_str()))
     }
@@ -107,13 +105,5 @@ impl LocaleTag {
 impl fmt::Display for LocaleTag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
-    }
-}
-
-impl IntoArg for LocaleTag {
-    type Kind = kind::Raw;
-
-    fn arg(&self) -> &str {
-        &self.0
     }
 }

@@ -1,61 +1,76 @@
 //! MF2's syntax (spec/message.abnf), parsed by recursive descent.
 
-use unicode_normalization::UnicodeNormalization;
-
 use super::ast::{
     Body, Declaration, Expression, Function, Key, Markup, MarkupKind, Message, Operand, Opt, Part,
     Pattern, Variant,
 };
+use crate::normal::{Hold, Unnormalized};
 
-/// The byte offset where a message leaves MF2's grammar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SyntaxError(pub(crate) usize);
+/// Why a message does not parse.
+#[derive(Debug)]
+pub(crate) enum Unparsed {
+    /// The byte offset where the message leaves MF2's grammar.
+    Syntax(usize),
+    /// A name or a variant key the parse's [`Hold`] refuses.
+    Unnormalized(Unnormalized),
+}
 
-/// Parses a message.
-pub(crate) fn parse(source: &str) -> Result<Message, SyntaxError> {
-    let mut parser = Parser { source, at: 0 };
+/// Parses a message, its names and variant keys held by `hold`.
+pub(crate) fn parse(source: &str, hold: Hold) -> Result<Message, Unparsed> {
+    let mut parser = Parser {
+        source,
+        rest: source,
+        hold,
+    };
     parser.o();
-    let message = if parser.rest().starts_with('.') || parser.rest().starts_with("{{") {
+    let message = if parser.rest.starts_with('.') || parser.rest.starts_with("{{") {
         parser.complex()?
     } else {
-        parser.at = 0;
+        parser.rest = source;
         let pattern = parser.pattern(false)?;
         Message {
             declarations: Vec::new(),
             body: Body::Pattern(pattern),
         }
     };
-    if parser.at == source.len() {
+    if parser.rest.is_empty() {
         Ok(message)
     } else {
         parser.fail()
     }
 }
 
+/// A parser of `source`; `rest` is the suffix of `source` it has yet to read, and `hold` holds
+/// its names and variant keys.
 struct Parser<'s> {
     source: &'s str,
-    at: usize,
+    rest: &'s str,
+    hold: Hold,
 }
 
-impl Parser<'_> {
-    fn rest(&self) -> &str {
-        self.source.get(self.at..).unwrap_or_default()
+impl<'s> Parser<'s> {
+    /// The next character, and the text after it.
+    fn next(&self) -> Option<(char, &'s str)> {
+        let mut chars = self.rest.chars();
+        chars.next().map(|c| (c, chars.as_str()))
     }
 
     fn peek(&self) -> Option<char> {
-        self.rest().chars().next()
+        self.rest.chars().next()
     }
 
     fn bump(&mut self) -> Option<char> {
-        let c = self.peek()?;
-        self.at += c.len_utf8();
+        let (c, rest) = self.next()?;
+        self.rest = rest;
         Some(c)
     }
 
     /// Steps over one bidi mark, when the next character is one.
     fn skip_bidi(&mut self) {
-        if let Some(mark) = self.peek().filter(|&c| bidi(c)) {
-            self.at += mark.len_utf8();
+        if let Some((c, rest)) = self.next()
+            && bidi(c)
+        {
+            self.rest = rest;
         }
     }
 
@@ -64,55 +79,58 @@ impl Parser<'_> {
     }
 
     fn eat_str(&mut self, text: &str) -> bool {
-        let found = self.rest().starts_with(text);
-        if found {
-            self.at += text.len();
+        match self.rest.strip_prefix(text) {
+            Some(rest) => {
+                self.rest = rest;
+                true
+            }
+            None => false,
         }
-        found
     }
 
-    fn expect(&mut self, c: char) -> Result<(), SyntaxError> {
+    fn expect(&mut self, c: char) -> Result<(), Unparsed> {
         if self.eat(c) { Ok(()) } else { self.fail() }
     }
 
-    const fn fail<T>(&self) -> Result<T, SyntaxError> {
-        Err(SyntaxError(self.at))
+    /// An error at the start of `rest`.
+    const fn fail<T>(&self) -> Result<T, Unparsed> {
+        Err(Unparsed::Syntax(self.source.len() - self.rest.len()))
+    }
+
+    /// `text`, a name or a variant key, as the parse holds it.
+    fn held(&self, text: String) -> Result<String, Unparsed> {
+        self.hold.hold(text).map_err(Unparsed::Unnormalized)
     }
 
     /// `o`: optional whitespace and bidi marks.
     fn o(&mut self) {
-        while self.peek().is_some_and(|c| ws(c) || bidi(c)) {
-            self.at += self.peek().map_or(0, char::len_utf8);
-        }
+        self.rest = self.rest.trim_start_matches(|c| ws(c) || bidi(c));
     }
 
     /// `s`: required whitespace, with bidi marks around it; the position stays when it fails.
     fn s(&mut self) -> bool {
-        let start = self.at;
-        while self.peek().is_some_and(bidi) {
-            self.at += self.peek().map_or(0, char::len_utf8);
-        }
-        if self.peek().is_some_and(ws) {
+        let after = self.rest.trim_start_matches(bidi);
+        if after.starts_with(ws) {
+            self.rest = after;
             self.o();
             true
         } else {
-            self.at = start;
             false
         }
     }
 
     /// `s` followed by a character `next` admits; the position stays when either fails.
     fn s_then(&mut self, next: impl Fn(char) -> bool) -> bool {
-        let start = self.at;
+        let start = self.rest;
         if self.s() && self.peek().is_some_and(next) {
             true
         } else {
-            self.at = start;
+            self.rest = start;
             false
         }
     }
 
-    fn complex(&mut self) -> Result<Message, SyntaxError> {
+    fn complex(&mut self) -> Result<Message, Unparsed> {
         let mut declarations = Vec::new();
         loop {
             self.o();
@@ -153,7 +171,7 @@ impl Parser<'_> {
         }
     }
 
-    fn quoted_end(&mut self) -> Result<(), SyntaxError> {
+    fn quoted_end(&mut self) -> Result<(), Unparsed> {
         if self.eat_str("}}") {
             self.o();
             Ok(())
@@ -162,7 +180,7 @@ impl Parser<'_> {
         }
     }
 
-    fn matcher(&mut self) -> Result<Body, SyntaxError> {
+    fn matcher(&mut self) -> Result<Body, Unparsed> {
         let mut selectors = Vec::new();
         while self.s_then(|c| c == '$') {
             self.expect('$')?;
@@ -196,37 +214,38 @@ impl Parser<'_> {
         }
     }
 
-    fn key(&mut self) -> Result<Key, SyntaxError> {
+    fn key(&mut self) -> Result<Key, Unparsed> {
         if self.eat('*') {
             Ok(Key::CatchAll)
         } else {
-            Ok(Key::Literal(self.literal()?.nfc().collect()))
+            let literal = self.literal()?;
+            Ok(Key::Literal(self.held(literal)?))
         }
     }
 
     /// A pattern, up to the end of the message or, in a quoted pattern, to its `}`.
-    fn pattern(&mut self, quoted: bool) -> Result<Pattern, SyntaxError> {
+    fn pattern(&mut self, quoted: bool) -> Result<Pattern, Unparsed> {
         let mut parts = Vec::new();
         let mut text = String::new();
         loop {
-            match self.peek() {
+            match self.next() {
                 None if quoted => return self.fail(),
                 None => break,
-                Some('}') if quoted => break,
-                Some('}' | '\0') => return self.fail(),
-                Some('{') => {
-                    self.at += 1;
+                Some(('}', _)) if quoted => break,
+                Some(('}' | '\0', _)) => return self.fail(),
+                Some(('{', rest)) => {
+                    self.rest = rest;
                     if !text.is_empty() {
                         parts.push(Part::Text(std::mem::take(&mut text)));
                     }
                     parts.push(self.placeholder()?);
                 }
-                Some('\\') => {
-                    self.at += 1;
+                Some(('\\', rest)) => {
+                    self.rest = rest;
                     text.push(self.escaped()?);
                 }
-                Some(c) => {
-                    self.at += c.len_utf8();
+                Some((c, rest)) => {
+                    self.rest = rest;
                     text.push(c);
                 }
             }
@@ -238,10 +257,10 @@ impl Parser<'_> {
     }
 
     /// The character after a backslash: `\`, `{`, `|` or `}`.
-    fn escaped(&mut self) -> Result<char, SyntaxError> {
-        match self.peek() {
-            Some(c @ ('\\' | '{' | '|' | '}')) => {
-                self.at += 1;
+    fn escaped(&mut self) -> Result<char, Unparsed> {
+        match self.next() {
+            Some((c @ ('\\' | '{' | '|' | '}'), rest)) => {
+                self.rest = rest;
                 Ok(c)
             }
             _ => self.fail(),
@@ -249,7 +268,7 @@ impl Parser<'_> {
     }
 
     /// A placeholder after its `{`.
-    fn placeholder(&mut self) -> Result<Part, SyntaxError> {
+    fn placeholder(&mut self) -> Result<Part, Unparsed> {
         self.o();
         let kind = if self.eat('#') {
             MarkupKind::Open
@@ -276,12 +295,12 @@ impl Parser<'_> {
     }
 
     /// An expression after its `{`.
-    fn expression(&mut self) -> Result<Expression, SyntaxError> {
+    fn expression(&mut self) -> Result<Expression, Unparsed> {
         self.o();
         self.expression_body()
     }
 
-    fn expression_body(&mut self) -> Result<Expression, SyntaxError> {
+    fn expression_body(&mut self) -> Result<Expression, Unparsed> {
         if self.peek() == Some(':') {
             let function = self.function()?;
             self.close()?;
@@ -294,7 +313,7 @@ impl Parser<'_> {
     }
 
     /// `[s function]` after an operand.
-    fn annotation(&mut self) -> Result<Option<Function>, SyntaxError> {
+    fn annotation(&mut self) -> Result<Option<Function>, Unparsed> {
         if self.s_then(|c| c == ':') {
             self.function().map(Some)
         } else {
@@ -303,13 +322,13 @@ impl Parser<'_> {
     }
 
     /// `*(s attribute) o "}"`.
-    fn close(&mut self) -> Result<(), SyntaxError> {
+    fn close(&mut self) -> Result<(), Unparsed> {
         self.attributes()?;
         self.o();
         self.expect('}')
     }
 
-    fn operand(&mut self) -> Result<Operand, SyntaxError> {
+    fn operand(&mut self) -> Result<Operand, Unparsed> {
         if self.eat('$') {
             Ok(Operand::Variable(self.name()?))
         } else {
@@ -317,7 +336,7 @@ impl Parser<'_> {
         }
     }
 
-    fn function(&mut self) -> Result<Function, SyntaxError> {
+    fn function(&mut self) -> Result<Function, Unparsed> {
         self.expect(':')?;
         let name = self.identifier()?;
         let options = self.options()?;
@@ -325,7 +344,7 @@ impl Parser<'_> {
     }
 
     /// `*(s option)`.
-    fn options(&mut self) -> Result<Vec<Opt>, SyntaxError> {
+    fn options(&mut self) -> Result<Vec<Opt>, Unparsed> {
         let mut options = Vec::new();
         while self.s_then(|c| name_start(c) || bidi(c)) {
             let name = self.identifier()?;
@@ -339,24 +358,24 @@ impl Parser<'_> {
     }
 
     /// `*(s attribute)`: read and dropped.
-    fn attributes(&mut self) -> Result<(), SyntaxError> {
+    fn attributes(&mut self) -> Result<(), Unparsed> {
         while self.s_then(|c| c == '@') {
-            self.at += 1;
+            self.expect('@')?;
             drop(self.identifier()?);
-            let start = self.at;
+            let start = self.rest;
             self.o();
             if self.eat('=') {
                 self.o();
                 drop(self.literal()?);
             } else {
-                self.at = start;
+                self.rest = start;
             }
         }
         Ok(())
     }
 
     /// `[namespace ":"] name`.
-    fn identifier(&mut self) -> Result<String, SyntaxError> {
+    fn identifier(&mut self) -> Result<String, Unparsed> {
         let mut identifier = self.name()?;
         if self.eat(':') {
             identifier.push(':');
@@ -365,28 +384,21 @@ impl Parser<'_> {
         Ok(identifier)
     }
 
-    /// `[bidi] name-start *name-char [bidi]`, in NFC.
-    fn name(&mut self) -> Result<String, SyntaxError> {
+    /// `[bidi] name-start *name-char [bidi]`, held as the parse holds names.
+    fn name(&mut self) -> Result<String, Unparsed> {
         self.skip_bidi();
-        let start = self.at;
         if !self.peek().is_some_and(name_start) {
             return self.fail();
         }
-        while self.peek().is_some_and(name_char) {
-            self.at += self.peek().map_or(0, char::len_utf8);
-        }
-        let name = self
-            .source
-            .get(start..self.at)
-            .unwrap_or_default()
-            .nfc()
-            .collect();
+        let written: String = self.rest.chars().take_while(|&c| name_char(c)).collect();
+        let name = self.held(written)?;
+        self.rest = self.rest.trim_start_matches(name_char);
         self.skip_bidi();
         Ok(name)
     }
 
     /// A quoted or an unquoted literal's string value.
-    fn literal(&mut self) -> Result<String, SyntaxError> {
+    fn literal(&mut self) -> Result<String, Unparsed> {
         if self.eat('|') {
             let mut value = String::new();
             loop {
@@ -398,14 +410,12 @@ impl Parser<'_> {
                 }
             }
         }
-        let start = self.at;
-        while self.peek().is_some_and(name_char) {
-            self.at += self.peek().map_or(0, char::len_utf8);
+        let literal: String = self.rest.chars().take_while(|&c| name_char(c)).collect();
+        if literal.is_empty() {
+            return self.fail();
         }
-        match self.source.get(start..self.at) {
-            Some(literal) if !literal.is_empty() => Ok(literal.to_owned()),
-            _ => self.fail(),
-        }
+        self.rest = self.rest.trim_start_matches(name_char);
+        Ok(literal)
     }
 }
 

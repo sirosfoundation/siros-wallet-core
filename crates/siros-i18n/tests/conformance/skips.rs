@@ -9,26 +9,13 @@ pub struct Skip {
 
 /// The markup rule.
 const MARKUP: &str =
-    "markup names a style the renderer applies, `strong`, `emphasis` or `underline`";
-/// The option rule.
-const LITERAL: &str = "an option's value is a literal, so the loader compiles each placeholder; the test's value is a variable";
-/// The argument names.
-const TOKENS: &str = "an argument's name is siros-explain tokens, and the param's is not";
+    "markup names a style the context applies, `strong`, `emphasis` or `underline`";
+
 /// The argument rule.
-const UNDECLARED: &str =
-    "a message names declared arguments only, and the test gives no value to declare";
+const ARGUMENTS: &str = "an argument is text: a placeholder without a function writes the text \
+     as given, and a number takes its language's form through `:number` alone";
 
 pub const SKIPS: &[Skip] = &[
-    Skip {
-        suite: "functions/number.json",
-        src: "hello {4.2 :number minimumFractionDigits=$foo}",
-        reason: LITERAL,
-    },
-    Skip {
-        suite: "functions/number.json",
-        src: "hello {|4.2| :number minimumFractionDigits=$foo}",
-        reason: LITERAL,
-    },
     Skip {
         suite: "bidi.json",
         src: "{\u{200f} #b \u{200e} }",
@@ -38,6 +25,11 @@ pub const SKIPS: &[Skip] = &[
         suite: "bidi.json",
         src: "{\u{200f} /b \u{200e} }",
         reason: MARKUP,
+    },
+    Skip {
+        suite: "syntax.json",
+        src: "{$one} et {$two}",
+        reason: ARGUMENTS,
     },
     Skip {
         suite: "syntax.json",
@@ -73,46 +65,6 @@ pub const SKIPS: &[Skip] = &[
         suite: "syntax.json",
         src: "{/a}",
         reason: MARKUP,
-    },
-    Skip {
-        suite: "syntax.json",
-        src: "hello {$place-.}",
-        reason: TOKENS,
-    },
-    Skip {
-        suite: "syntax.json",
-        src: ".input {$Ḍ\u{307}} {{{$D\u{323}\u{307}}}}",
-        reason: TOKENS,
-    },
-    Skip {
-        suite: "syntax.json",
-        src: ".input {$D\u{323}\u{307}} {{{$Ḍ\u{307}}}}",
-        reason: TOKENS,
-    },
-    Skip {
-        suite: "syntax.json",
-        src: ".input{$x} .input{$y}{{}}",
-        reason: UNDECLARED,
-    },
-    Skip {
-        suite: "syntax.json",
-        src: ".input{$x}.input{$y}{{}}",
-        reason: UNDECLARED,
-    },
-    Skip {
-        suite: "syntax.json",
-        src: ".input {$x}{{}}",
-        reason: UNDECLARED,
-    },
-    Skip {
-        suite: "syntax.json",
-        src: ".input{$x}{{}}",
-        reason: UNDECLARED,
-    },
-    Skip {
-        suite: "syntax.json",
-        src: ".local $x ={a}.input{$y}{{}}",
-        reason: UNDECLARED,
     },
     Skip {
         suite: "syntax.json",
@@ -153,11 +105,6 @@ pub const SKIPS: &[Skip] = &[
         suite: "syntax.json",
         src: "{#tag}",
         reason: MARKUP,
-    },
-    Skip {
-        suite: "syntax.json",
-        src: "\t.input{$x}{{}}\n",
-        reason: UNDECLARED,
     },
     Skip {
         suite: "u-options.json",

@@ -3,18 +3,29 @@
 //! steps of `:integer` and `:offset`, and the digit options after ECMA-402's
 //! SetNumberFormatDigitOptions.
 
-use siros_explain::{ArgKind, Currency};
+use std::num::NonZeroU32;
 
-use crate::error::Refusal;
-use crate::format::{Call, Operand};
-use crate::numeric::decimal::{Num, RoundingMode};
+use crate::format::{CallTexts, Function as Called};
+use crate::numeric::decimal::RoundingMode;
 use crate::numeric::pattern::{Grouping, Pattern};
 use crate::numeric::{Digits, Fraction, Rounding, Selection, SignDisplay, Step};
+
+/// Why a chain's options do not resolve.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Refused {
+    /// A call of the chain is no numeric function.
+    Operand,
+    /// An option, by name.
+    Option(String),
+    /// A chain without a call: the load builds each chain from its call.
+    Defect,
+}
 
 /// A numeric function.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Function {
     Number,
+    #[cfg(feature = "number")]
     Integer,
     Offset,
     Currency,
@@ -22,71 +33,81 @@ pub(crate) enum Function {
 }
 
 impl Function {
-    pub(crate) fn named(name: &str) -> Option<Self> {
-        Some(match name {
-            "number" => Self::Number,
-            "integer" => Self::Integer,
-            "offset" => Self::Offset,
-            "currency" => Self::Currency,
-            "percent" => Self::Percent,
-            _ => return None,
-        })
-    }
-
-    /// The options it reads; it ignores others.
-    fn reads(self, name: &str) -> bool {
-        const DIGITS: [&str; 7] = [
-            "signDisplay",
-            "useGrouping",
-            "minimumSignificantDigits",
-            "maximumSignificantDigits",
-            "trailingZeroDisplay",
-            "roundingPriority",
-            "roundingMode",
-        ];
-        match self {
-            Self::Number => {
-                DIGITS.contains(&name)
-                    || matches!(
-                        name,
-                        "select"
-                            | "minimumIntegerDigits"
-                            | "minimumFractionDigits"
-                            | "maximumFractionDigits"
-                            | "roundingIncrement"
-                    )
-            }
-            Self::Integer => matches!(
-                name,
-                "select"
-                    | "signDisplay"
-                    | "useGrouping"
-                    | "minimumIntegerDigits"
-                    | "maximumSignificantDigits"
-            ),
-            Self::Offset => matches!(name, "add" | "subtract"),
-            Self::Currency => {
-                DIGITS.contains(&name)
-                    || matches!(
-                        name,
-                        "currency"
-                            | "currencySign"
-                            | "currencyDisplay"
-                            | "minimumIntegerDigits"
-                            | "fractionDigits"
-                            | "roundingIncrement"
-                    )
-            }
-            Self::Percent => {
-                DIGITS.contains(&name)
-                    || matches!(name, "minimumFractionDigits" | "maximumFractionDigits")
-            }
+    /// The numeric function a call names; `None` for another family's.
+    pub(crate) const fn of(function: Called) -> Option<Self> {
+        match function {
+            #[cfg(feature = "number")]
+            Called::Number => Some(Self::Number),
+            #[cfg(feature = "number")]
+            Called::Integer => Some(Self::Integer),
+            #[cfg(feature = "offset")]
+            Called::Offset => Some(Self::Offset),
+            #[cfg(feature = "currency")]
+            Called::Currency => Some(Self::Currency),
+            #[cfg(feature = "currency")]
+            Called::Percent => Some(Self::Percent),
+            _ => None,
         }
     }
 
-    /// Whether it discards this option of its operand's resolved value.
-    fn discards(self, name: &str) -> bool {
+    /// The rule of the option `name` when the function reads it; `None` for an option it ignores
+    /// (spec/functions/README.md permits it).
+    pub(crate) fn rule(self, name: &str) -> Option<Rule> {
+        let digits = || match name {
+            "signDisplay" => Some(Rule::SignDisplay),
+            "useGrouping" => Some(Rule::UseGrouping),
+            "minimumSignificantDigits" | "maximumSignificantDigits" => Some(Rule::Digits),
+            "trailingZeroDisplay" => Some(Rule::TrailingZeroDisplay),
+            "roundingPriority" => Some(Rule::RoundingPriority),
+            "roundingMode" => Some(Rule::RoundingMode),
+            _ => None,
+        };
         match self {
+            Self::Number => match name {
+                "select" => Some(Rule::Select),
+                "minimumIntegerDigits" => Some(Rule::Digits),
+                "minimumFractionDigits" | "maximumFractionDigits" => Some(Rule::Size),
+                "roundingIncrement" => Some(Rule::RoundingIncrement),
+                _ => digits(),
+            },
+            #[cfg(feature = "number")]
+            Self::Integer => match name {
+                "select" => Some(Rule::Select),
+                "signDisplay" => Some(Rule::SignDisplay),
+                "useGrouping" => Some(Rule::UseGrouping),
+                "minimumIntegerDigits" | "maximumSignificantDigits" => Some(Rule::Digits),
+                _ => None,
+            },
+            Self::Offset => match name {
+                "add" | "subtract" => Some(Rule::Size),
+                _ => None,
+            },
+            Self::Currency => match name {
+                #[cfg(feature = "currency")]
+                "currency" => Some(Rule::Currency),
+                "currencySign" => Some(Rule::CurrencySign),
+                "currencyDisplay" => Some(Rule::CurrencyDisplay),
+                "minimumIntegerDigits" => Some(Rule::Digits),
+                "fractionDigits" => Some(Rule::FractionDigits),
+                "roundingIncrement" => Some(Rule::RoundingIncrement),
+                _ => digits(),
+            },
+            Self::Percent => match name {
+                "minimumFractionDigits" | "maximumFractionDigits" => Some(Rule::Size),
+                _ => digits(),
+            },
+        }
+    }
+
+    /// Whether it reads the option `name`; it ignores others.
+    pub(crate) fn reads(self, name: &str) -> bool {
+        self.rule(name).is_some()
+    }
+
+    /// Whether it discards this option of its operand's resolved value.
+    pub(crate) fn discards(self, name: &str) -> bool {
+        match self {
+            #[cfg(feature = "number")]
             Self::Integer => matches!(
                 name,
                 "minimumFractionDigits" | "maximumFractionDigits" | "minimumSignificantDigits"
@@ -103,29 +124,24 @@ impl Function {
 /// What a chain of calls starts from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Root {
-    /// A number literal.
+    /// A number literal of the message, shown with the pattern's fraction digits unless an option
+    /// sets them.
     Literal,
-    /// A typed number: a count or a decimal, shown with the fraction digits it is written with
-    /// unless an option sets them.
-    Number,
-    /// A text, read as a `number-literal` when the placeholder renders.
-    Text,
-    /// An amount in a currency.
-    Amount,
-    /// A currency alone.
-    Currency,
+    /// An argument's number literal, shown with the fraction digits it is written with unless an
+    /// option sets them.
+    Argument,
 }
 
 /// A call's resolved value: what it starts from, the steps that change the value, its options
 /// as resolved, and the function whose formatting applies.
 #[derive(Debug, Clone)]
-pub(crate) struct Resolved {
+pub(crate) struct Resolved<'a> {
     pub(crate) root: Root,
     pub(crate) steps: Vec<Step>,
-    options: Vec<(String, String)>,
+    options: Vec<(&'a str, &'a str)>,
     /// Whether an operand set `select`.
     select_inherited: bool,
-    /// Whether an operand holds a currency: an amount, or a `:currency` value.
+    /// Whether an operand is a `:currency` value.
     pub(crate) currency_held: bool,
     pub(crate) function: Function,
     pub(crate) formatter: Function,
@@ -133,36 +149,69 @@ pub(crate) struct Resolved {
 
 /// `digit-size-option = "0" / (("1"-"9") [DIGIT])`.
 fn digit_size(text: &str) -> Option<u8> {
-    let valid = matches!(
-        text.as_bytes(),
-        [b'0'] | [b'1'..=b'9'] | [b'1'..=b'9', b'0'..=b'9']
-    );
-    valid.then(|| text.parse().ok()).flatten()
+    match *text.as_bytes() {
+        [units @ b'0'..=b'9'] => Some(units - b'0'),
+        [tens @ b'1'..=b'9', units @ b'0'..=b'9'] => Some((tens - b'0') * 10 + (units - b'0')),
+        _ => None,
+    }
 }
 
-/// Whether an option's value is one its function takes.
-fn valid(name: &str, value: &str) -> bool {
-    let size = digit_size(value);
-    match name {
-        "select" => matches!(value, "plural" | "ordinal" | "exact"),
-        "signDisplay" => matches!(
-            value,
-            "auto" | "always" | "exceptZero" | "negative" | "never"
-        ),
-        "useGrouping" => matches!(value, "auto" | "always" | "never" | "min2"),
-        "minimumIntegerDigits" | "minimumSignificantDigits" | "maximumSignificantDigits" => {
-            size.is_some_and(|n| (1..=21).contains(&n))
+/// The values an option takes (spec/functions/number.md, spec/functions/currency.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Rule {
+    /// `plural`, `ordinal` or `exact`.
+    Select,
+    /// `auto`, `always`, `exceptZero`, `negative` or `never`.
+    SignDisplay,
+    /// `auto`, `always`, `never` or `min2`.
+    UseGrouping,
+    /// A digit size from 1 to 21: a count of integer or significant digits.
+    Digits,
+    /// A digit size: a count of fraction digits, or an addend.
+    Size,
+    /// `auto` or a digit size.
+    FractionDigits,
+    /// `auto` or `stripIfInteger`.
+    TrailingZeroDisplay,
+    /// `auto`, `morePrecision` or `lessPrecision`.
+    RoundingPriority,
+    /// One of [`INCREMENTS`].
+    RoundingIncrement,
+    /// A rounding mode's name.
+    RoundingMode,
+    /// A well-formed ISO 4217 code, in any case.
+    #[cfg(feature = "currency")]
+    Currency,
+    /// `standard` or `accounting`.
+    CurrencySign,
+    /// `narrowSymbol`, `symbol`, `name`, `code` or `never`.
+    CurrencyDisplay,
+}
+
+impl Rule {
+    /// Whether the option takes `value`.
+    pub(crate) fn takes(self, value: &str) -> bool {
+        match self {
+            Self::Select => matches!(value, "plural" | "ordinal" | "exact"),
+            Self::SignDisplay => matches!(
+                value,
+                "auto" | "always" | "exceptZero" | "negative" | "never"
+            ),
+            Self::UseGrouping => matches!(value, "auto" | "always" | "never" | "min2"),
+            Self::Digits => digit_size(value).is_some_and(|n| (1..=21).contains(&n)),
+            Self::Size => digit_size(value).is_some(),
+            Self::FractionDigits => value == "auto" || digit_size(value).is_some(),
+            Self::TrailingZeroDisplay => matches!(value, "auto" | "stripIfInteger"),
+            Self::RoundingPriority => matches!(value, "auto" | "morePrecision" | "lessPrecision"),
+            Self::RoundingIncrement => value.parse::<u16>().is_ok_and(|n| INCREMENTS.contains(&n)),
+            Self::RoundingMode => RoundingMode::named(value).is_some(),
+            #[cfg(feature = "currency")]
+            Self::Currency => crate::numeric::currency::currency(value).is_some(),
+            Self::CurrencySign => matches!(value, "standard" | "accounting"),
+            Self::CurrencyDisplay => {
+                matches!(value, "narrowSymbol" | "symbol" | "name" | "code" | "never")
+            }
         }
-        "minimumFractionDigits" | "maximumFractionDigits" | "add" | "subtract" => size.is_some(),
-        "fractionDigits" => value == "auto" || size.is_some(),
-        "trailingZeroDisplay" => matches!(value, "auto" | "stripIfInteger"),
-        "roundingPriority" => matches!(value, "auto" | "morePrecision" | "lessPrecision"),
-        "roundingIncrement" => value.parse::<u16>().is_ok_and(|n| INCREMENTS.contains(&n)),
-        "roundingMode" => RoundingMode::named(value).is_some(),
-        "currency" => currency(value).is_some(),
-        "currencySign" => matches!(value, "standard" | "accounting"),
-        "currencyDisplay" => matches!(value, "narrowSymbol" | "symbol" | "name" | "code" | "never"),
-        _ => true,
     }
 }
 
@@ -171,97 +220,92 @@ const INCREMENTS: [u16; 15] = [
     1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000,
 ];
 
-/// The ISO 4217 currency of a well-formed code, in any case.
-pub(crate) fn currency(code: &str) -> Option<Currency> {
-    let upper = code.to_ascii_uppercase();
-    (upper.len() == 3 && upper.bytes().all(|b| b.is_ascii_uppercase()))
-        .then(|| Currency::from_code(&upper))
-        .flatten()
+fn option(refused: &str) -> Refused {
+    Refused::Option(refused.to_owned())
 }
 
-fn option(refused: &str) -> Refusal {
-    Refusal::Option {
-        option: refused.to_owned(),
+impl<'a> Resolved<'a> {
+    /// The value of a chain of calls, innermost first, on an operand of `root`.
+    ///
+    /// # Errors
+    ///
+    /// [`Refused`] for a call of another family, or an option its function refuses.
+    pub(crate) fn of(root: Root, calls: &'a [CallTexts<'_>]) -> Result<Self, Refused> {
+        let mut resolved: Option<Self> = None;
+        for call in calls {
+            let function = Function::of(call.function).ok_or(Refused::Operand)?;
+            let mut current = match resolved {
+                None => Self {
+                    root,
+                    steps: Vec::new(),
+                    options: Vec::new(),
+                    select_inherited: false,
+                    currency_held: false,
+                    function,
+                    formatter: Function::Number,
+                },
+                Some(earlier) => earlier.operand_of(function)?,
+            };
+            current.apply(function, call)?;
+            resolved = Some(current);
+        }
+        resolved.ok_or(Refused::Defect)
     }
-}
 
-impl Resolved {
-    /// The call's resolved value.
-    pub(crate) fn of(call: &Call<'_>) -> Result<Self, Refusal> {
-        let function = Function::named(call.function()).ok_or(Refusal::Operand)?;
-        let base = |root| Self {
-            root,
-            steps: Vec::new(),
-            options: Vec::new(),
-            select_inherited: false,
-            currency_held: root == Root::Amount,
-            function,
-            formatter: Function::Number,
-        };
-        let mut resolved = match call.operand() {
-            Operand::None => return Err(Refusal::Operand),
-            Operand::Literal(text) => {
-                if Num::literal(text).is_none() {
-                    return Err(Refusal::Operand);
-                }
-                base(Root::Literal)
-            }
-            Operand::Argument(ArgKind::Count | ArgKind::Decimal) => base(Root::Number),
-            Operand::Argument(ArgKind::Raw | ArgKind::Text) => base(Root::Text),
-            Operand::Argument(ArgKind::Amount) => base(Root::Amount),
-            Operand::Argument(ArgKind::Currency) => base(Root::Currency),
-            Operand::Argument(_) => return Err(Refusal::Operand),
-            Operand::Call(inner) => Self::of(inner)?.operand_of(function)?,
-        };
-        resolved.function = function;
+    /// Applies a call of `function` to the value: its options, then its step.
+    fn apply(&mut self, function: Function, call: &'a CallTexts<'_>) -> Result<(), Refused> {
+        self.function = function;
         if function != Function::Offset {
-            resolved.formatter = function;
+            self.formatter = function;
         }
-        for entry in call.options().entries() {
-            let (name, value) = (*entry.key(), *entry.value());
-            if function.reads(name) {
-                if !valid(name, value) {
-                    return Err(option(name));
-                }
-                if name == "currency" && resolved.currency_held {
-                    return Err(option(name));
-                }
-                resolved.set(name, value);
+        for (name, value) in &call.options {
+            let (name, value): (&'a str, &'a str) = (name, value);
+            let Some(rule) = function.rule(name) else {
+                continue;
+            };
+            if !rule.takes(value) || (name == "currency" && self.currency_held) {
+                return Err(option(name));
             }
+            self.set(name, value);
         }
-        if resolved.select_inherited {
+        if self.select_inherited {
             return Err(option("select"));
         }
         if function == Function::Offset {
-            let size = |name| resolved.get(name).and_then(digit_size).map(i64::from);
-            let step = match (size("add"), size("subtract")) {
+            let size = |name: &str| {
+                self.get(name)
+                    .map(|text| digit_size(text).map(i64::from).ok_or_else(|| option(name)))
+                    .transpose()
+            };
+            let step = match (size("add")?, size("subtract")?) {
                 (Some(add), None) => add,
                 (None, Some(subtract)) => -subtract,
                 (Some(_), Some(_)) => return Err(option("subtract")),
                 (None, None) => return Err(option("add")),
             };
-            resolved.steps.push(Step::Add(step));
+            self.steps.push(Step::Add(step));
         }
-        Ok(resolved)
+        Ok(())
     }
 
-    fn set(&mut self, name: &str, value: &str) {
-        self.options.retain(|(n, _)| n != name);
-        self.options.push((name.to_owned(), value.to_owned()));
+    fn set(&mut self, name: &'a str, value: &'a str) {
+        self.options.retain(|(n, _)| *n != name);
+        self.options.push((name, value));
     }
 
     /// The option `name`, when the formatting function reads it.
-    pub(crate) fn get(&self, name: &str) -> Option<&str> {
+    pub(crate) fn get(&self, name: &str) -> Option<&'a str> {
         self.options
             .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, v)| v.as_str())
+            .find(|(n, _)| *n == name)
+            .map(|(_, v)| *v)
     }
 
     /// The value as the operand of `outer`: `:integer`'s step added, `:offset`'s options dropped
     /// and those `outer` discards. `:offset` adds its step where it is called.
-    fn operand_of(mut self, outer: Function) -> Result<Self, Refusal> {
+    fn operand_of(mut self, outer: Function) -> Result<Self, Refused> {
         match self.function {
+            #[cfg(feature = "number")]
             Function::Integer => {
                 let mode = self.mode()?;
                 self.steps.push(Step::Integer(mode));
@@ -270,13 +314,13 @@ impl Resolved {
             Function::Number | Function::Offset | Function::Percent => {}
         }
         self.options
-            .retain(|(name, _)| name != "add" && name != "subtract" && !outer.discards(name));
+            .retain(|(name, _)| *name != "add" && *name != "subtract" && !outer.discards(name));
         self.select_inherited = self.get("select").is_some();
         Ok(self)
     }
 
     /// `roundingMode`, `halfExpand` when absent.
-    pub(crate) fn mode(&self) -> Result<RoundingMode, Refusal> {
+    pub(crate) fn mode(&self) -> Result<RoundingMode, Refused> {
         match self.read("roundingMode") {
             Some(name) => RoundingMode::named(name).ok_or_else(|| option("roundingMode")),
             None => Ok(RoundingMode::HalfExpand),
@@ -284,24 +328,29 @@ impl Resolved {
     }
 
     /// The option `name`, when the formatting function reads it.
-    fn read(&self, name: &str) -> Option<&str> {
+    fn read(&self, name: &str) -> Option<&'a str> {
         self.get(name).filter(|_| self.formatter.reads(name))
     }
 
     /// The option `name`, checked, when the formatting function reads it.
-    fn checked(&self, name: &str) -> Result<Option<&str>, Refusal> {
-        match self.read(name) {
-            Some(value) if !valid(name, value) => Err(option(name)),
+    fn checked(&self, name: &str) -> Result<Option<&'a str>, Refused> {
+        let Some(rule) = self.formatter.rule(name) else {
+            return Ok(None);
+        };
+        match self.get(name) {
+            Some(value) if !rule.takes(value) => Err(option(name)),
             other => Ok(other),
         }
     }
 
-    fn size(&self, name: &str) -> Result<Option<u8>, Refusal> {
-        Ok(self.checked(name)?.and_then(digit_size))
+    fn size(&self, name: &str) -> Result<Option<u8>, Refused> {
+        self.checked(name)?
+            .map(|text| digit_size(text).ok_or_else(|| option(name)))
+            .transpose()
     }
 
     /// `signDisplay`.
-    pub(crate) fn sign(&self) -> Result<SignDisplay, Refusal> {
+    pub(crate) fn sign(&self) -> Result<SignDisplay, Refused> {
         let names = ["auto", "always", "exceptZero", "negative", "never"];
         Ok(match self.checked("signDisplay")? {
             None => SignDisplay::Auto,
@@ -314,22 +363,24 @@ impl Resolved {
     }
 
     /// `useGrouping` over the locale's minimum grouping digits.
-    pub(crate) fn grouping(&self, locale: u8) -> Result<Grouping, Refusal> {
+    pub(crate) fn grouping(&self, locale: u8) -> Result<Grouping, Refused> {
         Ok(match self.checked("useGrouping")? {
             None | Some("auto") => Grouping::From(locale),
             Some("always") => Grouping::From(1),
             Some("min2") => Grouping::From(2),
-            Some(_) => Grouping::Never,
+            Some("never") => Grouping::Never,
+            Some(_) => return Err(option("useGrouping")),
         })
     }
 
-    /// How a selector of this value matches.
-    pub(crate) fn selection(&self) -> Result<Selection, Refusal> {
+    /// How a selector of this value matches; `None` for a value that selects no variant.
+    pub(crate) fn selection(&self) -> Result<Option<Selection>, Refused> {
         Ok(match (self.formatter, self.checked("select")?) {
-            (Function::Currency, _) => Selection::None,
-            (Function::Percent, _) | (_, None | Some("plural")) => Selection::Plural,
-            (_, Some("ordinal")) => Selection::Ordinal,
-            (_, Some(_)) => Selection::Exact,
+            (Function::Currency, _) => None,
+            (Function::Percent, _) | (_, None | Some("plural")) => Some(Selection::Plural),
+            (_, Some("ordinal")) => Some(Selection::Ordinal),
+            (_, Some("exact")) => Some(Selection::Exact),
+            (_, Some(_)) => return Err(option("select")),
         })
     }
 
@@ -346,11 +397,11 @@ impl Resolved {
     }
 
     /// The digit options over a pattern's defaults (ECMA-402 SetNumberFormatDigitOptions).
-    pub(crate) fn digits(&self, pattern: &Pattern) -> Result<Digits, Refusal> {
+    pub(crate) fn digits(&self, pattern: &Pattern) -> Result<Digits, Refused> {
         let min_integer = self.size("minimumIntegerDigits")?.unwrap_or(1);
         let increment = match self.checked("roundingIncrement")? {
             Some(text) => text.parse().map_err(|_| option("roundingIncrement"))?,
-            None => 1u16,
+            None => NonZeroU32::MIN,
         };
         let (mnsd, mxsd) = (
             self.size("minimumSignificantDigits")?,
@@ -383,12 +434,13 @@ impl Resolved {
                 fraction,
                 significant,
             },
-            Some(_) => Rounding::Less {
+            Some("lessPrecision") => Rounding::Less {
                 fraction,
                 significant,
             },
+            Some(_) => return Err(option("roundingPriority")),
         };
-        if increment != 1 {
+        if increment != NonZeroU32::MIN {
             let fraction_only = matches!(rounding, Rounding::Fraction { .. });
             let fixed = fraction.0 == fraction.1 && fraction.0 != Fraction::Given;
             if !fraction_only || !fixed {
@@ -403,12 +455,13 @@ impl Resolved {
         })
     }
 
-    /// The minimum and maximum fraction digits. A typed number under `:number` defaults to the
-    /// digits it is written with, as ICU4X's `DecimalFormatter` shows a `Decimal`; a literal and
-    /// a text default to the pattern's, as ECMA-402's `Intl.NumberFormat`, which MF2's
+    /// The minimum and maximum fraction digits. An argument under `:number` defaults to the
+    /// digits it is written with, as ICU4X's `DecimalFormatter` shows a `Decimal`; a literal of
+    /// the message defaults to the pattern's, as ECMA-402's `Intl.NumberFormat`, which MF2's
     /// conformance suite follows.
-    fn fraction(&self, pattern: &Pattern) -> Result<(Fraction, Fraction), Refusal> {
+    fn fraction(&self, pattern: &Pattern) -> Result<(Fraction, Fraction), Refused> {
         match self.formatter {
+            #[cfg(feature = "number")]
             Function::Integer => return Ok((Fraction::Digits(0), Fraction::Digits(0))),
             Function::Currency => {
                 return Ok(match self.checked("fractionDigits")? {
@@ -425,7 +478,7 @@ impl Resolved {
             self.size("minimumFractionDigits")?,
             self.size("maximumFractionDigits")?,
         );
-        if self.root == Root::Number && self.formatter == Function::Number {
+        if self.root == Root::Argument && self.formatter == Function::Number {
             return match (min, max) {
                 (Some(min), Some(max)) if min > max => Err(option("maximumFractionDigits")),
                 (min, max) => {

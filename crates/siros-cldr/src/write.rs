@@ -1,10 +1,12 @@
 //! The resource the tool writes: its head with the language's locale and direction, and one
 //! `[formats.<format>]` section per format module, each option a value of the resource format.
 
-use siros_explain::Currency;
+use siros_syntax::Currency;
 
 use crate::cldr::{Cldr, CldrError, File};
-use crate::special::special;
+
+/// TR35's plural categories, in its order.
+const CATEGORIES: [&str; 6] = ["zero", "one", "two", "few", "many", "other"];
 
 /// The text being written.
 struct Out {
@@ -19,11 +21,11 @@ fn escaped(line: &str) -> Result<String, CldrError> {
             text: line.to_owned(),
         });
     }
-    let last = line.chars().count().saturating_sub(1);
+    let count = line.chars().count();
     let mut out = String::new();
     for (index, c) in line.chars().enumerate() {
         match c {
-            ' ' | '\t' if index == 0 || index == last => {
+            ' ' | '\t' if index == 0 || index + 1 == count => {
                 out.push('\\');
                 out.push(c);
             }
@@ -79,10 +81,12 @@ pub(crate) fn resource(cldr: &Cldr, release: &str) -> Result<String, CldrError> 
     ));
     out.line(&format!("@locale {language}"));
     let layout = cldr.main("cldr-misc-full", "layout.json")?;
-    let order = layout.text(&["main", language, "layout", "orientation", "characterOrder"])?;
+    let order_at = ["main", language, "layout", "orientation", "characterOrder"];
+    let order = layout.text(&order_at)?;
     out.line(match order {
+        "left-to-right" => "@dir ltr",
         "right-to-left" => "@dir rtl",
-        _ => "@dir ltr",
+        other => return Err(layout.form(&order_at, other)),
     });
     out.line("---");
     let numbers = Numbers::read(cldr)?;
@@ -97,8 +101,6 @@ pub(crate) fn resource(cldr: &Cldr, release: &str) -> Result<String, CldrError> 
     currency(cldr, &numbers, &mut out)?;
     out.section("date");
     date(cldr, &numbers, &mut out)?;
-    out.section("list");
-    list(cldr, &mut out)?;
     Ok(out.text)
 }
 
@@ -114,19 +116,29 @@ struct Numbers {
 }
 
 /// A plural rule set's rules other than `other`, in TR35's category order, samples dropped:
-/// `<keyword>: <condition>`.
+/// `<keyword>: <condition>`. A language's set names the categories it uses.
 fn rules(file: &File, at: &[&str]) -> Result<Vec<String>, CldrError> {
-    let set = file.object(at)?;
     let mut rules = Vec::new();
     for keyword in ["zero", "one", "two", "few", "many"] {
-        let Some(value) = set.get(&format!("pluralRule-count-{keyword}")) else {
+        let key = format!("pluralRule-count-{keyword}");
+        let Some(text) = file.optional_text(&joined(at, &[key.as_str()]))? else {
             continue;
         };
-        let text = value.as_str().ok_or_else(|| file.missing(at))?;
-        let condition = text.split('@').next().unwrap_or_default().trim();
+        let condition = text
+            .split_once('@')
+            .map_or(text, |(condition, _samples)| condition)
+            .trim();
         rules.push(format!("{keyword}: {condition}"));
     }
     Ok(rules)
+}
+
+/// The zero of a numbering system's digits, when they are the ten consecutive characters from
+/// it that siros-i18n's `zero` option names.
+fn zero(digits: &str) -> Option<char> {
+    let zero = digits.chars().next()?;
+    let consecutive = (0..10).map(|offset| char::from_u32(u32::from(zero) + offset));
+    digits.chars().map(Some).eq(consecutive).then_some(zero)
 }
 
 impl Numbers {
@@ -137,8 +149,11 @@ impl Numbers {
             .text(&["main", &language, "numbers", "defaultNumberingSystem"])?
             .to_owned();
         let systems = cldr.file("cldr-core/supplemental/numberingSystems.json")?;
-        let digits = systems.text(&["supplemental", "numberingSystems", &system, "_digits"])?;
-        let zero = digits.chars().next().map(String::from).unwrap_or_default();
+        let digits_at = ["supplemental", "numberingSystems", &system, "_digits"];
+        let digits = systems.text(&digits_at)?;
+        let zero = zero(digits)
+            .ok_or_else(|| systems.form(&digits_at, digits))?
+            .to_string();
         let decimal = file
             .text(&[
                 "main",
@@ -192,9 +207,9 @@ impl Numbers {
     }
 }
 
-/// The ISO 4217 code of a CLDR currency key, when ISO 4217's table lists it.
-fn listed(code: &str) -> Option<Currency> {
-    Currency::from_code(code)
+/// Whether ISO 4217's table lists a CLDR currency key.
+fn listed(code: &str) -> bool {
+    Currency::parse(code).is_ok()
 }
 
 fn currency(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrError> {
@@ -208,88 +223,103 @@ fn currency(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrErr
     )?;
     out.option("pattern", &numbers.decimal)?;
     let formats_key = format!("currencyFormats-numberSystem-{}", numbers.system);
-    let formats = numbers.file.object(&numbers.numbers(&formats_key))?;
-    let pattern = |key: &str, fallback: &str| -> Result<String, CldrError> {
-        formats
-            .get(key)
-            .or_else(|| formats.get(fallback))
-            .and_then(|v| v.as_str())
-            .map(str::to_owned)
-            .ok_or(CldrError::Missing {
-                path: "numbers.json".to_owned(),
-                at: format!("{formats_key}/{key}"),
-            })
-    };
+    let formats_at = numbers.numbers(&formats_key);
+    // TR35 Part 3, "Currency Formats": the `alphaNextToNumber` pattern applies when the locale
+    // gives one, else the pattern it varies.
     for (name, key, fallback) in [
-        ("standard", "standard", "standard"),
-        ("standard-alpha", "standard-alphaNextToNumber", "standard"),
-        ("accounting", "accounting", "accounting"),
+        ("standard", "standard", None),
+        (
+            "standard-alpha",
+            "standard-alphaNextToNumber",
+            Some("standard"),
+        ),
+        ("accounting", "accounting", None),
         (
             "accounting-alpha",
             "accounting-alphaNextToNumber",
-            "accounting",
+            Some("accounting"),
         ),
-        ("no-currency", "standard-noCurrency", "standard-noCurrency"),
-        (
-            "no-currency-accounting",
-            "accounting-noCurrency",
-            "standard-noCurrency",
-        ),
+        ("no-currency", "standard-noCurrency", None),
+        ("no-currency-accounting", "accounting-noCurrency", None),
     ] {
-        out.option(name, &pattern(key, fallback)?)?;
+        let at = joined(&formats_at, &[key]);
+        let text = match fallback {
+            None => numbers.file.text(&at)?,
+            Some(fallback) => match numbers.file.optional_text(&at)? {
+                Some(text) => text,
+                None => numbers.file.text(&joined(&formats_at, &[fallback]))?,
+            },
+        };
+        out.option(name, text)?;
     }
-    let units: Vec<String> = formats
-        .iter()
-        .filter_map(|(key, value)| {
-            let keyword = key.strip_prefix("unitPattern-count-")?;
-            let category = ["zero", "one", "two", "few", "many", "other"].contains(&keyword);
-            category.then(|| value.as_str().map(|v| format!("{keyword} {v}")))?
-        })
-        .collect();
+    let mut units = Vec::new();
+    for (key, value) in numbers.file.object(&formats_at)? {
+        let Some(keyword) = key.strip_prefix("unitPattern-count-") else {
+            continue;
+        };
+        let at = joined(&formats_at, &[key.as_str()]);
+        if !CATEGORIES.contains(&keyword) {
+            return Err(numbers.file.form(&at, keyword));
+        }
+        let text = value.as_str().ok_or_else(|| numbers.file.missing(&at))?;
+        units.push(format!("{keyword} {text}"));
+    }
     out.lines("unit-pattern", &units)?;
     let data = cldr.file("cldr-core/supplemental/currencyData.json")?;
-    let fractions = data.object(&["supplemental", "currencyData", "fractions"])?;
+    let fractions_at = ["supplemental", "currencyData", "fractions"];
     let mut default = Vec::new();
     let mut digits = Vec::new();
-    for (code, entry) in fractions {
-        let get = |key: &str| entry.get(key).and_then(|v| v.as_str()).unwrap_or("0");
-        let increment = match get("_rounding") {
+    for code in data.object(&fractions_at)?.keys() {
+        // TR35 Part 3, "Supplemental Currency Data": `digits` defaults to 2, `rounding` to 0.
+        let get = |key: &str, absent: &'static str| -> Result<&str, CldrError> {
+            let text = data.optional_text(&joined(&fractions_at, &[code.as_str(), key]))?;
+            Ok(text.unwrap_or(absent))
+        };
+        let increment = match get("_rounding", "0")? {
             "0" => String::new(),
             rounding => format!(" {rounding}"),
         };
-        let line = format!("{}{increment}", get("_digits"));
+        let line = format!("{}{increment}", get("_digits", "2")?);
         match code.as_str() {
             "DEFAULT" => default.push(format!("default {line}")),
-            code if listed(code).is_some() => digits.push(format!("{code} {line}")),
+            code if listed(code) => digits.push(format!("{code} {line}")),
             _ => {}
         }
     }
     default.append(&mut digits);
     out.lines("digits", &default)?;
     let file = cldr.main("cldr-numbers-full", "currencies.json")?;
-    let currencies = file.object(&["main", language, "numbers", "currencies"])?;
+    let currencies_at = ["main", language, "numbers", "currencies"];
     let (mut symbols, mut narrow, mut names) = (Vec::new(), Vec::new(), Vec::new());
-    for (code, entry) in currencies {
-        if listed(code).is_none() {
+    for code in file.object(&currencies_at)?.keys() {
+        if !listed(code) {
             continue;
         }
-        let get = |key: &str| entry.get(key).and_then(|v| v.as_str());
-        if let Some(symbol) = get("symbol").filter(|s| s != code) {
+        let get = |key: &str| file.optional_text(&joined(&currencies_at, &[code.as_str(), key]));
+        let symbol = get("symbol")?;
+        if let Some(symbol) = symbol.filter(|s| s != code) {
             symbols.push(format!("{code} {symbol}"));
         }
-        if let Some(symbol) = get("symbol-alt-narrow")
-            .or(get("symbol"))
-            .filter(|s| s != code)
-        {
+        // TR35 Part 3: the narrow symbol falls back to the symbol, and a currency without one
+        // shows its code.
+        let narrowed = match get("symbol-alt-narrow")? {
+            Some(narrowed) => Some(narrowed),
+            None => symbol,
+        };
+        if let Some(symbol) = narrowed.filter(|s| s != code) {
             narrow.push(format!("{code} {symbol}"));
         }
-        if let Some(display) = get("displayName") {
-            names.push(format!("{code} display {display}"));
-        }
-        for keyword in ["zero", "one", "two", "few", "many", "other"] {
-            if let Some(name) = get(&format!("displayName-count-{keyword}")) {
+        // TR35 Part 3: the display name of the count, else of `other`, else without a count,
+        // else the code.
+        let mut other = false;
+        for keyword in CATEGORIES {
+            if let Some(name) = get(&format!("displayName-count-{keyword}"))? {
+                other |= keyword == "other";
                 names.push(format!("{code} {keyword} {name}"));
             }
+        }
+        if !other && let Some(name) = get("displayName")? {
+            names.push(format!("{code} other {name}"));
         }
     }
     out.lines("symbols", &symbols)?;
@@ -320,10 +350,12 @@ fn date(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrError> 
             file.text(&at(&["timeFormats", length]))?,
         )?;
     }
+    // TR35 Part 4, "dateTimeFormats": "If there is no atTime pattern, use the standard pattern."
     for length in ["short", "medium", "long", "full"] {
-        let glue = file
-            .text(&at(&["dateTimeFormats-atTime", "standard", length]))
-            .or_else(|_| file.text(&at(&["dateTimeFormats", length])))?;
+        let glue = match file.optional_text(&at(&["dateTimeFormats-atTime", "standard", length]))? {
+            Some(glue) => glue,
+            None => file.text(&at(&["dateTimeFormats", length]))?,
+        };
         out.option(&format!("datetime-{length}"), glue)?;
     }
     let names = |path: &[&'static str], keys: &[&'static str]| -> Result<Vec<String>, CldrError> {
@@ -366,33 +398,4 @@ fn date(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrError> 
         file.text(&at(&["dateTimeFormats", "availableFormats", "Gy"]))?,
     )?;
     out.lines("eras", &names(&["eras", "eraAbbr"], &["0", "1"])?)
-}
-
-fn list(cldr: &Cldr, out: &mut Out) -> Result<(), CldrError> {
-    let language = cldr.language.as_str();
-    let file = cldr.main("cldr-misc-full", "listPatterns.json")?;
-    for (kind, key, and) in [
-        ("and", "listPattern-type-standard", true),
-        ("or", "listPattern-type-or", false),
-    ] {
-        let at =
-            |part: &'static str| -> [&str; 5] { ["main", language, "listPatterns", key, part] };
-        for (name, part) in [
-            ("start", "start"),
-            ("middle", "middle"),
-            ("end", "end"),
-            ("pair", "2"),
-        ] {
-            out.option(&format!("{kind}-{name}"), file.text(&at(part))?)?;
-        }
-        let end = file.text(&at("end"))?;
-        match special(language, and, end) {
-            Some(case) => out.lines(
-                &format!("{kind}-special"),
-                &[case.condition, case.pattern.to_owned()],
-            )?,
-            None => out.option(&format!("{kind}-special"), "")?,
-        }
-    }
-    Ok(())
 }
