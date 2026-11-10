@@ -1,10 +1,11 @@
 //! The hash algorithms `_sd_alg` may name (RFC 9901 §4.1.1, §9.4), the digests they give, and the
 //! JWS algorithms an SD-JWT's signatures take (§4.1, §4.3).
 
+use std::fmt;
+
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use sha2::{Digest as _, Sha256, Sha384, Sha512};
-use siros_explain::{IntoArg, Kind};
 
 /// A hash algorithm of the IANA "Named Information Hash Algorithm" registry §9.4 deems fit. The
 /// truncated `sha-256-*` entries are unfit.
@@ -34,11 +35,9 @@ impl Digest {
     }
 }
 
-impl IntoArg for Digest {
-    type Kind = <String as IntoArg>::Kind;
-
-    fn arg(&self) -> <Self::Kind as Kind>::Of<'_> {
-        self.0.arg()
+impl fmt::Display for Digest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -62,11 +61,9 @@ impl SigningAlg {
     }
 }
 
-impl IntoArg for SigningAlg {
-    type Kind = <String as IntoArg>::Kind;
-
-    fn arg(&self) -> <Self::Kind as Kind>::Of<'_> {
-        self.0.arg()
+impl fmt::Display for SigningAlg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 

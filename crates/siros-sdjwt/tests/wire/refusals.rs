@@ -98,7 +98,7 @@ fn s1_refusals() {
         ),
         (
             "an x5c certificate of no base64",
-            ParseError::X5c(X5cError::Certificate(0)),
+            ParseError::X5c(X5cError::Certificate { position: 0 }),
             signed_under(r#"{"alg":"ES256","x5c":["!"]}"#),
         ),
         (
@@ -141,31 +141,37 @@ fn s1_refusals() {
         (
             "a repeated payload member",
             ParseError::IssuerJwt(IssuerJwtFault::Payload(EncodedJsonFault::Json(
-                JsonError::DuplicateMember("a".to_owned()),
+                JsonError::DuplicateMember {
+                    member: "a".to_owned(),
+                },
             ))),
             compact(r#"{"a":1,"a":2}"#, &[]),
         ),
         (
             "an issuer JWT without a signature",
-            ParseError::IssuerJwt(IssuerJwtFault::Segments(2)),
+            ParseError::IssuerJwt(IssuerJwtFault::Segments { count: 2 }),
             "eyJhbGciOiJFUzI1NiJ9.e30~".to_owned(),
         ),
         (
             "a disclosure of four elements",
             ParseError::Disclosure {
                 disclosure: first,
-                fault: DisclosureFault::Length(4),
+                fault: DisclosureFault::Length { count: 4 },
             },
             compact("{}", &[&four]),
         ),
         (
             "a truncated digest",
-            ParseError::UnsupportedSdAlg(SdAlgFault::Unknown("sha-256-32".to_owned())),
+            ParseError::UnsupportedSdAlg(SdAlgFault::Unknown {
+                algorithm: "sha-256-32".to_owned(),
+            }),
             compact(r#"{"_sd_alg":"sha-256-32"}"#, &[]),
         ),
         (
             "a disclosure named _sd",
-            reserved_name(ReservedFault::Disclosed("_sd".to_owned())),
+            reserved_name(ReservedFault::Disclosed {
+                claim: "_sd".to_owned(),
+            }),
             compact(&format!(r#"{{"_sd":["{reserved_digest}"]}}"#), &[&reserved]),
         ),
         (
@@ -190,12 +196,16 @@ fn s1_refusals() {
         ),
         (
             "a decoy twice",
-            ParseError::RepeatedDigest(Digest::new(&x)),
+            ParseError::RepeatedDigest {
+                digest: Digest::new(&x),
+            },
             compact(&format!(r#"{{"_sd":["{x}","{x}"]}}"#), &[]),
         ),
         (
             "a disclosure twice",
-            ParseError::RepeatedDigest(Digest::new(&property_digest)),
+            ParseError::RepeatedDigest {
+                digest: Digest::new(&property_digest),
+            },
             compact(
                 &format!(r#"{{"_sd":["{property_digest}"]}}"#),
                 &[&property, &property],
@@ -222,7 +232,9 @@ fn s1_refusals() {
         ),
         (
             "a disclosure of a permanent claim's name",
-            ParseError::ClaimNameExists("given_name".to_owned()),
+            ParseError::ClaimNameExists {
+                claim: "given_name".to_owned(),
+            },
             compact(
                 &format!(r#"{{"given_name":"a","_sd":["{taken_digest}"]}}"#),
                 &[&taken],
@@ -230,7 +242,7 @@ fn s1_refusals() {
         ),
         (
             "a disclosure no digest names",
-            ParseError::UnreferencedDisclosure(first),
+            ParseError::UnreferencedDisclosure { disclosure: first },
             compact("{}", &[&property]),
         ),
         (

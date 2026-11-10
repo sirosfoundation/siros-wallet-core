@@ -3551,6 +3551,7 @@ dependencies = [
  "siros-i18n",
  "siros-openid4vp",
  "siros-sdjwt",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]
@@ -3629,6 +3630,7 @@ version = "0.1.0"
 dependencies = [
  "siros-explain",
  "siros-openid4vp",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]
@@ -3642,7 +3644,9 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "siros-explain",
+ "siros-i18n",
  "siros-openid4vp",
+ "siros-syntax",
  "siros-testkit",
  "spki 0.8.1",
  "thiserror 2.0.21",

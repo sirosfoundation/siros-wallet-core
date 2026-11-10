@@ -1,33 +1,28 @@
 //! SD-JWT VC Type Metadata. [`extend`]: the effective metadata of a type that extends another
 //! (§5.4), which the wallet registers a credential's view with. The consumer processes the extended
 //! type first, so `base` is the extended type's effective metadata and a chain resolves one link at
-//! a time. [`convert`]: a document's `display` as a defined module (section 4.14 of the design).
+//! a time.
 
 use std::borrow::Cow;
+use std::fmt;
 
-use sha2::{Digest, Sha256};
-use siros_explain::{
-    DefinedKey, DefinedModule, Domain, Entry, Explain, IntoArg, Keyed, MetadataDigest, checked,
-    kind,
-};
-use siros_i18n::{Body, DefinedError, DefinedForm, LanguagePolicy, LocaleTag, MainLocale, Part};
-use siros_openid4vp::claims::kit::{DisplayItem, format_entry};
+use siros_explain::Explain;
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::refusal::ReprItem;
-use siros_openid4vp::text::lookup;
 
 /// Type Metadata the extension rules refuse.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "sdjwt.type_metadata")]
 pub enum ExtendError {
     /// A document is no JSON object, or its `claims` no array of objects with a `path`.
     #[error("a Type Metadata document is no object whose claims are objects with a path")]
+    #[explain(id = "type_metadata.shape")]
     Shape,
     /// The child changes `sd` of a claim the extended type marks `always` or `never` (§8.5.1).
     #[error(
-        "the extending type changes sd of the claim {path}, which the extended type marks {} (§8.5.1)",
-        base.name()
+        "the extending type changes sd of the claim {}, which the extended type marks {base} (§8.5.1)",
+        .path.repr_text()
     )]
+    #[explain(id = "type_metadata.sd")]
     Sd {
         /// The claim's path, as JSON.
         path: ReprItem,
@@ -35,7 +30,11 @@ pub enum ExtendError {
         base: FixedSd,
     },
     /// The child makes a claim the extended type marks mandatory optional (§8.5.1).
-    #[error("the extending type makes the mandatory claim {path} optional (§8.5.1)")]
+    #[error(
+        "the extending type makes the mandatory claim {} optional (§8.5.1)",
+        .path.repr_text()
+    )]
+    #[explain(id = "type_metadata.mandatory")]
     Mandatory {
         /// The claim's path, as JSON.
         path: ReprItem,
@@ -70,11 +69,10 @@ impl FixedSd {
     }
 }
 
-impl IntoArg for FixedSd {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.name()
+/// The `sd` value.
+impl fmt::Display for FixedSd {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
     }
 }
 
@@ -162,148 +160,4 @@ fn combined<'a>(
         effective.set(member.name.clone(), member.value.clone());
     }
     Ok(effective)
-}
-
-/// The plug-in whose conversions name SD-JWT VC's defined modules.
-pub const PLUGIN: Domain = checked!(Domain, "sdjwt");
-
-const NAME: Domain = checked!(Domain, "name");
-const CLAIM: Domain = checked!(Domain, "claim");
-
-/// Why a Type Metadata document's `display` converts to no defined module.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "sdjwt.display")]
-pub enum ConvertError {
-    /// A display entry's `locale` is no language tag (§7, §8.2).
-    #[error("a display entry's locale {0} is no language tag")]
-    Locale(#[explain(name = "locale")] String),
-    /// A main entry refuses a body.
-    #[error(transparent)]
-    Defined(#[from] DefinedError),
-}
-
-/// The defined module a Type Metadata document converts to: SD-JWT VC's, under the SHA-256 of its
-/// compact JSON.
-#[must_use]
-pub fn module_of(document: &Object<'_>) -> DefinedModule {
-    let digest = Sha256::digest(
-        Node::Object(document.clone())
-            .json_compact()
-            .to_string()
-            .as_bytes(),
-    );
-    DefinedModule::new(PLUGIN, MetadataDigest::new(digest.into()))
-}
-
-/// The key of `item`'s message in a converted module: `name`, or `claim_<position>`.
-#[must_use]
-pub fn key(item: DisplayItem) -> DefinedKey {
-    match item {
-        DisplayItem::Name => DefinedKey::numbered(NAME, &[]),
-        DisplayItem::Claim(position) => DefinedKey::numbered(CLAIM, &[position]),
-    }
-}
-
-/// A shown display array: its message's key, its entries, and the member holding the text.
-struct Shown<'d, 'a> {
-    item: DisplayItem,
-    entries: &'d [Node<'a>],
-    text: &'static str,
-}
-
-/// Each array that shows a text: `display`'s `name`s, and each claim's `label`s (§7, §8.2).
-fn shown<'d, 'a>(document: &'d Object<'a>) -> Vec<Shown<'d, 'a>> {
-    let array = |node: &'d Node<'a>, name: &str| node.get(name).and_then(Node::as_array);
-    let mut out = Vec::new();
-    if let Some(entries) = document.get("display").and_then(Node::as_array) {
-        out.push(Shown {
-            item: DisplayItem::Name,
-            entries,
-            text: "name",
-        });
-    }
-    let claims = document.get("claims").and_then(Node::as_array);
-    for (position, claim) in claims.unwrap_or(&[]).iter().enumerate() {
-        if let Some(entries) = array(claim, "display") {
-            out.push(Shown {
-                item: DisplayItem::Claim(position),
-                entries,
-                text: "label",
-            });
-        }
-    }
-    out.retain(|array| {
-        array
-            .entries
-            .iter()
-            .any(|entry| entry.get(array.text).and_then(Node::as_str).is_some())
-    });
-    out
-}
-
-/// Converts a Type Metadata document's `display` into its defined module, for each tag it names
-/// and each tag of the End-User's `priority` list. Each shown array is one literal message: in a
-/// tag, the text of the entry [`format_entry`] takes over that tag and then `priority`, as the
-/// claims kit's card reads the array; empty when that entry holds none, where the kit shows no
-/// message. A locale's direction is the main module's entry RFC 4647 basic filtering finds for it,
-/// in `main`.
-/// `policy`: `Platform::language_policy`'s answer, no specification governing this module.
-///
-/// # Errors
-///
-/// [`ConvertError`]: a display entry's `locale` is no language tag.
-pub fn convert(
-    document: &Object<'_>,
-    main: &[MainLocale],
-    priority: &[LocaleTag],
-    policy: LanguagePolicy,
-) -> Result<DefinedForm, ConvertError> {
-    let arrays = shown(document);
-    let mut tags: Vec<LocaleTag> = Vec::new();
-    for array in &arrays {
-        for entry in array.entries {
-            if let Some(locale) = entry.get("locale").and_then(Node::as_str) {
-                let tag = LocaleTag::parse(locale)
-                    .map_err(|_| ConvertError::Locale(locale.to_owned()))?;
-                if !tags.contains(&tag) {
-                    tags.push(tag);
-                }
-            }
-        }
-    }
-    for tag in priority {
-        if !tags.contains(tag) {
-            tags.push(tag.clone());
-        }
-    }
-    let declaration = Keyed::first_of(
-        arrays
-            .iter()
-            .map(|array| Entry::new(key(array.item), Keyed::first_of(Vec::new())))
-            .collect::<Vec<_>>(),
-    );
-    let main_tags: Vec<&str> = main.iter().map(|entry| entry.locale().as_str()).collect();
-    let mut builder = DefinedForm::builder(module_of(document), policy, declaration);
-    for tag in tags {
-        let list: Vec<LocaleTag> = std::iter::once(tag.clone())
-            .chain(priority.iter().cloned())
-            .collect();
-        let bodies = arrays
-            .iter()
-            .map(|array| {
-                let text = format_entry(array.entries, &list)
-                    .and_then(|entry| entry.get(array.text))
-                    .and_then(Node::as_str)
-                    .unwrap_or_default();
-                Entry::new(
-                    key(array.item),
-                    Body::Pattern(vec![Part::Text(text.to_owned())]),
-                )
-            })
-            .collect::<Vec<_>>();
-        let served = lookup(&tag, &main_tags)
-            .and_then(|found| main.iter().find(|entry| entry.locale().as_str() == *found));
-        builder.locale(tag, served, &Keyed::first_of(bodies))?;
-    }
-    Ok(builder.finish())
 }
