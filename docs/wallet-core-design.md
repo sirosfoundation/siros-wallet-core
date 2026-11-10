@@ -4277,16 +4277,16 @@ Gates: I28 to I31, I33 to I37.
 ### 4.15 Type audit
 
 Every type the sketches define has one row, and so has every type this plan's code blocks define
-beside the sketches: 738 rows. `explain-sketch/`, through which the sketches derive their errors,
-and `sigs/src/render.rs` hold the contract and the engine decision 21 replaces; the audit leaves
-both out. `sigs/src/i18n.rs` and `sigs/src/syntax.rs` stand in for siros-i18n's and siros-syntax's
-types. `checks/audit.py` compares the tables with the inventory, name for name.
+beside the sketches: 740 rows. `sigs/siros-explain/` and `sigs/derive/` stand in for siros-explain
+and the derives of `Explain` and `Message`. `sigs/src/i18n.rs` and `sigs/src/syntax.rs` stand in
+for siros-i18n's and siros-syntax's types. `checks/audit.py` compares the tables with the
+inventory, name for name.
 
 ```sh
 PAT='^\s*(pub(\([a-z]+\))? )?(struct|enum|trait) [A-Z][A-Za-z0-9_]*|^\s*pub(\([a-z]+\))? type [A-Z][A-Za-z0-9_]*'
-grep -rnE "$PAT" --include=*.rs sigs host-sketch replace/sigs | grep -v '/target/' | grep -v '^sigs/src/render\.rs:'   # 721 definitions
+grep -rnE "$PAT" --include=*.rs sigs host-sketch replace/sigs | grep -v '/target/'   # 729 definitions
 awk '/^```rust/{f=1;next} /^```/{f=0} f' proposal.md | grep -E "$PAT"   # 250 definitions,
-# 17 of whose names no sketch defines
+# 11 of whose names no sketch defines
 ```
 
 Each type was checked for these classes:
@@ -4332,7 +4332,7 @@ One mechanism serves each family:
 - **Arguments as named fields**: an error's or a statement's argument names are its fields'
   names, and `Context::check` holds every pattern to them (I27, I30).
 
-Counts: 57 rows fixed, 8 boundaries kept with their reason, 673 holding as built.
+Counts: 57 rows fixed, 8 boundaries kept with their reason, 675 holding as built.
 The fixes that close a guarantee hole:
 
 - **Answers from a caller list.** A caller's answers matched by position could give a fetch where
@@ -4460,6 +4460,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `EnvelopeApi` | `envelope` | Parses a received request into its envelope, its routing read over the registry's response types and modes | Holds: the inherent methods of `Envelope`; `parse<H: Build>`; `client_metadata` returns the metadata or C6's refusal |
 | `Scopes` | `scope` | The registered scope queries the envelope carries from its registry, in every build | Holds: a private slice of `ScopeEntry`; only the registry makes one |
 | `ScopeEntry` | `scope` | A registered scope query as the registry read it | Holds: crate-private fields; the registry builds it from a `ScopeQuery` the DCQL reader accepts |
+| `Explain` | `siros-explain` | An error's stable id and its named arguments, each its `Display` | Holds: a trait over `Error`; the derive writes it, its id through `scope!`, and refuses a tuple argument; siros-explain's derive also fails the build on an id twice in a crate (E0428) |
 | `RequestRule` | `explain` | A request rule: its error and the one code the Verifier receives (section 4.5) | Holds: a trait over `Explain`; `code` returns an open `ErrorCode` |
 | `Refusal` | `explain` | A request rule the request breaks | Holds: private `Box<dyn RequestRule>`; `new` takes a rule |
 | `RoutingRule` | `explain` | One variant per routing rule: P1, C5 per channel (`DcApi`, `Uri`), P5, P6 | Holds: a refusal enum, one variant per rule |
@@ -4467,7 +4468,14 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Bidi` | `i18n` | The bidi strategy the app chooses | Holds: an enum whose every variant is a strategy |
 | `LoadError` | `i18n` | Why a context refuses a module | Holds: a refusal enum, one variant per rule |
 | `ResolveError` | `i18n` | Why a context resolves no text for a message | Holds: a refusal enum, one variant per rule |
+| `Message` | `i18n` | A statement's id and its named arguments, each its `Display` | Holds: a trait; the derive writes it, its id through `scope!`; an `Explain` is a `Message` through the blanket impl, so a type deriving both fails to build (E0119) |
+| `Text` | `i18n` | A message resolved in a context's locale: its spans, in order | Holds: private spans; only `Context::resolve` makes one (I28) |
 | `Malformed` | `syntax` | A text that is no literal of its type (section 4.13) | Holds: a refusal struct; `of` names the type, `at` the byte where the text leaves the form |
+| `Currency` | `syntax` | An ISO 4217 currency: its alphabetic code and its minor units | Holds: private fields, a row of the table the build script remaps from `iso_currency`; only `parse` makes one, and refuses a code ISO 4217 does not list with `Malformed` |
+| `AllOf` | `syntax` | One value or more | Holds: private `Vec`; `new -> Option` refuses an empty list; `one`, `map` and `and` keep one or more |
+| `Keyed` | `syntax` | Values under distinct keys | Holds: private `Vec` of `Entry`; `new` refuses a repeated key with `Repeated` |
+| `Entry` | `syntax` | A value under its key, in a `Keyed` | Holds: private fields; `Keyed::new` refuses a repeated key |
+| `Repeated` | `syntax` | The first key given twice | Holds: a refusal struct; derives `Explain` |
 | `Has` | `host` | The host holds module `M` | Holds: a trait; the bound settles presence at compile time |
 | `MayHave` | `host` | The build holds module `M` or leaves it out, settled by the slot's type | Holds: a trait; its `Slot` is sealed |
 | `Slot` | `host` | A slot a build fills or leaves empty | Holds: sealed trait: `Held` and `Empty` alone |
@@ -5132,7 +5140,6 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 
 | Type | File | Invariant | How it holds |
 | :-- | :-- | :-- | :-- |
-| `AllOf` | `§4.13` | One value or more | Holds: private `Vec`; `new -> Option` refuses an empty list; `one`, `map` and `and` keep one or more |
 | `HashesError` | `§4.9.1` | No algorithm every entry allows, or a member twice (B.3.3.1) | Holds: a refusal enum, one variant per rule |
 | `Item` | `§4.9.4` | One CBOR data item in its encoding, its keys distinct at every depth | Fixed (constrained primitive in a public variant): private; only `Item::parse`, through `cbor::decode`, makes one |
 | `MemberValue` | `§4.9.4` | A member value a profile writes: text, bytes, JSON text, or one CBOR item | Fixed (constrained primitive in a public variant): `Cbor` holds an `Item` |
@@ -5140,11 +5147,6 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Distinct` | `§4.2` | Values whose names differ | Holds: private `Vec`; `new -> Result<_, RepeatedName>` |
 | `RepeatedName` | `§4.2` | The first name two values hold | Holds: a refusal struct |
 | `FieldNames` | `§4.2` | Names a constant writes, distinct | Holds: private array; `const fn new -> Option` |
-| `Entry` | `§4.13` | A value under its key, in a `Keyed` | Holds: private fields; `Keyed::new` refuses a repeated key |
-| `Explain` | `§4.13` | An error's stable id and its named arguments, each its `Display` | Holds: a trait over `Error`; the derive writes it, its id through `scope!`, refuses a tuple argument and fails the build on an id twice in a crate (E0428) |
-| `Keyed` | `§4.13` | Values under distinct keys | Holds: private `Vec` of `Entry`; `new` refuses a repeated key with `Repeated` |
-| `Repeated` | `§4.13` | The first key given twice | Holds: a refusal struct; derives `Explain` |
-| `Message` | `§4.14` | A statement's id and its named arguments, each its `Display` | Holds: a trait; the derive writes it, its id through `scope!`; an `Explain` is a `Message` through the blanket impl, so a type deriving both fails to build (E0119) |
 | `ClaimText` | `§4.14` | A claim value shown alone, in its literal form | Holds: an enum deriving `Message`, one variant per value form; `Bytes` holds a `Count` |
 | `Span` | `§4.14` | A run of a `Text`: its text and its styles | Holds: public fields; `Text` holds its spans private, and only `Context::resolve` makes a `Text` (I28) |
 | `Style` | `§4.14` | A style MF2 markup opens | Holds: an enum whose every variant is a style |
