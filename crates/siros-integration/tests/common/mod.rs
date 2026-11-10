@@ -1,13 +1,14 @@
-//! What the tests share: the HAIP and WE BUILD builds' hosts and registries,
-//! W3C SRI written from its definition, and the test app of a PaSO type's texts.
+//! What the tests share: the HAIP and WE BUILD builds' hosts and registries, W3C SRI written from
+//! its definition, and the test app's context of a presentation: the testkit's sources in the
+//! wallet's language, with the View sources the PaSO and TS12 metadata of the wallet's
+//! credentials and of the request convert to.
 
 #![allow(dead_code, reason = "each test binary uses a part")]
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
-use siros_explain::{AllOf, ModuleId};
-use siros_i18n::{DefinedForm, LocaleTag, Module, Selected};
+use siros_i18n::{Bidi, Context, LocaleTag};
 use siros_mdoc::{DeviceMac, Mdoc, TestDeviceMac};
 use siros_openid4vp::envelope::Channel;
 use siros_openid4vp::hash::Sha2;
@@ -22,15 +23,17 @@ use siros_openid4vp::uri::{EncryptedRequests, RequestPost};
 use siros_openid4vp::wallet::Wallet;
 use siros_paso::adhoc::{Carried, Verified};
 use siros_paso::document::PasoDocument;
+use siros_paso::labels::LabelLimits;
+use siros_paso::render::Registered;
+use siros_paso::view::ConvertError;
 use siros_paso::{
     CoseEncrypt, IssuerTrust, Paso, PasoProfile, RandomIds, RootCertificate, TestCoseEncrypt,
     TestIssuerTrust, TestPaso, TestRandomIds,
 };
 use siros_qes::QesProfile;
 use siros_sdjwt::SdJwtVc;
-use siros_testkit::render::{
-    App, CrateSource, ENGLISH_PASO, ENGLISH_QES, GERMAN_PASO, GERMAN_QES, main_locales, main_module,
-};
+use siros_syntax::AllOf;
+use siros_testkit::render::{ENGLISH_PASO, GERMAN_PASO, Language};
 use siros_testkit::{TestHaip, TestPlatform, TestRequestDecryption};
 use siros_ts12::{AttestationType, Ts12Document, Ts12Profile, Ts12Type};
 
@@ -74,15 +77,15 @@ siros_testkit::test_host! {
 
 /// CS-12 §7.1 item 2: the three base types.
 const WE_BUILD_TYPES: [AttestationType; 3] = [
-    siros_explain::checked!(
+    siros_syntax::checked!(
         AttestationType,
         "https://webuildconsortium.eu/sca/sca-iban/1.0"
     ),
-    siros_explain::checked!(
+    siros_syntax::checked!(
         AttestationType,
         "https://webuildconsortium.eu/sca/sca-user/1.0"
     ),
-    siros_explain::checked!(
+    siros_syntax::checked!(
         AttestationType,
         "https://webuildconsortium.eu/sca/sca-card-dpc/1.0"
     ),
@@ -114,11 +117,12 @@ pub fn we_build_registry() -> Result<Registry<WeBuildHost>, String> {
     builder.build().map_err(|e| e.to_string())
 }
 
-/// The test app as a WE BUILD wallet registers its credentials for `env`'s priority list: the
-/// wallet's own modules and the module each type of each credential's TS12 document converts to.
-pub fn we_build_app(wallet: &Wallet<'_>, env: &Env) -> App {
-    let main = main_locales().expect("the main module");
-    let mut defined: Vec<DefinedForm> = Vec::new();
+/// The test app's context as a WE BUILD wallet registers its credentials for `env`'s priority
+/// list: its [`own_modules`] and the source each type of each credential's TS12 document
+/// converts to.
+pub fn we_build_app(wallet: &Wallet<'_>, env: &Env, amounts: Amounts) -> Context {
+    let own = own_modules(env, amounts);
+    let mut sources: Vec<String> = Vec::new();
     for credential in wallet.credentials() {
         let Some(bytes) = credential.document(siros_ts12::DOCUMENT.as_str()) else {
             continue;
@@ -131,19 +135,12 @@ pub fn we_build_app(wallet: &Wallet<'_>, env: &Env) -> App {
                 continue;
             };
             let built_in = entry.built_in().expect("a built-in type");
-            let module =
-                siros_ts12::view::convert(&built_in, &main, env.priority()).expect("the module");
-            if defined.iter().all(|known| known.id() != module.id()) {
-                defined.push(module);
-            }
+            sources.push(
+                siros_ts12::view::convert(&built_in, own, env.priority()).expect("the source"),
+            );
         }
     }
-    let modules = own_modules();
-    App::new(
-        &modules.iter().collect::<Vec<_>>(),
-        &defined.iter().collect::<Vec<_>>(),
-    )
-    .expect("the package")
+    loaded(own, sources)
 }
 
 impl HaipHost {
@@ -201,100 +198,139 @@ pub fn placement(
     siros_testkit::fixtures::placement(&[&mdoc, &sd_jwt, &test], format)
 }
 
-/// A PaSO type's metadata converted for a priority list; `None` for metadata that does not
-/// convert, whose entries do not render.
-fn converted(kind: &str, given: &str, priority: &[LocaleTag]) -> Option<DefinedForm> {
-    let node = Node::parse(given).expect("the metadata");
-    let main = main_locales().expect("the main module");
-    let registered = siros_paso::render::Registered::of(
-        siros_paso::rulebook::PasoType::parse(kind).ok()?,
-        &node,
-    );
-    siros_paso::view::convert(
-        &registered,
-        siros_paso::labels::LabelLimits::PASO,
-        &main,
-        priority,
-    )
-    .ok()
+/// How the wallet words a PaSO amount (View §3 MAY): the test app's wording formats the number
+/// in its currency (`€49.99`); a wallet may write it as given, the number then the code
+/// (`49.99 EUR`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Amounts {
+    /// Formatted in the currency.
+    Formatted,
+    /// As written.
+    Written,
 }
 
-/// The wallet's modules beside the defined ones: the main module, the test app's, the core's,
-/// PaSO's and QES's.
-pub fn own_modules() -> Vec<Module> {
-    let paso = CrateSource::of::<siros_paso::CrateModule>(ENGLISH_PASO, GERMAN_PASO);
-    let qes = CrateSource::of::<siros_qes::CrateModule>(ENGLISH_QES, GERMAN_QES);
-    vec![
-        main_module().expect("the main module"),
-        CrateSource::testkit()
-            .load()
-            .expect("the test app's module"),
-        CrateSource::openid4vp().load().expect("the core's module"),
-        paso.load().expect("PaSO's module"),
-        qes.load().expect("QES's module"),
-    ]
+/// The test app's wording of PaSO's amount: the number formatted in the currency.
+const AMOUNT_FORMATTED: &str = "amount = {$value :currency currency=$currency}";
+/// A wording of PaSO's amount as written: the number, a space, the code.
+const AMOUNT_WRITTEN: &str = "amount = {$value} {$currency}";
+
+thread_local! {
+    /// The test app's contexts with amounts as written, English then German, loaded once per
+    /// thread.
+    static WRITTEN: [&'static Context; 2] = Language::ALL.map(|language| {
+        let paso = match language {
+            Language::English => ENGLISH_PASO,
+            Language::German => GERMAN_PASO,
+        };
+        assert!(paso.contains(AMOUNT_FORMATTED), "the test app's amount wording");
+        let context = language
+            .sources()
+            .into_iter()
+            .map(|source| {
+                if source == paso {
+                    source.replace(AMOUNT_FORMATTED, AMOUNT_WRITTEN)
+                } else {
+                    source.to_owned()
+                }
+            })
+            .try_fold(Context::new().bidi(Bidi::None), |context, source| {
+                context.module(&source)
+            })
+            .expect("the test app's sources");
+        &*Box::leak(Box::new(context))
+    });
 }
 
-/// The test app of a type's rendering: the wallet's own modules and the module the type's
-/// metadata converts to for the priority list, shown in the locale View §4 selected.
-pub fn paso_app(kind: &str, given: &str, priority: &[LocaleTag], locale: &LocaleTag) -> App {
-    let defined = converted(kind, given, priority).expect("converts");
-    let selected = Selected::new(ModuleId::Defined(defined.id()), locale.clone());
-    let modules = own_modules();
-    App::new(&modules.iter().collect::<Vec<_>>(), &[&defined])
-        .expect("the package")
-        .selecting(selected)
+/// The language a wallet presents in: the first tag of `env`'s priority list whose language the
+/// test app speaks, English when it speaks none.
+pub fn language(env: &Env) -> Language {
+    env.priority()
+        .iter()
+        .find_map(|tag| {
+            let primary = tag.as_str().split('-').next()?;
+            Language::ALL
+                .into_iter()
+                .find(|language| language.tag().eq_ignore_ascii_case(primary))
+        })
+        .unwrap_or(Language::English)
 }
 
-/// The test app as the wallet registers its credentials for `env`'s priority list: the wallet's
-/// own modules, the module each type of each credential's PaSO document converts to, and the
-/// module of the ad-hoc metadata each entry of the request carries: over the DC API read
+/// The wallet's own context: the test app's sources in `env`'s [`language`], its amounts worded
+/// as `amounts`.
+pub fn own_modules(env: &Env, amounts: Amounts) -> &'static Context {
+    let language = language(env);
+    match amounts {
+        Amounts::Formatted => language.shared().expect("the test app's sources"),
+        Amounts::Written => {
+            let at = match language {
+                Language::English => 0,
+                Language::German => 1,
+            };
+            WRITTEN.with(|contexts| contexts[at])
+        }
+    }
+}
+
+/// `own` with each source loaded once, in order: two credentials of one type convert to one
+/// source.
+pub fn loaded(own: &Context, sources: impl IntoIterator<Item = String>) -> Context {
+    let mut seen: Vec<String> = Vec::new();
+    let mut context = own.clone();
+    for source in sources {
+        if !seen.contains(&source) {
+            context = context.module(&source).expect("a converted source loads");
+            seen.push(source);
+        }
+    }
+    context
+}
+
+/// The source a PaSO type's metadata converts to in `own` for a priority list; `None` for
+/// metadata PaSO refuses, whose entries do not render.
+fn converted(registered: &Registered<'_>, own: &Context, priority: &[LocaleTag]) -> Option<String> {
+    match siros_paso::view::convert(registered, LabelLimits::PASO, own, priority) {
+        Ok(source) => Some(source),
+        Err(ConvertError::Metadata(_)) => None,
+        Err(other) => panic!("the metadata converts: {other}"),
+    }
+}
+
+/// The test app's context as the wallet registers its credentials for `env`'s priority list:
+/// its [`own_modules`], the source each type of each credential's PaSO document converts to,
+/// and the sources of the ad-hoc metadata the request's entries carry: over the DC API read
 /// unverified as the matcher reads it, phase 2 verifying it; in the URI flow verified through
 /// `host` for the wallet's credentials before it converts.
-pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env, host: &HaipHost) -> App {
-    let mut metadata: Vec<(String, String)> = Vec::new();
+pub fn wallet_app(
+    wallet: &Wallet<'_>,
+    request: &Request<'_>,
+    env: &Env,
+    amounts: Amounts,
+    host: &HaipHost,
+) -> Context {
+    let own = own_modules(env, amounts);
+    let mut sources: Vec<String> = Vec::new();
     for credential in wallet.credentials() {
         let Some(bytes) = credential.document("paso") else {
             continue;
         };
         let node = PasoDocument::json(bytes).expect("a PaSO document");
         let document = PasoDocument::read(&node).expect("a PaSO document");
-        metadata.extend(
-            document
-                .types()
-                .map(|(kind, meta)| (kind.to_string(), meta.json_compact().to_string())),
-        );
-    }
-    let modules = own_modules();
-    let mut defined: Vec<DefinedForm> = Vec::new();
-    for (kind, meta) in &metadata {
-        if let Some(module) = converted(kind, meta, env.priority())
-            && defined.iter().all(|known| known.id() != module.id())
-        {
-            defined.push(module);
+        for (kind, meta) in document.types() {
+            sources.extend(converted(&Registered::of(kind, meta), own, env.priority()));
         }
     }
-    let main = main_locales().expect("the main module");
+    let registered = loaded(own, sources);
     let carried = match request.envelope().channel() {
         Channel::DcApi(_) => {
             let read = Carried::read(request).expect("a DC API request");
-            siros_paso::view::carried(&read, &main, env.priority())
+            siros_paso::view::carried(&read, &registered, env.priority())
         }
         Channel::Uri => {
             let held: Vec<_> = wallet.credentials().iter().collect();
             let verified = Verified::of(request, &held, host).expect("the PaSO documents read");
-            siros_paso::view::verified(&verified, &main, env.priority())
+            siros_paso::view::verified(&verified, &registered, env.priority())
         }
     }
-    .expect("the main module's formats");
-    for module in carried {
-        if defined.iter().all(|known| known.id() != module.id()) {
-            defined.push(module);
-        }
-    }
-    App::new(
-        &modules.iter().collect::<Vec<_>>(),
-        &defined.iter().collect::<Vec<_>>(),
-    )
-    .expect("the package")
+    .expect("the ad-hoc metadata's sources");
+    loaded(&registered, carried)
 }

@@ -3441,6 +3441,7 @@ dependencies = [
  "siros-paso",
  "siros-qes",
  "siros-sdjwt",
+ "siros-syntax",
  "siros-testkit",
  "siros-ts12",
  "siros-wallet-state",

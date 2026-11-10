@@ -5,16 +5,14 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
-use siros_explain::{Key, Text};
+use siros_i18n::{Context, Text};
 use siros_openid4vp::claims::Concrete;
-use siros_openid4vp::json::Node;
 use siros_openid4vp::rows::Env;
 use siros_paso::Rendered;
+use siros_paso::mandate::MandateLabel;
 use siros_paso::markdown::spans;
 use siros_paso::outcome::Outcome;
-use siros_testkit::fixtures::with_generic_forms;
 
-use crate::common::paso_app;
 use crate::spec::{Spec, TableClaim, at, complete, kind_of, preferred, select};
 use crate::tally::Tally;
 
@@ -34,25 +32,6 @@ pub fn given(entry: &Value, document: &Value) -> Option<Value> {
             .get(entry["type"].as_str().expect("type"))
             .cloned(),
     }
-}
-
-/// The metadata that renders an entry, its members in the order the ad-hoc JWT or the PaSO
-/// document writes them: the text the profile's converted module is named by.
-fn given_text(entry: &Value, document: &str) -> Option<String> {
-    let (text, member) = match entry.get("metadata").and_then(Value::as_str) {
-        Some(jwt) => {
-            let payload = jwt.split('.').nth(1).expect("a JWS payload");
-            let claims = URL_SAFE_NO_PAD.decode(payload).expect("base64url");
-            (String::from_utf8(claims).expect("utf-8"), None)
-        }
-        None => (document.to_owned(), entry["type"].as_str()),
-    };
-    let node = Node::parse(&text).expect("JSON");
-    let given = match member {
-        None => node.get("metadata"),
-        Some(kind) => node.get("transaction_data_types")?.get(kind),
-    };
-    given.map(|given| given.json_compact().to_string())
 }
 
 /// A label's text as written: a mini_markdown label's spans without their styles.
@@ -116,12 +95,14 @@ fn tag(outcome: &Result<Rendered, Outcome>) -> String {
     }
 }
 
-/// View §2-4 on one entry rendered for a credential whose PaSO document is `document`.
+/// View §2-4 on one entry rendered for a credential whose PaSO document is `document`, in the
+/// wallet's configuration `env` and its context `context`.
 pub fn check(
     entry: &Value,
-    (document, document_text): (&Value, &str),
+    document: &Value,
     rendered: &Result<Rendered, Outcome>,
     env: &Env,
+    context: &Context,
     spec: &Spec,
     tally: &mut Tally,
 ) {
@@ -144,25 +125,21 @@ pub fn check(
         );
         return;
     };
+    let shown = |text: &Text| text.to_string();
+    // The wallet's own texts: the Mandate rulebook's labels.
+    let mut own: Vec<String> = Vec::new();
     if mandate {
         tally.add("renderings by the Mandate rulebook");
+        own = MandateLabel::ALL
+            .iter()
+            .map(|label| {
+                context
+                    .resolve(label)
+                    .expect("the test app words the Mandate labels")
+                    .to_string()
+            })
+            .collect();
     }
-    // The test app renders in the language the documented practice's list gives every module.
-    let practice = Env::new(
-        with_generic_forms(env.priority()),
-        Vec::new(),
-        env.options(),
-        Vec::new(),
-        env.choice(),
-    )
-    .expect("the configuration");
-    let app = paso_app(
-        kind,
-        &given_text(entry, document_text).expect("the metadata's text"),
-        env.priority(),
-        &view.locale,
-    );
-    let shown = |text: &Text| app.plain(&practice, text).expect("the text renders");
     // View §4: the display locale is a tag of the list that matches every array.
     let locale = view.locale.as_str();
     assert!(
@@ -184,10 +161,7 @@ pub fn check(
                 .find(|claim| claim.displayed && json!(claim.path) == json!(path))
                 .expect("a displayed Mandate claim");
             // The Mandate rulebook's labels are the wallet's own texts.
-            assert!(
-                matches!(row.row.label.text(), Text::Query(query) if matches!(query.key(), Key::Message(_))),
-                "P-label own {row:?}"
-            );
+            assert!(own.contains(&shown(&row.row.label)), "P-label own {row:?}");
             claim.value_type.clone()
         } else {
             let claim = &claims[row.claim.get()];
@@ -269,10 +243,7 @@ pub fn check(
             .and_then(|u| u.get(key))
             .and_then(Value::as_array)
     };
-    let mut labels = vec![(
-        "security_hint",
-        view.actions.hint.as_ref().map(|hint| shown(hint)),
-    )];
+    let mut labels = vec![("security_hint", view.actions.hint.as_ref().map(shown))];
     if !mandate {
         labels.extend([
             ("transaction_title", Some(shown(&view.title))),

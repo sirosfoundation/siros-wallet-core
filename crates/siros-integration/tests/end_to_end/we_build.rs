@@ -11,7 +11,6 @@ use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use siros_explain::AllOf;
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::Unauthenticated;
 use siros_openid4vp::envelope::Envelope;
@@ -31,6 +30,7 @@ use siros_openid4vp::rows::HttpsUrl;
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch, ResponseUriAnswer};
 use siros_openid4vp::wallet::Wallet;
 use siros_paso::image::ImageFailure;
+use siros_syntax::{AllOf, Keyed};
 use siros_testkit::fixtures::{B26_KEY, Held};
 use siros_testkit::jose::{VERIFIER_SECRET, Zip, compact_jws, encrypt_to};
 use siros_testkit::prefix::Registration;
@@ -39,13 +39,13 @@ use siros_testkit::{Published, PublishedResource, TestPlatform, TestTrust};
 use siros_ts12::{Ts12Document, Ts12Finding};
 use siros_webuild::VerifierError;
 
-use crate::common::{WeBuildHost, sri, we_build_app, we_build_registry};
+use crate::common::{WeBuildHost, own_modules, sri, we_build_app, we_build_registry};
 
 use super::flows::{
     NONCE, ORIGIN, RESPONSE_URI, STATE, authentic, built_by, by_uri, config, dc_api_data, leaf,
     link, sealed_form,
 };
-use super::{NOW, english, read_sd_jwt};
+use super::{AMOUNTS, NOW, english, read_sd_jwt};
 
 /// CS-12 §8.1's DCQL query for an `sca-iban` presentation.
 const DCQL: &str = r#"{"credentials":[{"id":"sca_iban","format":"dc+sd-jwt","meta":{"vct_values":["https://webuildconsortium.eu/sca/sca-iban/1.0"]}}]}"#;
@@ -85,7 +85,7 @@ const METADATA: &str = include_str!("../../../siros-ts12/tests/data/cs12-sca-iba
 /// registration document composed from that metadata.
 fn held_under(metadata: &str) -> Held {
     let own = Node::parse(metadata).expect("the metadata");
-    let document = Ts12Document::compose(&own, &siros_explain::Keyed::empty()).expect("composes");
+    let document = Ts12Document::compose(&own, &Keyed::empty()).expect("composes");
     let mut card = Held::new(
         "card",
         "dc+sd-jwt",
@@ -198,7 +198,7 @@ fn answered_from(
         registry,
         published,
         host,
-        |wallet, _, env| we_build_app(wallet, env),
+        |wallet, _, env| we_build_app(wallet, env, AMOUNTS),
         |built| built.delivery().clone(),
     )
 }
@@ -219,10 +219,9 @@ fn matched_by<T>(
     let wallet = Wallet::new(vec![credential]).expect("a wallet");
     let env = english();
     let request = Request::parse(authenticated.envelope()).expect("the request");
-    let app = we_build_app(&wallet, &env);
-    let rendering = app.rendering().expect("the rendering");
+    let context = we_build_app(&wallet, &env, AMOUNTS);
     let accepted = Accepted::new(&request, registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("phase 1");
+    let matched = Match::run(&accepted, &wallet, &env, &context).expect("phase 1");
     read(&matched, &request)
 }
 
@@ -507,6 +506,7 @@ fn a_ts12_entry_altered_after_signing_fails_the_signature() {
             pending.authenticate(
                 |evaluation| TestTrust::default().decide(evaluation),
                 &config(),
+                own_modules(&english(), AMOUNTS),
                 &host,
             )
         })

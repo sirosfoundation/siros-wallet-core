@@ -10,7 +10,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use siros_explain::Explain;
 use siros_openid4vp::json::{Node, quote};
-use siros_openid4vp::matching::{Accepted, EntryView, Match, Views};
+use siros_openid4vp::matching::{Accepted, EntryView, Match, ShownDigest, Views};
 use siros_openid4vp::plugins::ProfileFinding;
 use siros_openid4vp::request::{EntryIndex, Multiplicity};
 use siros_openid4vp::resolve::{Delivery, Finding, Outcome, Prepared};
@@ -65,7 +65,8 @@ fn credential<'w>(case: &'w Case<'_>, id: &str) -> &'w Credential<'w> {
 }
 
 /// A record's id written as Python's `json.dumps([...], ensure_ascii=False, separators=(",",
-/// ":"))` writes the model's: `[query, credential, option, [entries], {attested}, request]`.
+/// ":"))` writes the model's: `[query, credential, option, [entries], {attested}, request,
+/// shown]`.
 fn record_id(
     query: &str,
     credential: &str,
@@ -73,7 +74,7 @@ fn record_id(
     entries: &[usize],
     attested: &[(String, String)],
     request: &str,
-    rendering: &str,
+    shown: &str,
 ) -> String {
     let entries: Vec<String> = entries.iter().map(ToString::to_string).collect();
     let pairs: Vec<String> = attested
@@ -81,17 +82,18 @@ fn record_id(
         .map(|(name, text)| format!("{}:{}", quote(name), quote(text)))
         .collect();
     format!(
-        "[{},{},{option},[{}],{{{}}},{},{rendering}]",
+        "[{},{},{option},[{}],{{{}}},{},{}]",
         quote(query),
         quote(credential),
         entries.join(","),
         pairs.join(","),
-        quote(request)
+        quote(request),
+        quote(shown)
     )
 }
 
 /// A record's fields: query, credential, option, entries, attested pairs, request digest, and
-/// the rendering inputs as written.
+/// the digest of the texts its entry shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Fields {
     query: String,
@@ -100,7 +102,7 @@ struct Fields {
     entries: Vec<usize>,
     attested: Vec<(String, String)>,
     request: String,
-    rendering: String,
+    shown: String,
 }
 
 impl Fields {
@@ -122,22 +124,15 @@ impl Fields {
                 })
                 .unwrap_or_default(),
             request: record.request().as_str().to_owned(),
-            rendering: Self::parse(record.id().as_str()).rendering,
+            shown: ShownDigest::of(view.entry.card(), view.header, view.entry.overlay()).hex(),
         }
     }
 
     /// The fields an id holds, read as JSON.
     fn parse(id: &str) -> Self {
         let node = Node::parse(id).expect("a record id is JSON");
-        let [
-            query,
-            credential,
-            option,
-            entries,
-            attested,
-            request,
-            rendering,
-        ] = node.as_array().expect("a record id is an array")
+        let [query, credential, option, entries, attested, request, shown] =
+            node.as_array().expect("a record id is an array")
         else {
             panic!("a record id has seven items: {id}");
         };
@@ -168,7 +163,7 @@ impl Fields {
                 })
                 .collect(),
             request: request.as_str().expect("a digest").to_owned(),
-            rendering: rendering.json_compact().to_string(),
+            shown: shown.as_str().expect("a digest").to_owned(),
         }
     }
 
@@ -180,7 +175,7 @@ impl Fields {
             &self.entries,
             &self.attested,
             &self.request,
-            &self.rendering,
+            &self.shown,
         )
     }
 }
@@ -231,16 +226,20 @@ pub fn check(
     }
     let want = expected_findings(case, &records);
     let published = published();
-    let authenticated =
-        siros_testkit::fixtures::authenticate(case.request.envelope(), case.registry, host)
-            .expect("authentic");
+    let authenticated = siros_testkit::fixtures::authenticate(
+        case.request.envelope(),
+        case.registry,
+        case.context,
+        host,
+    )
+    .expect("authentic");
     match Prepared::prepare(
         &authenticated,
         ids,
         case.wallet,
         case.registry,
         case.env,
-        case.rendering,
+        case.context,
         host,
     )
     .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
@@ -302,12 +301,7 @@ fn found(finding: &ProfileFinding) -> Found {
             lacks: paso.lacks(),
             refused: paso
                 .refused()
-                .map(|refused| {
-                    (
-                        refused.jwt.as_str().to_owned(),
-                        refused.failure.id().as_str(),
-                    )
-                })
+                .map(|refused| (refused.jwt.as_str().to_owned(), refused.failure.id()))
                 .into_iter()
                 .collect(),
             failed: paso
@@ -395,7 +389,7 @@ fn expected_findings(case: &Case<'_>, records: &[&EntryView<'_>]) -> Vec<(usize,
                 .and_then(Value::as_str)
                 .and_then(|jwt| {
                     refused_step(jwt, &document, held_credential.format.as_str())
-                        .map(|failure| (jwt.to_owned(), failure.id().as_str()))
+                        .map(|failure| (jwt.to_owned(), failure.id()))
                 })
                 .into_iter()
                 .collect();
@@ -494,7 +488,7 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
     )
     .expect("a wallet");
     let accepted = Accepted::new(case.request, &informed).expect("accepted");
-    let again = Match::run(&accepted, &kept, case.env, case.rendering).expect("no fault");
+    let again = Match::run(&accepted, &kept, case.env, case.context).expect("no fault");
     for finding in findings {
         let (record, revalidated) = match finding {
             Finding::Unusable { record } => (record.get(), false),

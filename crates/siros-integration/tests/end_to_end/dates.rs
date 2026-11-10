@@ -1,80 +1,55 @@
 //! Decision 19 over an mdoc's dates: `full-date` (tag 1004) and `tdate` (tag 0) elements reach a
-//! card as typed values, which the wallet's main module formats, a wallet's message formats with
-//! `:siros:date` or `:siros:datetime`, and the matcher reads as held. The expected texts are the
-//! test app's CLDR patterns in its `[formats.date]`, applied by hand: en's `MMM d, y`,
-//! `MMMM d, y`, `h:mm:ss a` and `h:mm:ss a z`, de's `dd.MM.y`, `d. MMMM y`, `HH:mm:ss` and
-//! `HH:mm:ss z`, with each language's date-time glue.
+//! card through `ClaimText::Date` and `ClaimText::DateTime`, which the test app's wording formats
+//! with `:siros:date` and `:siros:datetime`, in the wallet and in the matcher alike; a wallet's
+//! own statement formats them at another length. The expected texts are the test app's CLDR
+//! patterns in its `[formats.date]`, applied by hand: en's `MMM d, y`, `MMMM d, y`, `h:mm:ss a`
+//! and `h:mm:ss a z`, de's `dd.MM.y`, `d. MMMM y`, `HH:mm:ss` and `HH:mm:ss z`, with each
+//! language's date-time glue.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use siros_credman::register::{RegisteredCard, Registration, package};
 use siros_credman::{Emitted, Shown, emit};
-use siros_explain::{
-    Date, DateTime, Explain, Fraction, Messages, ModuleId, Offset, Second, Text, Time, Value,
-    checked,
-};
-use siros_i18n::{
-    Declaration, Formats, LIST, LanguagePolicy, Module, NUMBER, Package, RenderError,
-};
+use siros_i18n::{Context, LocaleTag, Message};
 use siros_mdoc::registration::{Registered, Resolved};
 use siros_mdoc::stored::Curve;
 use siros_openid4vp::cbor::{self, Value as Cbor};
-use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rendering::Rendering;
+use siros_openid4vp::request::Request;
 use siros_openid4vp::rows::{Choice, Env, Row};
 use siros_openid4vp::wallet::Wallet;
-use siros_testkit::fixtures::{Held, OPTIONS, ORIGIN, parameters};
+use siros_syntax::{Date, DateTime, Fraction, Offset, Second, Time};
+use siros_testkit::fixtures::{Held, ORIGIN, parameters};
 use siros_testkit::issuer::{self, DOCUMENT, IssueError};
-use siros_testkit::render::{
-    App, CrateSource, compilers, formats, main_module, main_sources, written,
-};
+use siros_testkit::render::Language;
 
-use crate::common::own_modules;
-use crate::matcher::{registered_modules, shown};
+use crate::matcher::{registered, shown};
 
 const SPACE: &str = "org.iso.18013.5.1";
 
-/// A wallet's messages over a typed date.
-#[derive(Debug, Clone, Copy, Explain)]
-#[explain(domain = "dated")]
+/// A wallet's own statements over a typed date.
+#[derive(Debug, Clone, Copy, Message)]
 enum Dated {
+    /// A day.
+    #[message(id = "dated.day")]
     Day { value: Date },
-    BareDay { value: Date },
+    /// An instant.
+    #[message(id = "dated.moment")]
     Moment { value: DateTime },
-    BareMoment { value: DateTime },
 }
 
-/// The wallet's module of [`Dated`], with `[formats.date]` of each language of the main module.
-fn dated_module() -> Module {
-    let source = |language: &str, cldr: &str| {
-        let from = cldr.find("[formats.date]").expect("the date options");
-        let options = &cldr[from..];
-        let options = options.find("\n[").map_or(options, |end| &options[..end]);
-        format!(
-            "@locale {language}\n@dir ltr\n---\n\
-             day = {{$value :siros:date length=long}}\n\
-             bare_day = {{$value}}\n\
-             moment = {{$value :siros:datetime length=long}}\n\
-             bare_moment = {{$value}}\n\n{options}\n"
-        )
-    };
-    let [en, de] = main_sources();
-    Module::load(
-        ModuleId::Crate(checked!(siros_explain::Domain, "dated")),
-        &Declaration::new(Dated::messages()).expect("a declaration"),
-        &[&source("en", &en), &source("de", &de)],
-        LanguagePolicy::Any,
-        &compilers().expect("the load halves"),
+/// The wallet's wording of [`Dated`] in `language`: both at the long length.
+fn dated_wording(language: Language) -> String {
+    format!(
+        "@locale {}\n@dir ltr\n---\n\n[integration.dated]\n\
+         day = {{$value :siros:date length=long}}\n\
+         moment = {{$value :siros:datetime length=long}}\n",
+        language.tag()
     )
-    .expect("the wallet's module")
 }
 
-fn wallet_env(language: &str) -> Env {
+fn wallet_env(language: Language) -> Env {
     Env::new(
-        vec![LocaleTag::parse(language).expect("a tag")],
-        Vec::new(),
-        OPTIONS,
+        vec![LocaleTag::parse(language.tag()).expect("a tag")],
         Vec::new(),
         Choice::First,
     )
@@ -84,7 +59,9 @@ fn wallet_env(language: &str) -> Env {
 /// The element's value as ISO/IEC 18013-5 §7.2.1 types it.
 fn tagged(element: &str, value: &Node<'_>) -> Result<Cbor, IssueError> {
     let date = |tag, value: &Node<'_>| {
-        let written = value.as_str().ok_or(IssueError::View("a date"))?;
+        let written = value
+            .as_str()
+            .ok_or(IssueError::View { member: "a date" })?;
         Ok(Cbor::Tag(tag, Box::new(Cbor::Text(written.to_owned()))))
     };
     match element {
@@ -98,26 +75,48 @@ fn tagged(element: &str, value: &Node<'_>) -> Result<Cbor, IssueError> {
                     .as_array()
                     .and_then(<[Node<'_>]>::first)
                     .and_then(|first| first.get("issue_date"))
-                    .ok_or(IssueError::View("a privilege"))?,
+                    .ok_or(IssueError::View {
+                        member: "a privilege",
+                    })?,
             )?,
         )])])),
         _ => Ok(cbor::of_json(value)?),
     }
 }
 
-/// The value of the row labelled `label`.
-fn value_of<'r>(rows: &'r [Row], label: &str) -> &'r Text {
+/// The value of the row labelled `label`, as shown.
+fn value_of(rows: &[Row], label: &str) -> String {
     rows.iter()
-        .find(|row| written(&row.label) == Some(label))
+        .find(|row| row.label.to_string() == label)
         .and_then(|row| row.value.as_ref())
         .and_then(siros_openid4vp::rows::Value::text)
+        .map(ToString::to_string)
         .unwrap_or_else(|| panic!("the row {label}"))
 }
 
-/// Catches a date element shown as written, in any path a card's text takes: the kit's row, a
-/// wallet's message over its value, and the matcher's held text.
+/// The card's rows of the request's one entry, matched in `context`, which Credential Manager
+/// draws as a Standard entry.
+fn card_rows(request: &Request<'_>, wallet: &Wallet<'_>, env: &Env, context: &Context) -> Vec<Row> {
+    shown(request, wallet, env, context, |views, display| {
+        let emission = emit(display, context).expect("every choice emits");
+        let drawn = emission.sets().iter().flatten().flatten().any(|emitted| {
+            matches!(
+                emitted,
+                Emitted::Entry {
+                    shown: Shown::Standard(_),
+                    ..
+                }
+            )
+        });
+        assert!(drawn, "the credential's Standard entry");
+        let view = views.iter().next().expect("the credential's entry");
+        view.entry.card().rows.clone()
+    })
+}
+
+/// Catches a date element shown as written in a card, in the wallet or in the matcher.
 #[test]
-fn an_mdocs_dates_show_as_typed_values_in_every_path() {
+fn an_mdocs_dates_show_formatted_in_the_wallet_and_in_the_matcher() {
     let view = format!(
         r#"{{"type": "org.iso.18013.5.1.mDL", "metadata": {{}}, "values": {{"{SPACE}": {{
             "given_name": "2026-09-02",
@@ -128,7 +127,7 @@ fn an_mdocs_dates_show_as_typed_values_in_every_path() {
     );
     let view = Node::parse(&view).expect("a view");
     let stored = issuer::issue_as(&view, tagged).expect("the mdoc");
-    let registered = Registered::of(
+    let registered_mdoc = Registered::of(
         &URL_SAFE_NO_PAD.encode(stored),
         &Resolved {
             issuer_curve: Some(Curve::P256),
@@ -139,11 +138,11 @@ fn an_mdocs_dates_show_as_typed_values_in_every_path() {
     let mut held = Held::new(
         "mdl",
         "mso_mdoc",
-        std::str::from_utf8(registered.view().as_bytes()).expect("UTF-8"),
+        std::str::from_utf8(registered_mdoc.view().as_bytes()).expect("UTF-8"),
     );
     held.documents.push((
         DOCUMENT.to_owned(),
-        registered.document().as_bytes().to_vec(),
+        registered_mdoc.document().as_bytes().to_vec(),
     ));
     let credential = held.credential().expect("a credential");
     let wallet = Wallet::new(vec![credential]).expect("a wallet");
@@ -155,147 +154,65 @@ fn an_mdocs_dates_show_as_typed_values_in_every_path() {
     let text = parameters(&dcql, &format!(r#""expected_origins":["{ORIGIN}"]"#));
     siros_testkit::signed_request!(let request = &text);
 
-    let mut modules = own_modules();
-    modules.push(dated_module());
-    let app = App::new(&modules.iter().collect::<Vec<_>>(), &[]).expect("the wallet's app");
-    let rendering = app.rendering().expect("the wallet's rendering");
-    let english = wallet_env("en");
-    let rows = shown(&request, &wallet, &english, &rendering, |views, _| {
-        let view = views.iter().next().expect("the credential's entry");
-        view.entry.card().rows.clone()
-    });
-
     let birth = Date::new(1961, 8, 17).expect("a date");
     let signed = DateTime::new(
         Date::new(2026, 9, 2).expect("a date"),
         Time::new(10, 15, Some(Second::new(30, Fraction::NONE).expect("30"))).expect("a time"),
         Some(Offset::new(0).expect("UTC")),
     );
-    let issued = Date::new(2018, 8, 9).expect("a date");
-    let unheld = Date::new(2000, 1, 1).expect("a date");
-    assert_eq!(
-        value_of(&rows, "birth_date"),
-        &Text::Value(Value::Date(birth))
-    );
-    assert_eq!(
-        value_of(&rows, "signed_at"),
-        &Text::Value(Value::DateTime(signed))
-    );
-    assert_eq!(
-        value_of(&rows, "issue_date"),
-        &Text::Value(Value::Date(issued))
-    );
-    assert_eq!(
-        value_of(&rows, "given_name"),
-        &Text::Raw("2026-09-02".to_owned())
-    );
-
-    // The texts bare, through the main module, then through the wallet's messages: en, de.
-    let row = |label| value_of(&rows, label).clone();
-    let expected: [(Text, &str, &str); 7] = [
-        (row("birth_date"), "Aug 17, 1961", "17.08.1961"),
+    // Per language: the card's birth_date, signed_at and issue_date, then the wallet's own
+    // statements over birth_date and signed_at.
+    let expected = [
         (
-            row("signed_at"),
-            "Sep 2, 2026, 10:15:30\u{202f}AM",
-            "02.09.2026, 10:15:30",
-        ),
-        (row("issue_date"), "Aug 9, 2018", "09.08.2018"),
-        (
-            Text::of(&Dated::Day { value: birth }),
-            "August 17, 1961",
-            "17. August 1961",
+            Language::English,
+            [
+                "Aug 17, 1961",
+                "Sep 2, 2026, 10:15:30\u{202f}AM",
+                "Aug 9, 2018",
+            ],
+            [
+                "August 17, 1961",
+                "September 2, 2026 at 10:15:30\u{202f}AM GMT+0",
+            ],
         ),
         (
-            Text::of(&Dated::BareDay { value: birth }),
-            "Aug 17, 1961",
-            "17.08.1961",
-        ),
-        (
-            Text::of(&Dated::Moment { value: signed }),
-            "September 2, 2026 at 10:15:30\u{202f}AM GMT+0",
-            "2. September 2026 um 10:15:30 GMT+0",
-        ),
-        (
-            Text::of(&Dated::BareMoment { value: signed }),
-            "Sep 2, 2026, 10:15:30\u{202f}AM",
-            "02.09.2026, 10:15:30",
+            Language::German,
+            ["17.08.1961", "02.09.2026, 10:15:30", "09.08.2018"],
+            ["17. August 1961", "2. September 2026 um 10:15:30 GMT+0"],
         ),
     ];
-    let german = wallet_env("de");
-    for (text, en, de) in &expected {
-        assert_eq!(app.plain(&english, text).expect("en"), *en);
-        assert_eq!(app.plain(&german, text).expect("de"), *de);
-    }
-
-    // The registration's package holds the rows' texts, and a matcher without the date module's
-    // render half reads them. A date the package does not hold shows no fallback text.
-    let halves = formats().expect("the render halves");
-    let matcher_halves = Formats::new(&[&NUMBER, &LIST]).expect("the matcher's render halves");
-    let declared: Vec<Module> = vec![
-        main_module().expect("the main module"),
-        CrateSource::openid4vp().load().expect("the core's module"),
-    ];
-    for (env, column) in [(&english, 0), (&german, 1)] {
-        let declared_ids: Vec<ModuleId> = declared.iter().map(Module::id).collect();
-        let built = shown(&request, &wallet, env, &rendering, |views, _| {
-            let cards: Vec<RegisteredCard<'_>> = views
-                .iter()
-                .map(|view| RegisteredCard {
-                    credential: view.record.credential(),
-                    card: view.entry.card(),
-                })
-                .collect();
-            package(
-                &Registration {
-                    modules: &registered_modules(&declared),
-                    own: &declared_ids,
-                    credentials: &cards,
-                    statics: &[],
-                    transactions: &[],
-                },
-                env,
-                &halves,
-            )
-            .expect("the registration's package")
-        });
-        let matcher = Rendering::new(
-            Package::read(built.bytes(), built.root()).expect("the package"),
-            &matcher_halves,
-            &declared_ids,
-        )
-        .expect("a registration");
-        shown(&request, &wallet, env, &matcher, |views, display| {
-            let view = views.iter().next().expect("the credential's entry");
-            let renderer = matcher
-                .renderer(
-                    view.selected,
-                    view.card_module,
-                    Some(view.record.credential().as_str()),
-                    env,
-                )
-                .expect("no fault")
-                .expect("a language");
-            for (text, en, de) in &expected[..3] {
-                assert!(renderer.holds(text).expect("reads"), "{text:?}: held");
-                let want = if column == 0 { en } else { de };
-                assert_eq!(renderer.plain(text).expect("held"), *want);
-            }
+    for (language, card, long) in expected {
+        let env = wallet_env(language);
+        let own = language.shared().expect("the test app's context");
+        let matcher = registered(language, &env)
+            .context(&request)
+            .expect("the matcher's context");
+        for context in [own, &matcher] {
+            let rows = card_rows(&request, &wallet, &env, context);
             assert_eq!(
-                renderer.plain(&Text::Value(Value::Date(unheld))),
-                Err(RenderError::Format("date".to_owned()))
+                ["birth_date", "signed_at", "issue_date"].map(|label| value_of(&rows, label)),
+                card,
+                "{}",
+                language.tag()
             );
-            let emission = emit(display, &matcher, env).expect("no fault");
-            assert!(emission.refused().is_empty(), "{:?}", emission.refused());
-            let drawn = emission.sets().iter().flatten().flatten().any(|emitted| {
-                matches!(
-                    emitted,
-                    Emitted::Entry {
-                        shown: Shown::Standard(_),
-                        ..
-                    }
-                )
-            });
-            assert!(drawn, "the credential's Standard entry");
-        });
+            assert_eq!(value_of(&rows, "given_name"), "2026-09-02");
+        }
+        let worded = own
+            .clone()
+            .module(&dated_wording(language))
+            .expect("the wallet's wording");
+        let resolve = |statement: &Dated| {
+            worded
+                .resolve(statement)
+                .expect("the wallet words it")
+                .to_string()
+        };
+        assert_eq!(
+            [
+                resolve(&Dated::Day { value: birth }),
+                resolve(&Dated::Moment { value: signed })
+            ],
+            long
+        );
     }
 }
