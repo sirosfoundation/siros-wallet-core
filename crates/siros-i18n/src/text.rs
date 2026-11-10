@@ -88,7 +88,7 @@ pub struct Span {
 
 /// A message resolved in a context's locale: its spans, in order. Two texts that read the same
 /// with the same styles are equal. Its `Display` writes the spans' text, the styles dropped.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Text(Vec<Span>);
 
 impl Text {
