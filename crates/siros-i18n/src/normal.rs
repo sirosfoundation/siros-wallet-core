@@ -42,23 +42,16 @@ pub(crate) enum Hold {
 }
 
 impl Hold {
-    /// `text` as the load holds it.
+    /// `text` as the load holds it: borrowed when held as written.
     ///
     /// # Errors
     ///
     /// [`Unnormalized`] under [`Hold::Written`] for a text [`normal`] changes.
-    pub(crate) fn hold(self, text: String) -> Result<String, Unnormalized> {
-        let changed = match normal(&text) {
-            Cow::Borrowed(_) => None,
-            Cow::Owned(normalized) => Some(normalized),
-        };
-        let Some(normalized) = changed else {
-            return Ok(text);
-        };
-        match self {
-            Self::Normal => Ok(normalized),
+    pub(crate) fn hold(self, text: &str) -> Result<Cow<'_, str>, Unnormalized> {
+        match (normal(text), self) {
+            (held @ Cow::Borrowed(_), _) | (held, Self::Normal) => Ok(held),
             #[cfg(feature = "nfc")]
-            Self::Written => Err(Unnormalized(text)),
+            (Cow::Owned(_), Self::Written) => Err(Unnormalized(text.to_owned())),
         }
     }
 

@@ -6,6 +6,7 @@
 #[cfg(feature = "currency")]
 pub(crate) mod currency;
 pub(crate) mod decimal;
+mod form;
 pub(crate) mod language;
 pub(crate) mod options;
 pub(crate) mod pattern;
@@ -16,13 +17,14 @@ pub(crate) use language::{PLAIN, Plain};
 
 use std::num::NonZeroU32;
 
-use crate::digit::{Digit, Numerals};
+use crate::chain::{Call, Chain, Failure, Root, Texts, Value};
 use crate::error::Refusal;
-use crate::format::{CallTexts, Chain, Direction, Env, Failure, Link, Opt, Root, Use};
+use crate::format::Direction;
+use crate::scope::Scope;
 use decimal::{Fixed, Given, Num, RoundingMode};
 use language::Numbers;
 use options::{Function, Refused, Resolved};
-use pattern::{Grouping, Pattern, Shown, Symbols};
+use pattern::{Grouping, Pattern, Shown};
 use plural::{Category, Operands};
 
 /// A step of a call chain that changes the value: `:integer`'s rounding, `:offset`'s addition.
@@ -241,11 +243,10 @@ fn root(chain: &Chain<'_>) -> Result<options::Root, Refusal> {
 }
 
 /// A refusal of the chain's options at load.
-fn refusal(refused: Refused) -> crate::format::Refused {
+fn refusal(refused: Refused) -> crate::chain::Refused {
     match refused {
         Refused::Operand => Refusal::Operand.into(),
         Refused::Option(option) => Refusal::Option { option }.into(),
-        Refused::Defect => crate::format::Refused::Defect,
     }
 }
 
@@ -254,28 +255,32 @@ fn failure(refused: Refused) -> Failure {
     match refused {
         Refused::Operand => Failure::Operand,
         Refused::Option(option) => Failure::Option(option),
-        Refused::Defect => Failure::Defect,
     }
 }
 
-/// Checks a chain whose outermost function is numeric, formatted with `language`, for its use.
+/// Checks a chain whose outermost function is numeric, formatted with `language`.
 ///
 /// # Errors
 ///
-/// [`Refusal`] for an operand or an option the functions refuse, and [`Refusal::Selector`] in a
-/// selector for a `:currency` value, which selects no variant.
-/// [`crate::format::Refused::Defect`] for a `u:dir` the load fixes that names no direction: the
-/// load refuses it before.
+/// [`Refusal`] for an operand or an option the functions refuse.
 pub(crate) fn check(
     chain: &Chain<'_>,
-    at: Use,
     language: Language<'_>,
-) -> Result<(), crate::format::Refused> {
-    let selection = checked(chain, language)?;
-    match at {
-        Use::Select if selection.is_none() => Err(Refusal::Selector.into()),
-        Use::Format | Use::Select | Use::Value => Ok(()),
-    }
+) -> Result<(), crate::chain::Refused> {
+    checked(chain, language).map(drop)
+}
+
+/// How a chain whose outermost function is numeric, formatted with `language`, selects.
+///
+/// # Errors
+///
+/// The refusal of [`check`], and [`Refusal::Selector`] for a `:currency` value, which selects
+/// no variant.
+pub(crate) fn selection(
+    chain: &Chain<'_>,
+    language: Language<'_>,
+) -> Result<Selection, crate::chain::Refused> {
+    checked(chain, language)?.ok_or_else(|| Refusal::Selector.into())
 }
 
 /// How the checked chain's value selects; `None` for a value that selects no variant. A chain
@@ -285,7 +290,7 @@ pub(crate) fn check(
 fn checked(
     chain: &Chain<'_>,
     language: Language<'_>,
-) -> Result<Option<Selection>, crate::format::Refused> {
+) -> Result<Option<Selection>, crate::chain::Refused> {
     let root = root(chain)?;
     for call in chain.calls() {
         let function = Function::of(call.function).ok_or(Refusal::Operand)?;
@@ -327,7 +332,7 @@ fn structure(chain: &Chain<'_>) -> Result<Option<Selection>, Refused> {
             return Err(option("select"));
         }
         held |= earlier == Some(Function::Currency);
-        for &(name, value) in &call.options {
+        for (name, value) in call.options() {
             let Some(rule) = function.rule(name) else {
                 continue;
             };
@@ -343,7 +348,7 @@ fn structure(chain: &Chain<'_>) -> Result<Option<Selection>, Refused> {
         }
         select = written_select(function, call)?;
         if function == Function::Offset {
-            let given = |name: &str| call.options.iter().any(|&(n, _)| n == name);
+            let given = |name: &str| call.option(name).is_some();
             match (given("add"), given("subtract")) {
                 (true, true) => return Err(option("subtract")),
                 (false, false) => return Err(option("add")),
@@ -370,14 +375,14 @@ fn structure(chain: &Chain<'_>) -> Result<Option<Selection>, Refused> {
 ///
 /// [`Refused::Option`] for a `select` a variable gives: MF2 sets it by a literal alone
 /// (spec/functions/number.md, "Number Selection").
-fn written_select<'m>(function: Function, call: &Link<'m>) -> Result<Option<&'m str>, Refused> {
+fn written_select(function: Function, call: &Call) -> Result<Option<&str>, Refused> {
     if !function.reads("select") {
         return Ok(None);
     }
-    match call.options.iter().find(|(name, _)| *name == "select") {
+    match call.option("select") {
         None => Ok(None),
-        Some(&(_, Opt::Literal(text))) => Ok(Some(text)),
-        Some((_, Opt::Variable(..))) => Err(Refused::Option("select".to_owned())),
+        Some(Value::Literal(text)) => Ok(Some(text)),
+        Some(Value::Bound(_) | Value::Variable(_)) => Err(Refused::Option("select".to_owned())),
     }
 }
 
@@ -385,21 +390,21 @@ fn written_select<'m>(function: Function, call: &Link<'m>) -> Result<Option<&'m 
 ///
 /// # Errors
 ///
-/// [`Refusal::Key`] for the first such key.
-pub(crate) fn keys(keys: &[String]) -> Result<(), Refusal> {
-    match keys
-        .iter()
-        .find(|key| Num::literal(key).is_none() && Category::of_keyword(key).is_none())
-    {
-        Some(key) => Err(Refusal::Key { key: key.clone() }),
-        None => Ok(()),
+/// [`Refusal::Key`] for such a key.
+pub(crate) fn key(key: &str) -> Result<(), Refusal> {
+    if Num::literal(key).is_some() || Category::of_keyword(key).is_some() {
+        Ok(())
+    } else {
+        Err(Refusal::Key {
+            key: key.to_owned(),
+        })
     }
 }
 
 /// The options of a chain with its option texts, resolved over a language.
 fn form<'t>(
     root: options::Root,
-    texts: &'t [CallTexts<'_>],
+    texts: &'t Texts<'_>,
     language: Language<'_>,
 ) -> Result<Form<'t>, Refused> {
     let resolved = Resolved::of(root, texts)?;
@@ -420,14 +425,14 @@ fn form<'t>(
 /// The operand's number and the options resolved over `language`.
 fn resolve<'t>(
     chain: &Chain<'_>,
-    texts: &'t [CallTexts<'_>],
-    env: &Env<'_, '_>,
+    texts: &'t Texts<'_>,
+    scope: &Scope<'_>,
     language: Language<'_>,
 ) -> Result<(Given, Form<'t>), Failure> {
     let (root, text) = match chain.root {
         Root::None => return Err(Failure::Operand),
         Root::Literal(text) => (options::Root::Literal, text),
-        Root::Argument(key) => (options::Root::Argument, env.argument(key)?),
+        Root::Argument(key) => (options::Root::Argument, scope.argument(key)?),
     };
     let given = Given::literal(text).ok_or(Failure::Operand)?;
     let form = form(root, texts, language).map_err(failure)?;
@@ -441,11 +446,11 @@ fn resolve<'t>(
 /// [`Failure`] for an operand or option text refused, or an argument not given.
 pub(crate) fn format(
     chain: &Chain<'_>,
-    texts: &[CallTexts<'_>],
-    env: &Env<'_, '_>,
+    texts: &Texts<'_>,
+    scope: &Scope<'_>,
     language: Language<'_>,
 ) -> Result<String, Failure> {
-    let (given, form) = resolve(chain, texts, env, language)?;
+    let (given, form) = resolve(chain, texts, scope, language)?;
     let mut out = String::new();
     match language {
         #[cfg(feature = "currency")]
@@ -461,21 +466,41 @@ pub(crate) fn format(
     Ok(out)
 }
 
-/// The keys among `keys` the number matches, best first.
+/// What a number selects with: its serialization, which an exact key equals, and its plural
+/// category, which a keyword names.
+#[derive(Debug)]
+pub(crate) struct Selected {
+    serial: String,
+    category: Option<Category>,
+}
+
+impl Selected {
+    /// The rank of `key` among the keys the number matches: its exact key before its
+    /// category's keyword; `None` for a key it does not match.
+    pub(crate) fn rank(&self, key: &str) -> Option<usize> {
+        if key == self.serial {
+            Some(0)
+        } else if self.category.is_some() && Category::of_keyword(key) == self.category {
+            Some(1)
+        } else {
+            None
+        }
+    }
+}
+
+/// What the number selects with, by `selection`.
 ///
 /// # Errors
 ///
-/// [`Failure`] as [`format`]; [`Failure::Defect`] for a value that selects no variant: the load
-/// refuses its selector.
-pub(crate) fn select<'k>(
+/// [`Failure`] as [`format`].
+pub(crate) fn selected(
     chain: &Chain<'_>,
-    texts: &[CallTexts<'_>],
-    env: &Env<'_, '_>,
+    texts: &Texts<'_>,
+    scope: &Scope<'_>,
     language: Language<'_>,
-    keys: &'k [String],
-) -> Result<Vec<&'k str>, Failure> {
-    let (given, form) = resolve(chain, texts, env, language)?;
-    let selection = form.selection.ok_or(Failure::Defect)?;
+    selection: Selection,
+) -> Result<Selected, Failure> {
+    let (given, form) = resolve(chain, texts, scope, language)?;
     let fixed = form.rounded(&form.value(given), (0, NonZeroU32::MIN));
     let numbers = language.numbers();
     let category = match selection {
@@ -483,20 +508,10 @@ pub(crate) fn select<'k>(
         Selection::Plural => Some(numbers.cardinal.category(&Operands::of(&fixed))),
         Selection::Ordinal => Some(numbers.ordinal.category(&Operands::of(&fixed))),
     };
-    let serial = form.serial(&fixed);
-    let mut exact = Vec::new();
-    let mut keyword = Vec::new();
-    for key in keys {
-        if Num::literal(key).is_some() {
-            if *key == serial {
-                exact.push(key.as_str());
-            }
-        } else if Category::of_keyword(key).is_some_and(|named| Some(named) == category) {
-            keyword.push(key.as_str());
-        }
-    }
-    exact.append(&mut keyword);
-    Ok(exact)
+    Ok(Selected {
+        serial: form.serial(&fixed),
+        category,
+    })
 }
 
 /// The number as an option's value: the operand after `:integer`'s rounding and `:offset`'s
@@ -507,11 +522,11 @@ pub(crate) fn select<'k>(
 /// [`Failure`] as [`format`].
 pub(crate) fn value(
     chain: &Chain<'_>,
-    texts: &[CallTexts<'_>],
-    env: &Env<'_, '_>,
+    texts: &Texts<'_>,
+    scope: &Scope<'_>,
     language: Language<'_>,
 ) -> Result<String, Failure> {
-    let (given, form) = resolve(chain, texts, env, language)?;
+    let (given, form) = resolve(chain, texts, scope, language)?;
     language.check(&form.resolved).map_err(failure)?;
     let stepped = form.stepped(given);
     #[cfg(feature = "number")]
@@ -521,133 +536,4 @@ pub(crate) fn value(
         stepped
     };
     Ok(stepped.value().fixed(0).plain())
-}
-
-impl Form<'_> {
-    /// The operand after the chain's steps.
-    fn stepped(&self, given: Given) -> Given {
-        self.steps.iter().fold(given, |given, step| match *step {
-            #[cfg(feature = "number")]
-            Step::Integer(mode) => given.integer(mode),
-            Step::Add(addend) => given.plus(addend),
-        })
-    }
-
-    /// The number a call formats: the operand after the chain's steps, times 100 for
-    /// `:percent`.
-    pub(crate) fn value(&self, given: Given) -> Given {
-        let stepped = self.stepped(given);
-        if self.percent {
-            stepped.percent()
-        } else {
-            stepped
-        }
-    }
-
-    /// The number rounded by the digit options; `currency` the currency's fraction digits and
-    /// rounding increment.
-    pub(crate) fn rounded(&self, given: &Given, currency: (u8, NonZeroU32)) -> Fixed {
-        let digits = self.digits;
-        let (value, scale) = (given.value(), given.scale());
-        let count = |f: Fraction| match f {
-            Fraction::Digits(d) => u32::from(d),
-            Fraction::Currency => u32::from(currency.0),
-            Fraction::Given => scale,
-        };
-        // An option given beside a default of the operand's scale bounds that default.
-        let bounds = |min: Fraction, max: Fraction| match (min, max) {
-            (Fraction::Given, Fraction::Digits(max)) => (scale.min(u32::from(max)), u32::from(max)),
-            (Fraction::Digits(min), Fraction::Given) => (u32::from(min), scale.max(u32::from(min))),
-            (min, max) => (count(min), count(max)),
-        };
-        let increment = |f: Fraction| match f {
-            Fraction::Currency => currency.1,
-            Fraction::Digits(_) | Fraction::Given => NonZeroU32::MIN,
-        };
-        let fixed = |min: Fraction, max: Fraction, inc: NonZeroU32| {
-            let inc = if inc == NonZeroU32::MIN {
-                increment(max)
-            } else {
-                inc
-            };
-            let (min, max) = bounds(min, max);
-            let rounded = value.round(-i64::from(max), inc, digits.mode);
-            (-i64::from(max), rounded.fixed(-i64::from(min)))
-        };
-        // Zero's magnitude is 0: ECMA-402 ToRawPrecision (16.5.7), step 2.b.
-        let significant = |min: u8, max: u8| {
-            let magnitude = value.magnitude().unwrap_or(0);
-            let rounded = value.round(magnitude - i64::from(max) + 1, NonZeroU32::MIN, digits.mode);
-            let after = rounded.magnitude().unwrap_or(0);
-            (
-                after - i64::from(max) + 1,
-                rounded.fixed(after + 1 - i64::from(min)),
-            )
-        };
-        let mut result = match digits.rounding {
-            Rounding::Fraction {
-                min,
-                max,
-                increment,
-            } => fixed(min, max, increment).1,
-            Rounding::Significant { min, max } => significant(min, max).1,
-            Rounding::More {
-                fraction,
-                significant: s,
-            } => {
-                let (fm, f) = fixed(fraction.0, fraction.1, NonZeroU32::MIN);
-                let (sm, s) = significant(s.0, s.1);
-                if sm <= fm { s } else { f }
-            }
-            Rounding::Less {
-                fraction,
-                significant: s,
-            } => {
-                let (fm, f) = fixed(fraction.0, fraction.1, NonZeroU32::MIN);
-                let (sm, s) = significant(s.0, s.1);
-                if sm <= fm { f } else { s }
-            }
-        };
-        if digits.strip_if_integer && result.is_integer() {
-            result.frac.clear();
-        }
-        let pad = usize::from(digits.min_integer).saturating_sub(result.int.len());
-        if pad > 0 {
-            let mut int = vec![Digit::Zero; pad];
-            int.append(&mut result.int);
-            result.int = int;
-        }
-        result
-    }
-
-    /// Writes a rounded number with the pattern; `currency` stands for `¤`.
-    pub(crate) fn write(
-        &self,
-        fixed: &Fixed,
-        pattern: &Pattern,
-        symbols: &Symbols,
-        currency: &str,
-        out: &mut String,
-    ) {
-        let shown = self.sign.shown(fixed);
-        pattern.write(fixed, shown, symbols, self.grouping, currency, out);
-    }
-
-    /// The number's serialization for exact keys.
-    fn serial(&self, fixed: &Fixed) -> String {
-        if self.integer_keys && fixed.is_integer() {
-            let int: String = fixed
-                .int
-                .iter()
-                .map(|d| Numerals::ASCII.digit(*d))
-                .collect();
-            let int = int.trim_start_matches('0');
-            return match (fixed.negative, int.is_empty()) {
-                (_, true) => "0".to_owned(),
-                (true, false) => format!("-{int}"),
-                (false, false) => int.to_owned(),
-            };
-        }
-        fixed.plain()
-    }
 }

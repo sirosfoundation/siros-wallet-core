@@ -5,7 +5,8 @@
 
 use std::num::NonZeroU32;
 
-use crate::format::{CallTexts, Function as Called};
+use crate::chain::{CallTexts, Texts};
+use crate::format::Function as Called;
 use crate::numeric::decimal::RoundingMode;
 use crate::numeric::pattern::{Grouping, Pattern};
 use crate::numeric::{Digits, Fraction, Rounding, Selection, SignDisplay, Step};
@@ -17,8 +18,6 @@ pub(crate) enum Refused {
     Operand,
     /// An option, by name.
     Option(String),
-    /// A chain without a call: the load builds each chain from its call.
-    Defect,
 }
 
 /// A numeric function.
@@ -225,31 +224,31 @@ fn option(refused: &str) -> Refused {
 }
 
 impl<'a> Resolved<'a> {
-    /// The value of a chain of calls, innermost first, on an operand of `root`.
+    /// The value of a chain's calls, with their resolved options `texts`, on an operand of
+    /// `root`.
     ///
     /// # Errors
     ///
     /// [`Refused`] for a call of another family, or an option its function refuses.
-    pub(crate) fn of(root: Root, calls: &'a [CallTexts<'_>]) -> Result<Self, Refused> {
-        let mut resolved: Option<Self> = None;
-        for call in calls {
+    pub(crate) fn of(root: Root, texts: &'a Texts<'_>) -> Result<Self, Refused> {
+        let (first, rest) = texts.innermost();
+        let function = Function::of(first.function).ok_or(Refused::Operand)?;
+        let mut resolved = Self {
+            root,
+            steps: Vec::new(),
+            options: Vec::new(),
+            select_inherited: false,
+            currency_held: false,
+            function,
+            formatter: Function::Number,
+        };
+        resolved.apply(function, first)?;
+        for call in rest {
             let function = Function::of(call.function).ok_or(Refused::Operand)?;
-            let mut current = match resolved {
-                None => Self {
-                    root,
-                    steps: Vec::new(),
-                    options: Vec::new(),
-                    select_inherited: false,
-                    currency_held: false,
-                    function,
-                    formatter: Function::Number,
-                },
-                Some(earlier) => earlier.operand_of(function)?,
-            };
-            current.apply(function, call)?;
-            resolved = Some(current);
+            resolved = resolved.operand_of(function)?;
+            resolved.apply(function, call)?;
         }
-        resolved.ok_or(Refused::Defect)
+        Ok(resolved)
     }
 
     /// Applies a call of `function` to the value: its options, then its step.
@@ -258,8 +257,7 @@ impl<'a> Resolved<'a> {
         if function != Function::Offset {
             self.formatter = function;
         }
-        for (name, value) in &call.options {
-            let (name, value): (&'a str, &'a str) = (name, value);
+        for &(name, value) in &call.options {
             let Some(rule) = function.rule(name) else {
                 continue;
             };

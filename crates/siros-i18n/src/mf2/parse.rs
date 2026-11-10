@@ -1,22 +1,22 @@
-//! MF2's syntax (spec/message.abnf), parsed by recursive descent.
+//! MF2's syntax (spec/message.abnf), parsed by recursive descent into a data model that borrows
+//! from the source.
+
+use std::borrow::Cow;
 
 use super::ast::{
     Body, Declaration, Expression, Function, Key, Markup, MarkupKind, Message, Operand, Opt, Part,
     Pattern, Variant,
 };
-use crate::normal::{Hold, Unnormalized};
-
-/// Why a message does not parse.
-#[derive(Debug)]
-pub(crate) enum Unparsed {
-    /// The byte offset where the message leaves MF2's grammar.
-    Syntax(usize),
-    /// A name or a variant key the parse's [`Hold`] refuses.
-    Unnormalized(Unnormalized),
-}
+use crate::error::Fault;
+use crate::normal::Hold;
 
 /// Parses a message, its names and variant keys held by `hold`.
-pub(crate) fn parse(source: &str, hold: Hold) -> Result<Message, Unparsed> {
+///
+/// # Errors
+///
+/// [`Fault::Syntax`] where the message leaves MF2's grammar, and [`Fault::Unnormalized`] for a
+/// name or a variant key `hold` refuses.
+pub(crate) fn parse(source: &str, hold: Hold) -> Result<Message<'_>, Fault> {
     let mut parser = Parser {
         source,
         rest: source,
@@ -27,10 +27,9 @@ pub(crate) fn parse(source: &str, hold: Hold) -> Result<Message, Unparsed> {
         parser.complex()?
     } else {
         parser.rest = source;
-        let pattern = parser.pattern(false)?;
         Message {
             declarations: Vec::new(),
-            body: Body::Pattern(pattern),
+            body: Body::Pattern(parser.pattern(false)?),
         }
     };
     if parser.rest.is_empty() {
@@ -65,6 +64,16 @@ impl<'s> Parser<'s> {
         Some(c)
     }
 
+    /// Steps over the longest prefix of `rest` whose characters `admitted` admits; returns it.
+    fn run(&mut self, admitted: impl Fn(char) -> bool) -> &'s str {
+        let run = self
+            .rest
+            .split_once(|c| !admitted(c))
+            .map_or(self.rest, |(run, _)| run);
+        self.rest = self.rest.trim_start_matches(admitted);
+        run
+    }
+
     /// Steps over one bidi mark, when the next character is one.
     fn skip_bidi(&mut self) {
         if let Some((c, rest)) = self.next()
@@ -88,18 +97,25 @@ impl<'s> Parser<'s> {
         }
     }
 
-    fn expect(&mut self, c: char) -> Result<(), Unparsed> {
+    fn expect(&mut self, c: char) -> Result<(), Fault> {
         if self.eat(c) { Ok(()) } else { self.fail() }
     }
 
     /// An error at the start of `rest`.
-    const fn fail<T>(&self) -> Result<T, Unparsed> {
-        Err(Unparsed::Syntax(self.source.len() - self.rest.len()))
+    const fn fail<T>(&self) -> Result<T, Fault> {
+        Err(Fault::Syntax(self.source.len() - self.rest.len()))
     }
 
     /// `text`, a name or a variant key, as the parse holds it.
-    fn held(&self, text: String) -> Result<String, Unparsed> {
-        self.hold.hold(text).map_err(Unparsed::Unnormalized)
+    fn held(&self, text: Cow<'s, str>) -> Result<Cow<'s, str>, Fault> {
+        match text {
+            Cow::Borrowed(text) => self.hold.hold(text),
+            Cow::Owned(text) => self
+                .hold
+                .hold(&text)
+                .map(|held| Cow::Owned(held.into_owned())),
+        }
+        .map_err(|refused| Fault::Unnormalized(refused.written()))
     }
 
     /// `o`: optional whitespace and bidi marks.
@@ -130,7 +146,7 @@ impl<'s> Parser<'s> {
         }
     }
 
-    fn complex(&mut self) -> Result<Message, Unparsed> {
+    fn complex(&mut self) -> Result<Message<'s>, Fault> {
         let mut declarations = Vec::new();
         loop {
             self.o();
@@ -171,7 +187,7 @@ impl<'s> Parser<'s> {
         }
     }
 
-    fn quoted_end(&mut self) -> Result<(), Unparsed> {
+    fn quoted_end(&mut self) -> Result<(), Fault> {
         if self.eat_str("}}") {
             self.o();
             Ok(())
@@ -180,7 +196,7 @@ impl<'s> Parser<'s> {
         }
     }
 
-    fn matcher(&mut self) -> Result<Body, Unparsed> {
+    fn matcher(&mut self) -> Result<Body<'s>, Fault> {
         let mut selectors = Vec::new();
         while self.s_then(|c| c == '$') {
             self.expect('$')?;
@@ -214,7 +230,7 @@ impl<'s> Parser<'s> {
         }
     }
 
-    fn key(&mut self) -> Result<Key, Unparsed> {
+    fn key(&mut self) -> Result<Key<'s>, Fault> {
         if self.eat('*') {
             Ok(Key::CatchAll)
         } else {
@@ -224,40 +240,41 @@ impl<'s> Parser<'s> {
     }
 
     /// A pattern, up to the end of the message or, in a quoted pattern, to its `}`.
-    fn pattern(&mut self, quoted: bool) -> Result<Pattern, Unparsed> {
+    fn pattern(&mut self, quoted: bool) -> Result<Pattern<'s>, Fault> {
         let mut parts = Vec::new();
-        let mut text = String::new();
         loop {
+            let text = self.text()?;
+            if !text.is_empty() {
+                parts.push(Part::Text(text));
+            }
             match self.next() {
-                None if quoted => return self.fail(),
-                None => break,
-                Some(('}', _)) if quoted => break,
-                Some(('}' | '\0', _)) => return self.fail(),
                 Some(('{', rest)) => {
                     self.rest = rest;
-                    if !text.is_empty() {
-                        parts.push(Part::Text(std::mem::take(&mut text)));
-                    }
                     parts.push(self.placeholder()?);
                 }
-                Some(('\\', rest)) => {
-                    self.rest = rest;
-                    text.push(self.escaped()?);
-                }
-                Some((c, rest)) => {
-                    self.rest = rest;
-                    text.push(c);
-                }
+                Some(('}', _)) if quoted => return Ok(parts),
+                None if !quoted => return Ok(parts),
+                Some(_) | None => return self.fail(),
             }
         }
-        if !text.is_empty() {
-            parts.push(Part::Text(text));
+    }
+
+    /// A pattern's text up to a `{`, a `}`, a NUL or the end of the message, its escapes
+    /// resolved.
+    fn text(&mut self) -> Result<Cow<'s, str>, Fault> {
+        let written = |c| !matches!(c, '{' | '}' | '\\' | '\0');
+        let mut text = Cow::Borrowed(self.run(written));
+        while self.eat('\\') {
+            let escaped = self.escaped()?;
+            let text = text.to_mut();
+            text.push(escaped);
+            text.push_str(self.run(written));
         }
-        Ok(parts)
+        Ok(text)
     }
 
     /// The character after a backslash: `\`, `{`, `|` or `}`.
-    fn escaped(&mut self) -> Result<char, Unparsed> {
+    fn escaped(&mut self) -> Result<char, Fault> {
         match self.next() {
             Some((c @ ('\\' | '{' | '|' | '}'), rest)) => {
                 self.rest = rest;
@@ -268,7 +285,7 @@ impl<'s> Parser<'s> {
     }
 
     /// A placeholder after its `{`.
-    fn placeholder(&mut self) -> Result<Part, Unparsed> {
+    fn placeholder(&mut self) -> Result<Part<'s>, Fault> {
         self.o();
         let kind = if self.eat('#') {
             MarkupKind::Open
@@ -295,12 +312,12 @@ impl<'s> Parser<'s> {
     }
 
     /// An expression after its `{`.
-    fn expression(&mut self) -> Result<Expression, Unparsed> {
+    fn expression(&mut self) -> Result<Expression<'s>, Fault> {
         self.o();
         self.expression_body()
     }
 
-    fn expression_body(&mut self) -> Result<Expression, Unparsed> {
+    fn expression_body(&mut self) -> Result<Expression<'s>, Fault> {
         if self.peek() == Some(':') {
             let function = self.function()?;
             self.close()?;
@@ -313,7 +330,7 @@ impl<'s> Parser<'s> {
     }
 
     /// `[s function]` after an operand.
-    fn annotation(&mut self) -> Result<Option<Function>, Unparsed> {
+    fn annotation(&mut self) -> Result<Option<Function<'s>>, Fault> {
         if self.s_then(|c| c == ':') {
             self.function().map(Some)
         } else {
@@ -322,13 +339,13 @@ impl<'s> Parser<'s> {
     }
 
     /// `*(s attribute) o "}"`.
-    fn close(&mut self) -> Result<(), Unparsed> {
+    fn close(&mut self) -> Result<(), Fault> {
         self.attributes()?;
         self.o();
         self.expect('}')
     }
 
-    fn operand(&mut self) -> Result<Operand, Unparsed> {
+    fn operand(&mut self) -> Result<Operand<'s>, Fault> {
         if self.eat('$') {
             Ok(Operand::Variable(self.name()?))
         } else {
@@ -336,7 +353,7 @@ impl<'s> Parser<'s> {
         }
     }
 
-    fn function(&mut self) -> Result<Function, Unparsed> {
+    fn function(&mut self) -> Result<Function<'s>, Fault> {
         self.expect(':')?;
         let name = self.identifier()?;
         let options = self.options()?;
@@ -344,7 +361,7 @@ impl<'s> Parser<'s> {
     }
 
     /// `*(s option)`.
-    fn options(&mut self) -> Result<Vec<Opt>, Unparsed> {
+    fn options(&mut self) -> Result<Vec<Opt<'s>>, Fault> {
         let mut options = Vec::new();
         while self.s_then(|c| name_start(c) || bidi(c)) {
             let name = self.identifier()?;
@@ -358,7 +375,7 @@ impl<'s> Parser<'s> {
     }
 
     /// `*(s attribute)`: read and dropped.
-    fn attributes(&mut self) -> Result<(), Unparsed> {
+    fn attributes(&mut self) -> Result<(), Fault> {
         while self.s_then(|c| c == '@') {
             self.expect('@')?;
             drop(self.identifier()?);
@@ -375,47 +392,53 @@ impl<'s> Parser<'s> {
     }
 
     /// `[namespace ":"] name`.
-    fn identifier(&mut self) -> Result<String, Unparsed> {
-        let mut identifier = self.name()?;
-        if self.eat(':') {
-            identifier.push(':');
-            identifier.push_str(&self.name()?);
+    fn identifier(&mut self) -> Result<Cow<'s, str>, Fault> {
+        let name = self.name()?;
+        if !self.eat(':') {
+            return Ok(name);
         }
-        Ok(identifier)
+        let mut identifier = name.into_owned();
+        identifier.push(':');
+        identifier.push_str(&self.name()?);
+        Ok(Cow::Owned(identifier))
     }
 
     /// `[bidi] name-start *name-char [bidi]`, held as the parse holds names.
-    fn name(&mut self) -> Result<String, Unparsed> {
+    fn name(&mut self) -> Result<Cow<'s, str>, Fault> {
         self.skip_bidi();
         if !self.peek().is_some_and(name_start) {
             return self.fail();
         }
-        let written: String = self.rest.chars().take_while(|&c| name_char(c)).collect();
-        let name = self.held(written)?;
-        self.rest = self.rest.trim_start_matches(name_char);
+        let written = self.run(name_char);
+        let name = self.held(Cow::Borrowed(written))?;
         self.skip_bidi();
         Ok(name)
     }
 
     /// A quoted or an unquoted literal's string value.
-    fn literal(&mut self) -> Result<String, Unparsed> {
-        if self.eat('|') {
-            let mut value = String::new();
-            loop {
-                match self.bump() {
-                    Some('|') => return Ok(value),
-                    Some('\\') => value.push(self.escaped()?),
-                    Some('\0') | None => return self.fail(),
-                    Some(c) => value.push(c),
+    fn literal(&mut self) -> Result<Cow<'s, str>, Fault> {
+        if !self.eat('|') {
+            let literal = self.run(name_char);
+            return if literal.is_empty() {
+                self.fail()
+            } else {
+                Ok(Cow::Borrowed(literal))
+            };
+        }
+        let written = |c| !matches!(c, '|' | '\\' | '\0');
+        let mut value = Cow::Borrowed(self.run(written));
+        loop {
+            match self.bump() {
+                Some('|') => return Ok(value),
+                Some('\\') => {
+                    let escaped = self.escaped()?;
+                    let value = value.to_mut();
+                    value.push(escaped);
+                    value.push_str(self.run(written));
                 }
+                Some(_) | None => return self.fail(),
             }
         }
-        let literal: String = self.rest.chars().take_while(|&c| name_char(c)).collect();
-        if literal.is_empty() {
-            return self.fail();
-        }
-        self.rest = self.rest.trim_start_matches(name_char);
-        Ok(literal)
     }
 }
 

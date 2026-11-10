@@ -1,19 +1,19 @@
 //! A context: the modules of one locale, which resolve a message's id and arguments into text.
 
-use std::fmt::Write as _;
+use rustc_hash::FxHashMap;
 
+use crate::args::Args;
 use crate::compile;
 #[cfg(feature = "check")]
 use crate::error::CheckError;
-use crate::error::{Defect, LoadError, ResolveError, SyntaxRule};
+use crate::error::{LoadError, ResolveError};
 use crate::format::Formats;
 use crate::locale::LocaleTag;
 use crate::message::Message;
+use crate::messages::{Messages, Prefix};
 use crate::mf2;
-use crate::mf2::parse::Unparsed;
-use crate::normal::{Hold, normal};
-use crate::resource;
-use crate::store::Store;
+use crate::normal::Hold;
+use crate::resource::{self, Entry};
 use crate::text::Text;
 
 /// How a context isolates a placeholder's text from the text around it.
@@ -37,59 +37,7 @@ pub struct Context {
     locale: Option<LocaleTag>,
     bidi: Bidi,
     formats: Formats,
-    messages: Store,
-}
-
-/// A message's arguments: each key as [`normal`] holds it with its text, ascending by key, each
-/// key once.
-struct Args(Vec<(String, String)>);
-
-impl Args {
-    /// The arguments `message` gives.
-    ///
-    /// # Errors
-    ///
-    /// [`ResolveError::Argument`] for a key given twice, or a value whose `Display` fails.
-    fn of(message: &dyn Message, id: &str) -> Result<Self, ResolveError> {
-        let mut args: Vec<(String, String)> = Vec::new();
-        let mut failed: Option<String> = None;
-        message.args(&mut |key, value| {
-            if failed.is_some() {
-                return;
-            }
-            let key = normal(key).into_owned();
-            let mut text = String::new();
-            match write!(text, "{value}") {
-                Ok(()) => args.push((key, text)),
-                Err(_) => failed = Some(key),
-            }
-        });
-        let refused = |key: String| ResolveError::Argument {
-            id: id.to_owned(),
-            key,
-        };
-        if let Some(key) = failed {
-            return Err(refused(key));
-        }
-        args.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
-        let repeated = args.windows(2).find_map(|pair| match pair {
-            [(a, _), (b, _)] if a == b => Some(a.clone()),
-            _ => None,
-        });
-        match repeated {
-            Some(key) => Err(refused(key)),
-            None => Ok(Self(args)),
-        }
-    }
-
-    /// The text of the argument `key`.
-    fn get(&self, key: &str) -> Option<&str> {
-        let at = self.0.partition_point(|(k, _)| k.as_str() < key);
-        self.0
-            .get(at)
-            .filter(|(k, _)| k == key)
-            .map(|(_, text)| text.as_str())
-    }
+    messages: Messages,
 }
 
 impl Context {
@@ -150,30 +98,43 @@ impl Context {
                 });
             }
         }
-        for section in &resource.formats {
-            self.formats.define(section, resource.direction)?;
+        // A format's options are those of each of its heads; a format is defined where its
+        // first head stands.
+        let mut options: FxHashMap<&str, Vec<&Entry<'_>>> = FxHashMap::default();
+        for head in &resource.formats {
+            options
+                .entry(&head.format)
+                .or_default()
+                .extend(&head.options);
         }
-        let (formats, direction) = (&self.formats, resource.direction);
-        for section in resource.sections {
-            self.messages.hold(section, |id, entry| {
-                let syntax = |rule| LoadError::Syntax {
-                    line: entry.line,
-                    rule,
+        for head in &resource.formats {
+            if let Some(options) = options.remove(head.format.as_ref()) {
+                self.formats
+                    .define(&head.format, &options, resource.direction)?;
+            }
+        }
+        for section in &resource.sections {
+            let (prefix, name) = match &section.name {
+                Some(name) => (self.messages.section(name), Some(name)),
+                None => (Prefix::NONE, None),
+            };
+            for entry in &section.entries {
+                let id = || match name {
+                    Some(name) => format!("{name}.{}", entry.key),
+                    None => entry.key.to_string(),
                 };
-                let message =
-                    mf2::parse::parse(&entry.value, hold).map_err(|error| match error {
-                        Unparsed::Syntax(at) => syntax(SyntaxRule::Message {
-                            id: id.to_string(),
-                            at,
-                        }),
-                        Unparsed::Unnormalized(item) => LoadError::Unnormalized {
-                            id: id.to_string(),
-                            text: item.written(),
-                        },
-                    })?;
-                mf2::valid::check(id, &message).map_err(syntax)?;
-                compile::compile(id, entry.line, &message, direction, formats, hold)
-            })?;
+                let slot = self.messages.slot(prefix, &entry.key);
+                if slot.is_some() {
+                    return Err(LoadError::Repeated { id: id() });
+                }
+                let message = mf2::parse::parse(&entry.value, hold)
+                    .and_then(|message| {
+                        let valid = mf2::valid::Valid::of(&message)?;
+                        compile::compile(&valid, resource.direction, &self.formats, hold)
+                    })
+                    .map_err(|fault| fault.at(&id(), entry.line))?;
+                *slot = Some(Box::new(message));
+            }
         }
         Ok(self)
     }
@@ -195,13 +156,13 @@ impl Context {
     /// refuses.
     pub fn resolve(&self, message: &dyn Message) -> Result<Text, ResolveError> {
         let id = message.id();
-        let worded = self
-            .messages
-            .find(id)
-            .map_err(|Defect| ResolveError::Defect { id: id.to_owned() })?
-            .ok_or_else(|| ResolveError::Unknown { id: id.to_owned() })?;
-        let args = Args::of(message, id)?;
-        worded.resolve(id, &|key| args.get(key), &self.formats, self.bidi)
+        let unknown = || ResolveError::Unknown { id: id.to_owned() };
+        let worded = self.messages.find(id).ok_or_else(unknown)?;
+        let args = Args::of(message).map_err(|key| ResolveError::Argument {
+            id: id.to_owned(),
+            key,
+        })?;
+        worded.resolve(id, &args, &self.formats, self.bidi)
     }
 
     /// The wallet's completeness test: every error and statement the binary links has a
@@ -228,23 +189,21 @@ impl Context {
             return Err(CheckError::Repeated { id: id.to_owned() });
         }
         let mut worded = Vec::with_capacity(rows.len());
-        let defect = |id: &str| CheckError::Defect { id: id.to_owned() };
         for (id, keys) in &rows {
-            let found = self
-                .messages
-                .find(id)
-                .map_err(|Defect| defect(id))?
-                .ok_or_else(|| CheckError::Unworded {
-                    id: (*id).to_owned(),
-                })?;
+            let found = self.messages.find(id).ok_or_else(|| CheckError::Unworded {
+                id: (*id).to_owned(),
+            })?;
             worded.push((id, keys, found));
         }
         for (id, keys, found) in worded {
-            let reads = found.reads().map_err(|Defect| defect(id))?;
-            if let Some(key) = reads.iter().find(|key| !keys.iter().any(|k| k == *key)) {
+            if let Some(key) = found
+                .reads()
+                .into_iter()
+                .find(|key| !keys.iter().any(|k| k == key))
+            {
                 return Err(CheckError::Unknown {
                     id: (*id).to_owned(),
-                    key: (*key).to_owned(),
+                    key: key.to_owned(),
                 });
             }
         }
