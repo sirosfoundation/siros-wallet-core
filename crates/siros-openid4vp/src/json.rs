@@ -247,6 +247,7 @@ impl<'a> Object<'a> {
     }
 
     /// The value of the member of that name, which the object no longer holds.
+    #[cfg(feature = "claims")]
     pub(crate) fn take(&mut self, name: &str) -> Option<Node<'a>> {
         let (taken, kept): (Vec<Member<'a>>, Vec<Member<'a>>) = std::mem::take(&mut self.0)
             .into_iter()

@@ -673,10 +673,6 @@ pub struct Registry<H: Build = NoHost> {
     parameters: Vec<RegisteredParameters<H>>,
     modes: Vec<RegisteredMode<H>>,
     formats: Vec<RegisteredFormat<H>>,
-    #[cfg_attr(
-        not(feature = "match"),
-        expect(dead_code, reason = "matching and phase 2 read the profiles")
-    )]
     profiles: Vec<Typed<<H as Plugins>::Profile>>,
     #[cfg(feature = "signed")]
     clients: Vec<RegisteredPrefix<H>>,
