@@ -104,7 +104,6 @@ digits =
   RWF 0
   SEK 2
   SLE 2
-  SLL 0
   SOS 0
   SYP 0
   TND 3
@@ -169,7 +168,6 @@ narrow =
   CNY ¥
   COP $
   CRC ₡
-  CUC $
   CUP $
   CZK Kč
   DKK kr
@@ -187,7 +185,6 @@ narrow =
   GYD $
   HKD $
   HNL L
-  HRK kn
   HUF Ft
   IDR Rp
   ILS ₪
@@ -275,8 +272,6 @@ names =
   BBD other Barbadian dollars
   BDT one Bangladeshi taka
   BDT other Bangladeshi takas
-  BGN one Bulgarian lev
-  BGN other Bulgarian leva
   BHD one Bahraini dinar
   BHD other Bahraini dinars
   BIF one Burundian franc
@@ -323,8 +318,6 @@ names =
   COU other Colombian real value units
   CRC one Costa Rican colón
   CRC other Costa Rican colóns
-  CUC one Cuban convertible peso
-  CUC other Cuban convertible pesos
   CUP one Cuban peso
   CUP other Cuban pesos
   CVE one Cape Verdean escudo
@@ -371,8 +364,6 @@ names =
   HKD other Hong Kong dollars
   HNL one Honduran lempira
   HNL other Honduran lempiras
-  HRK one Croatian kuna
-  HRK other Croatian kunas
   HTG one Haitian gourde
   HTG other Haitian gourdes
   HUF one Hungarian forint
@@ -509,8 +500,6 @@ names =
   SHP other St. Helena pounds
   SLE one Sierra Leonean leone
   SLE other Sierra Leonean leones
-  SLL one Sierra Leonean leone (1964—2022)
-  SLL other Sierra Leonean leones (1964—2022)
   SOS one Somali shilling
   SOS other Somali shillings
   SRD one Surinamese dollar
@@ -613,8 +602,6 @@ names =
   ZMW other Zambian kwachas
   ZWG one Zimbabwean gold
   ZWG other Zimbabwean gold
-  ZWL one Zimbabwean dollar (2009–2024)
-  ZWL other Zimbabwean dollars (2009–2024)
 
 [formats.date]
 zero = 0

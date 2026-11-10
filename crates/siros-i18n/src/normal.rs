@@ -61,6 +61,29 @@ impl Hold {
             Self::Written => Err(Unnormalized(text)),
         }
     }
+
+    /// Checks that the load holds `text`, which a selector compares in [`normal`]'s form.
+    ///
+    /// # Errors
+    ///
+    /// [`Unnormalized`] under [`Hold::Written`] for a text [`normal`] changes.
+    pub(crate) fn check(
+        self,
+        #[cfg_attr(
+            not(feature = "nfc"),
+            expect(unused_variables, reason = "a build without `nfc` holds every text")
+        )]
+        text: &str,
+    ) -> Result<(), Unnormalized> {
+        match self {
+            Self::Normal => Ok(()),
+            #[cfg(feature = "nfc")]
+            Self::Written => match normal(text) {
+                Cow::Borrowed(_) => Ok(()),
+                Cow::Owned(_) => Err(Unnormalized(text.to_owned())),
+            },
+        }
+    }
 }
 
 /// A name, a variant key or a selector literal, as written, that [`Hold::Written`] refuses.

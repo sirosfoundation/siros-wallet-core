@@ -89,16 +89,19 @@ All notable changes to this workspace. The format follows
   `err.<scope>.<id>`, and its named arguments, each its `Display`.
   `#[derive(Explain)]` sits beside thiserror's derive: each struct or variant
   carries `#[explain(id = "…")]` or `#[error(transparent)]`, a named field is an
-  argument, a cause is `#[source]` or `#[explain(skip)]`, a tuple argument is
-  refused, and an id given twice in a crate fails the build. `scope!` names a
-  crate's scope once, at its root. A plug-in's error crosses the core as
-  `Box<dyn Explain>`, and a contract breach is a `Fault(Box<dyn Explain>)` over
-  the crate's own fault error.
+  argument, a cause is `#[source]` or `#[explain(skip)]`, a tuple argument and a
+  field spelled `r#source` are refused, and an id given twice in a crate fails
+  the build. `scope!` names a crate's scope once, at its root. A plug-in's error
+  crosses the core as `Box<dyn Explain>`, and a contract breach is a
+  `Fault(Box<dyn Explain>)` over the crate's own fault error.
 - `siros-syntax` holds the checked texts and values: `checked!`, `Keyed` with
   `Entry` and `Repeated`, the non-empty `AllOf`, and `Count`, `Decimal`,
-  `Amount`, `Currency` with ISO 4217's table, `Date`, `Time`, `OffsetTime`,
-  `Offset` and `DateTime`. Each value type writes its literal form as `Display`
-  and parses exactly that form, refusing any other text with `Malformed`.
+  `Amount`, `Currency` with ISO 4217 List One (SIX's `list-one.xml`, published
+  2026-09-17, vendored and read by the build script), `Date`, `Time`,
+  `OffsetTime`, `Offset` and `DateTime`. Each value type writes its literal form
+  as `Display` and parses exactly that form, refusing any other text with
+  `Malformed`. `Digits`, one or more ASCII digits as written, give their count
+  through `Count::from`.
 - `siros-i18n` resolves the wallet's texts. A `Context` holds the
   MessageFormat 2 sources of one locale, each loaded whole and checked
   (`LoadError`); `Context::resolve` makes a `Text`, styled spans, from an error
@@ -107,10 +110,16 @@ All notable changes to this workspace. The format follows
   writes it as given; `:number` and `:integer` parse an MF2 number literal and
   show its fraction digits as written; `:offset`, `:currency` (its `currency`
   option literal or variable), `:percent`, `:siros:date`, `:siros:time` and
-  `:siros:datetime` parse their operand. Each function sits behind its feature:
-  `number`, `currency`, `offset` and `date`, the defaults with `derive` and
-  `nfc`. `nfc` holds names, variant keys and selector literals in NFC, as MF2
-  compares them, and adds `Context::module_in_nfc`, which refuses a source NFC
+  `:siros:datetime` parse their operand. An option's value is a literal or a
+  variable's value: an argument's text, a literal, or the value of a declared
+  call. `u:dir` takes `ltr`, `rtl`, `auto` or `inherit`; another value from a
+  variable refuses the resolution (`ResolveError::Option`). A load takes time
+  and memory in proportion to its source. A lookup that misses what the engine
+  holds by construction is a `Defect` of `LoadError`, `ResolveError` and
+  `CheckError`. Each function sits behind its
+  feature: `number`, `currency`, `offset` and `date`, the defaults with `derive`
+  and `nfc`. `nfc` holds names, variant keys and selector literals in NFC, as
+  MF2 compares them, and adds `Context::module_in_nfc`, which refuses a source NFC
   would change (`LoadError::Unnormalized`); without it they stay as written.
   `check` holds `Context::check`, and `conformance` MF2's test functions for
   siros-i18n's conformance tests. `escape` writes a resource value that resolves

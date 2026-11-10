@@ -44,8 +44,12 @@ pub trait Derive {
     const MARKER: &'static str;
 
     /// Whether `field` stays out of the arguments beside `#[<attribute>(skip)]`.
-    fn left_out(_field: &Field) -> bool {
-        false
+    ///
+    /// # Errors
+    ///
+    /// The refusal of a field the derive takes in no role.
+    fn left_out(_field: &Field) -> Result<bool> {
+        Ok(false)
     }
 
     /// The struct or the variant at `path` (`Self` or `Self::Variant`), named `name`. A shape with
@@ -231,7 +235,8 @@ pub fn identified<D: Derive>(path: &Tokens, id: &LitStr, fields: &Fields) -> Res
 }
 
 /// The key of `field` when it is an argument: its name, `r#` dropped. `None` for a field marked
-/// `#[<D::ATTRIBUTE>(skip)]` or [`Derive::left_out`]. Refuses a tuple field that is an argument.
+/// `#[<D::ATTRIBUTE>(skip)]` or [`Derive::left_out`]. Refuses a tuple field that is an argument,
+/// and a field [`Derive::left_out`] refuses.
 fn argument<D: Derive>(field: &Field) -> Result<Option<LitStr>> {
     let mut skip = false;
     for attr in attributes::<D>(&field.attrs) {
@@ -246,7 +251,7 @@ fn argument<D: Derive>(field: &Field) -> Result<Option<LitStr>> {
             Ok(())
         })?;
     }
-    if skip || D::left_out(field) {
+    if D::left_out(field)? || skip {
         return Ok(None);
     }
     match &field.ident {

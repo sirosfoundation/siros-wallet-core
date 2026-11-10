@@ -4,6 +4,8 @@
 //! `[section]` heads prefix the keys of the `key = message` entries after them, an indented line
 //! continues a message, and the sections `[formats.<format>]` hold a format's options.
 
+use rustc_hash::FxHashMap;
+
 use crate::error::{LoadError, SyntaxRule};
 use crate::format::Direction;
 use crate::locale::LocaleTag;
@@ -11,18 +13,25 @@ use crate::locale::LocaleTag;
 /// The section prefix of a format's options.
 const FORMATS: &str = "formats";
 
-/// A resource, parsed: its locale, its direction, its messages and its formats' options, each in
-/// source order.
+/// A resource, parsed: its locale, its direction, its message sections and its formats' options,
+/// each in source order.
 #[derive(Debug)]
 pub(crate) struct Resource {
     pub(crate) locale: Option<LocaleTag>,
     pub(crate) direction: Direction,
-    pub(crate) messages: Vec<Entry>,
+    pub(crate) sections: Vec<MessageSection>,
     pub(crate) formats: Vec<FormatSection>,
 }
 
-/// A message under its id, the section's prefix and the entry's key, or an option under its
-/// name; and the line, from 1, where the entry starts.
+/// The message entries under one `[section]` head, whose name and a dot prefix each entry's key in
+/// its id; or those before the first head, whose ids are their keys.
+#[derive(Debug)]
+pub(crate) struct MessageSection {
+    pub(crate) name: Option<String>,
+    pub(crate) entries: Vec<Entry>,
+}
+
+/// A message or an option under its key, and the line, from 1, where the entry starts.
 #[derive(Debug)]
 pub(crate) struct Entry {
     pub(crate) key: String,
@@ -43,28 +52,69 @@ enum Place {
     Body(Section),
 }
 
-/// The section entries belong to.
+/// The section the parser adds entries to.
 enum Section {
-    Root,
-    Messages(String),
-    Format(String),
+    Messages(MessageSection),
+    Format(FormatSection),
+}
+
+/// The sections the parser has left: the message sections, and each format's options under its
+/// name, with the position of its first section among the formats.
+#[derive(Default)]
+struct Left {
+    sections: Vec<MessageSection>,
+    formats: FxHashMap<String, (usize, Vec<Entry>)>,
+}
+
+impl Left {
+    /// Adds a section the parser leaves: its options to its format's.
+    fn leave(&mut self, section: Section) {
+        match section {
+            Section::Messages(messages) => self.sections.push(messages),
+            Section::Format(FormatSection { format, options }) => {
+                let at = self.formats.len();
+                self.formats
+                    .entry(format)
+                    .or_insert_with(|| (at, Vec::new()))
+                    .1
+                    .extend(options);
+            }
+        }
+    }
+
+    /// The message sections, and the formats' options, each format at its first section's
+    /// position.
+    fn finish(self) -> (Vec<MessageSection>, Vec<FormatSection>) {
+        let mut formats: Vec<(usize, FormatSection)> = self
+            .formats
+            .into_iter()
+            .map(|(format, (at, options))| (at, FormatSection { format, options }))
+            .collect();
+        formats.sort_unstable_by_key(|&(at, _)| at);
+        let formats = formats.into_iter().map(|(_, format)| format).collect();
+        (self.sections, formats)
+    }
 }
 
 /// Parses the resource `text`.
 pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
     let refuse = |line: usize, rule: SyntaxRule| LoadError::Syntax { line, rule };
-    let lines: Vec<&str> = text
-        .split('\n')
-        .map(|line| line.strip_suffix('\r').unwrap_or(line))
-        .collect();
+    // `newline = CRLF / LF`: a line an LF ends drops the CR before it; the last line keeps one.
+    let lines: Vec<&str> = match text.rsplit_once('\n') {
+        Some((ended, last)) => ended
+            .split('\n')
+            .map(|line| line.strip_suffix('\r').unwrap_or(line))
+            .chain([last])
+            .collect(),
+        None => vec![text],
+    };
     if let Some(at) = lines.iter().position(|line| !line.chars().all(allowed)) {
         return Err(refuse(at + 1, SyntaxRule::Line));
     }
     let mut locale: Option<LocaleTag> = None;
     let mut direction: Option<Direction> = None;
     let mut place = Place::Head;
-    let mut messages = Vec::new();
-    let mut formats: Vec<FormatSection> = Vec::new();
+    let mut left = Left::default();
     let mut at = 0;
     while let Some(&line) = lines.get(at) {
         let number = at + 1;
@@ -77,7 +127,12 @@ pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
         }
         if line.trim_end_matches(is_ws) == "---" {
             match place {
-                Place::Head => place = Place::Body(Section::Root),
+                Place::Head => {
+                    place = Place::Body(Section::Messages(MessageSection {
+                        name: None,
+                        entries: Vec::new(),
+                    }));
+                }
                 Place::Body(_) => return Err(refuse(number, SyntaxRule::Frontmatter)),
             }
             continue;
@@ -111,10 +166,8 @@ pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
             return Err(refuse(number, SyntaxRule::Order));
         };
         if let Some(rest) = line.strip_prefix('[') {
-            *section = head(rest).map_err(|rule| refuse(number, rule))?;
-            if let Section::Format(format) = section {
-                add(&mut formats, format, None);
-            }
+            let next = head(rest).map_err(|rule| refuse(number, rule))?;
+            left.leave(std::mem::replace(section, next));
             continue;
         }
         let (key, rest) = id(line).map_err(|rule| refuse(number, rule))?;
@@ -124,46 +177,28 @@ pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
         let (value, next) = value(&lines, at, first);
         at = next;
         let value = value.map_err(|rule| refuse(number, rule))?;
+        let entry = Entry {
+            key,
+            value,
+            line: number,
+        };
         match section {
-            Section::Root => messages.push(Entry {
-                key,
-                value,
-                line: number,
-            }),
-            Section::Messages(prefix) => messages.push(Entry {
-                key: format!("{prefix}.{key}"),
-                value,
-                line: number,
-            }),
-            Section::Format(format) => {
-                let option = Entry {
-                    key,
-                    value,
-                    line: number,
-                };
-                add(&mut formats, format, Some(option));
-            }
+            Section::Messages(messages) => messages.entries.push(entry),
+            Section::Format(format) => format.options.push(entry),
         }
     }
     match place {
-        Place::Body(_) => Ok(Resource {
-            locale,
-            direction: direction.unwrap_or(Direction::Unknown),
-            messages,
-            formats,
-        }),
+        Place::Body(section) => {
+            left.leave(section);
+            let (sections, formats) = left.finish();
+            Ok(Resource {
+                locale,
+                direction: direction.unwrap_or(Direction::Unknown),
+                sections,
+                formats,
+            })
+        }
         Place::Head => Err(refuse(lines.len(), SyntaxRule::Frontmatter)),
-    }
-}
-
-/// Adds `option` to the section of `format`, which it adds when absent.
-fn add(formats: &mut Vec<FormatSection>, format: &str, option: Option<Entry>) {
-    match formats.iter_mut().find(|earlier| earlier.format == format) {
-        Some(section) => section.options.extend(option),
-        None => formats.push(FormatSection {
-            format: format.to_owned(),
-            options: option.into_iter().collect(),
-        }),
     }
 }
 
@@ -181,8 +216,14 @@ fn head(rest: &str) -> Result<Section, SyntaxRule> {
             .strip_prefix(FORMATS)
             .and_then(|format| format.strip_prefix('.'))
         {
-            Some(format) => Section::Format(format.to_owned()),
-            None => Section::Messages(path),
+            Some(format) => Section::Format(FormatSection {
+                format: format.to_owned(),
+                options: Vec::new(),
+            }),
+            None => Section::Messages(MessageSection {
+                name: Some(path),
+                entries: Vec::new(),
+            }),
         },
     )
 }

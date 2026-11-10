@@ -64,7 +64,7 @@ proves its sources complete for each locale it ships.
 | `siros-wallet-state` | The decrypted wallet state of the private data container, and the instance of a batch a presentation uses |
 | `siros-i18n` | The wallet's texts: a `Context` of MessageFormat 2 sources resolves an error or a statement (`Message`) to `Text` |
 | `siros-i18n-derive` | `#[derive(Message)]` for statements |
-| `siros-syntax` | Checked texts, keyed and non-empty lists, and values in their literal forms: numbers, ISO 4217 amounts, dates and times |
+| `siros-syntax` | Checked texts, keyed and non-empty lists, and values in their literal forms: numbers, amounts in the currencies of ISO 4217 List One (SIX, 2026-09-17), dates and times |
 | `siros-explain` | The error contract: a stable id and named arguments, each its `Display` |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
 | `siros-derive-internals` | The field rules the two derives share: arguments, `Option`, `Display` bounds, the id marker, the `check` row |
@@ -103,7 +103,7 @@ siros-openid4vp       the core: a request in, a response built   match | resolve
 └── siros-integration the HAIP and WE BUILD builds end to end     resolve
 siros-i18n            Message, Context, Text                      derive | check | number | currency | offset | date | nfc | conformance
 siros-i18n-derive     #[derive(Message)]
-siros-syntax          checked!, Keyed, AllOf; values in their literal forms; ISO 4217
+siros-syntax          checked!, Keyed, AllOf; values in their literal forms; ISO 4217 List One
 siros-cldr            CLDR format options as MF2 source
 siros-explain         the error contract: Explain, scope!         derive | check
 siros-explain-derive  #[derive(Explain)]

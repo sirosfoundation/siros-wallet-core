@@ -92,7 +92,20 @@ pub enum LoadError {
         /// The name, the key or the literal, as written.
         text: String,
     },
+    /// The engine misses a value of the message or an entry of the context that it holds by
+    /// construction: a defect of siros-i18n.
+    #[error("{id}: siros-i18n misses a value it holds by construction")]
+    #[explain(id = "load.defect")]
+    Defect {
+        /// The message's id.
+        id: String,
+    },
 }
+
+/// A lookup that misses a value, an entry or a section the engine holds by construction. The
+/// public errors report it as their `Defect`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Defect;
 
 /// The rules of syntax a module follows: the resource format's (the W3C i18n-discuss message
 /// resource syntax), MessageFormat 2's syntax and data model (spec/errors.md "Syntax Errors",
@@ -315,7 +328,8 @@ pub enum ResolveError {
         /// The function, without its colon.
         function: String,
     },
-    /// A function refuses the text an argument gives for an option.
+    /// A function refuses an option's value, which a variable gives: an argument's text, or a
+    /// declared call's value; or the call's `u:dir` names no direction.
     #[error("{id}: :{function} refuses its option {option}")]
     #[explain(id = "resolve.option")]
     Option {
@@ -334,6 +348,14 @@ pub enum ResolveError {
         id: String,
         /// The argument's key, as the build compares it: in NFC with the feature `nfc`.
         key: String,
+    },
+    /// The engine misses a value of the message, an entry of the context or a format section
+    /// that it holds by construction: a defect of siros-i18n.
+    #[error("{id}: siros-i18n misses a value it holds by construction")]
+    #[explain(id = "resolve.defect")]
+    Defect {
+        /// The message's id.
+        id: String,
     },
 }
 
@@ -362,6 +384,14 @@ pub enum CheckError {
         id: String,
         /// The argument's key.
         key: String,
+    },
+    /// The engine misses a value of the message or an entry of the context that it holds by
+    /// construction: a defect of siros-i18n.
+    #[error("{id}: siros-i18n misses a value it holds by construction")]
+    #[explain(id = "check.defect")]
+    Defect {
+        /// The id.
+        id: String,
     },
 }
 

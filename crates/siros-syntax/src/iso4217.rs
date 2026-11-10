@@ -1,4 +1,4 @@
-//! ISO 4217's currencies, remapped from `iso_currency`'s table when the crate builds.
+//! ISO 4217's currencies, read from List One when the crate builds.
 
 use std::fmt::{self, Write as _};
 
@@ -8,9 +8,9 @@ mod table {
     include!(concat!(env!("OUT_DIR"), "/iso4217.rs"));
 }
 
-/// An ISO 4217 currency: an entry of `iso_currency`'s table, which the build script remaps into
-/// rows of the alphabetic code packed in 15 bits and the minor units, ascending by code. Its
-/// literal is its alphabetic code: `EUR`.
+/// An ISO 4217 currency: an alphabetic code of List One, the crate's `list-one.xml`, which the
+/// build script reads into rows of the code packed in 15 bits and the minor units, ascending by
+/// code. Its literal is its alphabetic code: `EUR`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Currency {
     packed: u16,
@@ -23,7 +23,7 @@ impl Currency {
     /// # Errors
     ///
     /// [`Malformed`] for a text other than three uppercase ASCII letters, and at the first letter
-    /// for a code ISO 4217 does not list.
+    /// for a code List One does not list.
     pub fn parse(text: &str) -> Result<Self, Malformed> {
         parse(text, "Currency", Self::read)
     }
@@ -38,11 +38,12 @@ impl Currency {
                 .ok_or_else(|| reader.here())?;
             packed = packed * 32 + u16::from(letter - b'A');
         }
-        let row = table::CURRENCIES
-            .binary_search_by_key(&packed, |&[high, low, _]| u16::from_be_bytes([high, low]))
-            .ok()
-            .and_then(|index| table::CURRENCIES.get(index));
-        let &[_, _, minor] = row.ok_or_else(|| reader.refuse(start))?;
+        let code = |&[high, low, _]: &[u8; 3]| u16::from_be_bytes([high, low]);
+        let at = table::CURRENCIES.partition_point(|row| code(row) < packed);
+        let &[_, _, minor] = table::CURRENCIES
+            .get(at)
+            .filter(|row| code(row) == packed)
+            .ok_or_else(|| reader.refuse(start))?;
         Ok(Self { packed, minor })
     }
 
@@ -56,7 +57,7 @@ impl Currency {
         ]
     }
 
-    /// The minor units ISO 4217 lists; `None` for a currency without them.
+    /// The minor units List One gives; `None` for its `N.A.`.
     #[must_use]
     pub const fn minor_units(self) -> Option<u8> {
         if self.minor == 255 {

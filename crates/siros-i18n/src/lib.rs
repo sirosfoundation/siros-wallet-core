@@ -7,11 +7,18 @@
 //!
 //! Every argument is text: its value's `Display`. A placeholder without a function writes it as
 //! given; the functions parse it. `:number` and `:integer` take a number literal and show the
-//! fraction digits it is written with; `:currency` takes a number and a `currency` option, from a
-//! literal or an argument; `:siros:date`, `:siros:time` and `:siros:datetime` take siros-syntax's
-//! ISO 8601 literals. Each function family is a feature: `number` (`:number`, `:integer`),
-//! `currency` (`:currency`, `:percent`), `offset` (`:offset`) and `date`; `:string` is always in.
-//! `siros-cldr` writes the format sections of a language from CLDR 49.0.0.
+//! fraction digits it is written with; `:currency` takes a number and a `currency` option, an
+//! ISO 4217 code of siros-syntax's table; `:siros:date`, `:siros:time` and `:siros:datetime`
+//! take siros-syntax's ISO 8601 literals. Each function family is a feature: `number`
+//! (`:number`, `:integer`), `currency` (`:currency`, `:percent`), `offset` (`:offset`) and
+//! `date`; `:string` is always in. `siros-cldr` writes the format sections of a language from
+//! CLDR 49.0.0.
+//!
+//! An option's value is a literal or a variable's value (MF2's Option Resolution): an argument's
+//! text, a literal, or the value of the call a declaration binds, which is the operand's text for
+//! `:string` and the date functions and the number, without an exponent, for the numeric
+//! functions. `u:dir` takes `ltr`, `rtl`, `auto` or `inherit`; a variable's other value refuses
+//! the message at resolution.
 //!
 //! [`escape`] writes a text as a resource value that resolves to it: a converter writes each
 //! issuer text through it.
@@ -97,6 +104,7 @@ mod normal;
 #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
 mod numeric;
 mod resource;
+mod store;
 mod string;
 #[cfg(feature = "conformance")]
 mod test_functions;

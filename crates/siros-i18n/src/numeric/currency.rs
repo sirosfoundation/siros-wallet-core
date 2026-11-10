@@ -2,20 +2,22 @@
 //! and fraction digits and the percent pattern of `:percent`, and an amount formatted with them
 //! (Unicode TR35 Part 3, "Currencies"; CLDR's `alphaNextToNumber` patterns as ICU4X selects them).
 
+use std::hash::Hash;
 use std::num::NonZeroU32;
 
 use icu_properties::CodePointMapData;
 use icu_properties::props::{GeneralCategory, GeneralCategoryGroup};
+use rustc_hash::FxHashSet;
 use siros_syntax::Currency;
 
-use crate::error::{FormatRule, Refusal};
-use crate::format::{Chain, Failure, Function as Called, OptionValue, Options};
+use crate::error::FormatRule;
+use crate::format::{Failure, Options};
+use crate::numeric::Form;
 use crate::numeric::decimal::{Fixed, Given};
 use crate::numeric::language::{Numbers, symbol};
 use crate::numeric::options::{Function, Refused, Resolved};
 use crate::numeric::pattern::{Affix, Pattern};
 use crate::numeric::plural::{Category, Operands};
-use crate::numeric::{Form, formatter};
 
 /// The options `[formats.currency]` takes.
 pub(crate) const OPTIONS: [&str; 22] = [
@@ -128,40 +130,12 @@ struct Data {
     fractions: Vec<(Currency, Fractions)>,
 }
 
-/// `[formats.currency]`, parsed.
+/// `[formats.currency]`, parsed: its numbers, its percent pattern, and its currency data.
 #[derive(Debug, Clone)]
 pub(crate) struct Parsed {
-    numbers: Numbers,
-    percent: Pattern,
-    data: Data,
-}
-
-/// The language a compiled `:currency` or `:percent` call formats with: the section's numbers
-/// and percent pattern, and its currency data for the currencies the call can format.
-#[derive(Debug, Clone)]
-pub(crate) struct Language {
     pub(crate) numbers: Numbers,
     pub(crate) percent: Pattern,
     data: Data,
-}
-
-/// The currencies a compiled call formats: every one when an argument names it, the one a literal
-/// names, none for `:percent`.
-#[derive(Debug, Clone, Copy)]
-enum Kept {
-    All,
-    One(Currency),
-    None,
-}
-
-impl Kept {
-    fn keeps(self, currency: Currency) -> bool {
-        match self {
-            Self::All => true,
-            Self::One(kept) => kept == currency,
-            Self::None => false,
-        }
-    }
 }
 
 /// Whether a character is a letter (General Category L).
@@ -182,13 +156,9 @@ fn table<T>(text: &str, mut entry: impl FnMut(Currency, &str) -> Option<T>) -> O
 }
 
 /// Whether no two items share a key.
-fn distinct<T, K: PartialEq>(items: &[T], key: impl Fn(&T) -> K) -> bool {
-    items.iter().enumerate().all(|(at, item)| {
-        items
-            .iter()
-            .take(at)
-            .all(|earlier| key(earlier) != key(item))
-    })
+fn distinct<T, K: Hash + Eq>(items: &[T], key: impl Fn(&T) -> K) -> bool {
+    let mut keys = FxHashSet::default();
+    items.iter().all(|item| keys.insert(key(item)))
 }
 
 fn symbols(text: &str) -> Option<Vec<Symbol>> {
@@ -290,68 +260,9 @@ impl Parsed {
             },
         })
     }
-
-    /// The language a chain of `:currency` or `:percent` formats with: its currency data
-    /// restricted to the currency a literal `currency` option names.
-    ///
-    /// # Errors
-    ///
-    /// [`Refusal::Option`] for a literal `currency` that names no ISO 4217 currency.
-    pub(crate) fn language(&self, chain: &Chain) -> Result<crate::numeric::Language, Refusal> {
-        let named = chain
-            .calls()
-            .filter(|call| call.function == Called::Currency)
-            .filter_map(|call| call.options.iter().find(|(name, _)| name == "currency"))
-            .next_back()
-            .map(|(_, value)| value);
-        let kept = match (formatter(chain), named) {
-            (Function::Currency, Some(OptionValue::Literal(code) | OptionValue::Local(code))) => {
-                Kept::One(currency(code).ok_or_else(|| Refusal::Option {
-                    option: "currency".to_owned(),
-                })?)
-            }
-            (Function::Currency, Some(OptionValue::Argument(_))) => Kept::All,
-            _ => Kept::None,
-        };
-        Ok(crate::numeric::Language::Currency(Box::new(Language {
-            numbers: self.numbers.clone(),
-            percent: self.percent.clone(),
-            data: self.data.kept(kept),
-        })))
-    }
 }
 
 impl Data {
-    /// The data with the tables of the currencies `kept` keeps.
-    fn kept(&self, kept: Kept) -> Self {
-        let symbols = |symbols: &[Symbol]| {
-            symbols
-                .iter()
-                .filter(|s| kept.keeps(s.currency))
-                .cloned()
-                .collect()
-        };
-        Self {
-            patterns: self.patterns.clone(),
-            symbols: symbols(&self.symbols),
-            narrow: symbols(&self.narrow),
-            names: self
-                .names
-                .iter()
-                .filter(|n| kept.keeps(n.currency))
-                .cloned()
-                .collect(),
-            units: self.units.clone(),
-            default: self.default,
-            fractions: self
-                .fractions
-                .iter()
-                .filter(|(c, _)| kept.keeps(*c))
-                .copied()
-                .collect(),
-        }
-    }
-
     fn fractions(&self, currency: Currency) -> Fractions {
         self.fractions
             .iter()
@@ -392,7 +303,7 @@ impl Data {
     }
 }
 
-impl Language {
+impl Parsed {
     /// The standard currency pattern.
     pub(crate) const fn standard(&self) -> &Pattern {
         &self.data.patterns.standard
@@ -415,10 +326,10 @@ impl Language {
     /// # Errors
     ///
     /// [`Failure::Option`] for a `currency` or `currencyDisplay` text the function refuses, and
-    /// [`Failure::Operand`] for a value whose call names no currency.
+    /// [`Failure::Defect`] for a value whose call names no currency: the load refuses it.
     pub(crate) fn amount(&self, form: &Form<'_>, given: &Given) -> Result<String, Failure> {
         let option = |name: &str| Failure::Option(name.to_owned());
-        let code = form.resolved.get("currency").ok_or(Failure::Operand)?;
+        let code = form.resolved.get("currency").ok_or(Failure::Defect)?;
         let currency = currency(code).ok_or_else(|| option("currency"))?;
         let display = match form.resolved.get("currencyDisplay") {
             Some(name) => Display::named(name).ok_or_else(|| option("currencyDisplay"))?,

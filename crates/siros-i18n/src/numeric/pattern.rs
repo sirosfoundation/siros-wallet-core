@@ -1,6 +1,8 @@
 //! CLDR number patterns (Unicode TR35 Part 3, "Number Patterns"): the affixes around a number,
 //! its grouping sizes, and its default digit counts.
 
+use std::num::NonZeroU8;
+
 use crate::digit::{Digit, Numerals};
 use crate::numeric::decimal::Fixed;
 
@@ -50,16 +52,32 @@ impl Affixes {
 }
 
 /// A number pattern: its positive and its explicit negative subpattern's affixes, its grouping
-/// sizes, and its digit counts.
+/// sizes, `None` without a grouping separator, and its digit counts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Pattern {
     pub(crate) positive: Affixes,
     pub(crate) negative: Option<Affixes>,
-    pub(crate) primary: u8,
-    pub(crate) secondary: u8,
+    pub(crate) groups: Option<Groups>,
     pub(crate) min_integer: u8,
     pub(crate) min_fraction: u8,
     pub(crate) max_fraction: u8,
+}
+
+/// A pattern's grouping sizes: the group nearest the decimal separator's, and each group's
+/// before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Groups {
+    primary: NonZeroU8,
+    secondary: NonZeroU8,
+}
+
+impl Groups {
+    /// Whether a group separator stands before the digit with `left` digits from it to the end.
+    fn boundary(self, left: usize) -> bool {
+        let primary = usize::from(self.primary.get());
+        let secondary = usize::from(self.secondary.get());
+        left == primary || (left > primary && (left - primary).is_multiple_of(secondary))
+    }
 }
 
 /// The sign a number shows.
@@ -142,14 +160,15 @@ impl Pattern {
     ) {
         let digit = |d: &Digit| symbols.numerals.digit(*d);
         let len = fixed.int.len();
-        let primary = usize::from(self.primary);
-        let grouped = match grouping {
-            Grouping::Never => false,
-            Grouping::From(minimum) => primary > 0 && len >= primary + usize::from(minimum),
+        let groups = match grouping {
+            Grouping::Never => None,
+            Grouping::From(minimum) => self
+                .groups
+                .filter(|groups| len >= usize::from(groups.primary.get()) + usize::from(minimum)),
         };
         for (index, d) in fixed.int.iter().enumerate() {
             let left = len - index;
-            if grouped && index > 0 && self.boundary(left) {
+            if index > 0 && groups.is_some_and(|groups| groups.boundary(left)) {
                 out.push_str(&symbols.group);
             }
             out.push(digit(d));
@@ -158,13 +177,6 @@ impl Pattern {
             out.push_str(&symbols.decimal);
             out.extend(fixed.frac.iter().map(digit));
         }
-    }
-
-    /// Whether a group separator stands before the digit with `left` digits from it to the end.
-    fn boundary(&self, left: usize) -> bool {
-        let (primary, secondary) = (usize::from(self.primary), usize::from(self.secondary));
-        left == primary
-            || (left > primary && secondary > 0 && (left - primary).is_multiple_of(secondary))
     }
 
     /// The pattern a module writes; `None` for a text outside the grammar this engine formats:
@@ -308,11 +320,17 @@ fn numbers(body: &str) -> Option<Pattern> {
         return None;
     }
     let groups: Vec<&str> = integer.split(',').collect();
-    let size = |s: &str| u8::try_from(s.len()).ok();
-    let (primary, secondary) = match groups.as_slice() {
-        [_] => (0, 0),
-        [.., second, last] if groups.len() > 2 => (size(last)?, size(second)?),
-        [_, last] => (size(last)?, size(last)?),
+    let size = |s: &str| u8::try_from(s.len()).ok().and_then(NonZeroU8::new);
+    let sizes = match groups.as_slice() {
+        [_] => None,
+        [.., second, last] if groups.len() > 2 => Some(Groups {
+            primary: size(last)?,
+            secondary: size(second)?,
+        }),
+        [_, last] => Some(Groups {
+            primary: size(last)?,
+            secondary: size(last)?,
+        }),
         _ => return None,
     };
     if groups.iter().skip(1).any(|g| g.is_empty()) {
@@ -327,8 +345,7 @@ fn numbers(body: &str) -> Option<Pattern> {
     Some(Pattern {
         positive: Affixes::default(),
         negative: None,
-        primary,
-        secondary,
+        groups: sizes,
         min_integer: u8::try_from(zeros.len()).ok()?,
         min_fraction: u8::try_from(fraction.len() - optional.len()).ok()?,
         max_fraction: u8::try_from(fraction.len()).ok()?,

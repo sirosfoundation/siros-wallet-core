@@ -2,12 +2,10 @@
 
 use std::fmt::Write as _;
 
-use rustc_hash::FxHashSet;
-
-use crate::compile::{self, Compiled};
+use crate::compile;
 #[cfg(feature = "check")]
 use crate::error::CheckError;
-use crate::error::{LoadError, ResolveError, SyntaxRule};
+use crate::error::{Defect, LoadError, ResolveError, SyntaxRule};
 use crate::format::Formats;
 use crate::locale::LocaleTag;
 use crate::message::Message;
@@ -15,6 +13,7 @@ use crate::mf2;
 use crate::mf2::parse::Unparsed;
 use crate::normal::{Hold, normal};
 use crate::resource;
+use crate::store::Store;
 use crate::text::Text;
 
 /// How a context isolates a placeholder's text from the text around it.
@@ -38,15 +37,7 @@ pub struct Context {
     locale: Option<LocaleTag>,
     bidi: Bidi,
     formats: Formats,
-    /// The messages, ascending by id, each id once.
-    messages: Vec<Worded>,
-}
-
-/// A message under its id.
-#[derive(Debug, Clone)]
-struct Worded {
-    id: String,
-    message: Compiled,
+    messages: Store,
 }
 
 /// A message's arguments: each key as [`normal`] holds it with its text, ascending by key, each
@@ -162,42 +153,28 @@ impl Context {
         for section in &resource.formats {
             self.formats.define(section, resource.direction)?;
         }
-        let mut seen: FxHashSet<&str> = FxHashSet::default();
-        let mut worded = Vec::with_capacity(resource.messages.len());
-        for entry in &resource.messages {
-            let id = entry.key.as_str();
-            if self.find(id).is_some() || !seen.insert(id) {
-                return Err(LoadError::Repeated { id: id.to_owned() });
-            }
-            let syntax = |rule| LoadError::Syntax {
-                line: entry.line,
-                rule,
-            };
-            let message = mf2::parse::parse(&entry.value, hold).map_err(|error| match error {
-                Unparsed::Syntax(at) => syntax(SyntaxRule::Message {
-                    id: id.to_owned(),
-                    at,
-                }),
-                Unparsed::Unnormalized(item) => LoadError::Unnormalized {
-                    id: id.to_owned(),
-                    text: item.written(),
-                },
+        let (formats, direction) = (&self.formats, resource.direction);
+        for section in resource.sections {
+            self.messages.hold(section, |id, entry| {
+                let syntax = |rule| LoadError::Syntax {
+                    line: entry.line,
+                    rule,
+                };
+                let message =
+                    mf2::parse::parse(&entry.value, hold).map_err(|error| match error {
+                        Unparsed::Syntax(at) => syntax(SyntaxRule::Message {
+                            id: id.to_string(),
+                            at,
+                        }),
+                        Unparsed::Unnormalized(item) => LoadError::Unnormalized {
+                            id: id.to_string(),
+                            text: item.written(),
+                        },
+                    })?;
+                mf2::valid::check(id, &message).map_err(syntax)?;
+                compile::compile(id, entry.line, &message, direction, formats, hold)
             })?;
-            mf2::valid::check(id, &message).map_err(syntax)?;
-            worded.push(Worded {
-                id: id.to_owned(),
-                message: compile::compile(
-                    id,
-                    entry.line,
-                    &message,
-                    resource.direction,
-                    &self.formats,
-                    hold,
-                )?,
-            });
         }
-        self.messages.append(&mut worded);
-        self.messages.sort_unstable_by(|a, b| a.id.cmp(&b.id));
         Ok(self)
     }
 
@@ -219,10 +196,12 @@ impl Context {
     pub fn resolve(&self, message: &dyn Message) -> Result<Text, ResolveError> {
         let id = message.id();
         let worded = self
+            .messages
             .find(id)
+            .map_err(|Defect| ResolveError::Defect { id: id.to_owned() })?
             .ok_or_else(|| ResolveError::Unknown { id: id.to_owned() })?;
         let args = Args::of(message, id)?;
-        worded.message.resolve(id, &|key| args.get(key), self.bidi)
+        worded.resolve(id, &|key| args.get(key), &self.formats, self.bidi)
     }
 
     /// The wallet's completeness test: every error and statement the binary links has a
@@ -249,14 +228,19 @@ impl Context {
             return Err(CheckError::Repeated { id: id.to_owned() });
         }
         let mut worded = Vec::with_capacity(rows.len());
+        let defect = |id: &str| CheckError::Defect { id: id.to_owned() };
         for (id, keys) in &rows {
-            let found = self.find(id).ok_or_else(|| CheckError::Unworded {
-                id: (*id).to_owned(),
-            })?;
+            let found = self
+                .messages
+                .find(id)
+                .map_err(|Defect| defect(id))?
+                .ok_or_else(|| CheckError::Unworded {
+                    id: (*id).to_owned(),
+                })?;
             worded.push((id, keys, found));
         }
         for (id, keys, found) in worded {
-            let reads = found.message.reads();
+            let reads = found.reads().map_err(|Defect| defect(id))?;
             if let Some(key) = reads.iter().find(|key| !keys.iter().any(|k| k == *key)) {
                 return Err(CheckError::Unknown {
                     id: (*id).to_owned(),
@@ -265,13 +249,5 @@ impl Context {
             }
         }
         Ok(())
-    }
-
-    /// The message of `id`.
-    fn find(&self, id: &str) -> Option<&Worded> {
-        let at = self
-            .messages
-            .partition_point(|worded| worded.id.as_str() < id);
-        self.messages.get(at).filter(|worded| worded.id == id)
     }
 }

@@ -390,12 +390,9 @@ impl<'s> Parser<'s> {
         if !self.peek().is_some_and(name_start) {
             return self.fail();
         }
-        let after = self.rest.trim_start_matches(name_char);
-        let Some(written) = self.rest.get(..self.rest.len() - after.len()) else {
-            return self.fail();
-        };
-        let name = self.held(written.to_owned())?;
-        self.rest = after;
+        let written: String = self.rest.chars().take_while(|&c| name_char(c)).collect();
+        let name = self.held(written)?;
+        self.rest = self.rest.trim_start_matches(name_char);
         self.skip_bidi();
         Ok(name)
     }
