@@ -6,7 +6,7 @@ use std::fmt;
 
 use siros_explain::Explain;
 
-/// A language tag of the End-User's priority list, and a text that is none.
+/// A language tag of the End-User's priority list, and the refusal of a text that is no tag.
 pub use siros_i18n::{InvalidTag, LocaleTag};
 
 /// A string that breaks the rule of the identifier it was parsed as.

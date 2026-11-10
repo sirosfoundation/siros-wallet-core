@@ -198,12 +198,12 @@ fn answer<'a, H: CoreHost + Default>(
     env: &'a Env,
 ) -> Answer {
     let accepted = Accepted::new(request, registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, wallet, env, &rendering).expect("match");
+    let matched = Match::run(&accepted, wallet, env, context).expect("match");
     let consent = Consent::of(&matched).expect("consent");
-    let views = Views::of(&matched, env).expect("views");
+    let views = Views::of(&matched, env, context).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
     let first: Vec<&str> = shown.sets()[0]
@@ -216,22 +216,14 @@ fn answer<'a, H: CoreHost + Default>(
         .expect("selection")
         .ids();
     let host = H::default();
-    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), registry, &host)
-        .expect("authentic");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let built = Prepared::prepare(
-        &authenticated,
-        &ids,
-        wallet,
-        registry,
-        env,
-        &rendering,
-        &host,
-    )
-    .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
-    .expect("response");
+    let authenticated =
+        siros_testkit::fixtures::authenticate(request.envelope(), registry, context, &host)
+            .expect("authentic");
+    let built = Prepared::prepare(&authenticated, &ids, wallet, registry, env, context, &host)
+        .and_then(|prepared| {
+            prepared.respond(|resource| Published::default().answer(resource), &host)
+        })
+        .expect("response");
     Answer {
         vp_token: built.response().vp_token().json(),
         json: built.response().json(),
@@ -299,11 +291,10 @@ fn transaction_data_hashes_follow_b_3_3_1() {
         let received = unsigned(&text).expect("received");
         let request = request_of(&received).expect("request");
         let accepted = Accepted::new(&request, &registry).expect("accepted");
-        let app =
-            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-                .expect("the test app");
-        let rendering = app.rendering().expect("the rendering");
-        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+        let context = siros_testkit::render::Language::English
+            .shared()
+            .expect("the test app");
+        let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
         let Some((alg, used)) = want else {
             assert_eq!(
                 matched.excluded()[0].exclude.clause().as_str(),
@@ -372,13 +363,12 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
         let envelope = Envelope::parse(&received, &registry).expect("envelope");
         let request = Request::parse(&envelope).expect("request");
         let accepted = Accepted::new(&request, &registry).expect("accepted");
-        let app =
-            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-                .expect("the test app");
-        let rendering = app.rendering().expect("the rendering");
-        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+        let context = siros_testkit::render::Language::English
+            .shared()
+            .expect("the test app");
+        let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
         let consent = Consent::of(&matched).expect("consent");
-        let views = Views::of(&matched, &env).expect("views");
+        let views = Views::of(&matched, &env, context).expect("views");
         let sets = offer(&matched, &consent, Choice::First);
         let shown = display(&sets, &views, &[]).expect("display");
         let first: Vec<&str> = shown.sets()[0]
@@ -392,19 +382,15 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
             .ids();
         let host = TestHost::default();
         let authenticated =
-            siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
+            siros_testkit::fixtures::authenticate(request.envelope(), &registry, context, &host)
                 .expect("authentic");
-        let app =
-            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-                .expect("the test app");
-        let rendering = app.rendering().expect("the rendering");
         let outcome = Prepared::prepare(
             &authenticated,
             &ids,
             &wallet,
             &registry,
             &env,
-            &rendering,
+            context,
             &host,
         )
         .and_then(|prepared| {

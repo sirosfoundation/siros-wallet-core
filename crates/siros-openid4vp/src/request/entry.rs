@@ -34,11 +34,7 @@ pub enum Malformed {
     /// The decoded text is no JSON with unique member names.
     #[error("{0}")]
     #[explain(id = "entry.json")]
-    Json(
-        #[from]
-        #[source]
-        crate::json::JsonError,
-    ),
+    Json(#[from] crate::json::JsonError),
     /// The JSON is no object.
     #[error("not a JSON object")]
     #[explain(id = "entry.not_object")]

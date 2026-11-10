@@ -5,6 +5,7 @@
 
 mod common;
 
+use siros_i18n::Context;
 use siros_testkit::TestHost;
 use siros_testkit::rules::TestExclusion;
 use std::borrow::Cow;
@@ -46,7 +47,7 @@ impl Profile for Writes {
     ) -> Option<&[Member]> {
         (!self.0.is_empty()).then_some(self.0.as_slice())
     }
-    fn bind(&self, _: Binding<'_>, _: &Env) -> Result<Bound, NoCandidate> {
+    fn bind(&self, _: Binding<'_>, _: &Env, _: &Context) -> Result<Bound, NoCandidate> {
         Err(Exclude::new(TestExclusion::new("binds nothing")).into())
     }
 }
@@ -132,7 +133,9 @@ fn what_cannot_exist_is_refused_at_construction() {
             (AttestedName::new("a"), AttestedText::new("1")),
             (AttestedName::new("a"), AttestedText::new("2"))
         ]),
-        Err(AttestedTwice("a".to_owned()))
+        Err(AttestedTwice {
+            name: "a".to_owned()
+        })
     );
     assert_eq!(
         Node::object([

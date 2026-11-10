@@ -15,11 +15,7 @@ pub enum MetadataError {
     /// No JSON with unique member names.
     #[error("{0}")]
     #[explain(id = "metadata.json")]
-    Json(
-        #[from]
-        #[source]
-        JsonError,
-    ),
+    Json(#[from] JsonError),
     /// No object.
     #[error("client_metadata is not a JSON object")]
     #[explain(id = "metadata.not_object")]

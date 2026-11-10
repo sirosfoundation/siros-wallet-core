@@ -3,7 +3,7 @@
 //! (A11), the endpoint (A12, A13), each refusal's route; the registry's and the configuration's
 //! rules; and the tamper cases, each failing for its rule with no `Authenticated` built.
 
-use siros_explain::{Explain, Text};
+use siros_explain::Explain;
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::{
     BoundEndpoint, EndpointBasis, OriginPolicy, PrefixName, TrustConfig, Unauthenticated,
@@ -25,7 +25,7 @@ use siros_testkit::jose::{P256Scalar, VERIFIER_SECRET, compact_jws};
 use siros_testkit::{TestFormat, TestHost, TestPrefix, TestTrust};
 
 use super::{
-    RESPONSE_URI, authenticated, config, envelope, fetched, link, registry, registry_with,
+    RESPONSE_URI, authenticated, config, english, envelope, fetched, link, registry, registry_with,
     request_object, uri_payload,
 };
 
@@ -52,6 +52,7 @@ fn cause<'a>(rejected: &'a Rejected<'_>) -> &'a Unauthenticated {
     match rejected.failure() {
         Failure::Unauthenticated(cause) => cause,
         Failure::Unreadable(other) => panic!("an unreadable request: {other:?}"),
+        Failure::Fault(fault) => panic!("a fault: {fault}"),
     }
 }
 
@@ -84,20 +85,60 @@ fn a_uri_request_authenticates_under_its_prefix() {
         .authenticate(
             |evaluation| trust.decide(evaluation),
             &config(),
+            english(),
             &TestHost::default(),
         )
         .expect("authenticated");
     let verifier = authenticated.verifier();
     assert!(matches!(verifier.id(), VerifierId::Client(id) if id.as_str() == "test:verifier"));
     assert_eq!(
-        verifier.name(),
-        Some(&Text::Raw("Example Verifier".to_owned()))
+        verifier.name().map(ToString::to_string).as_deref(),
+        Some("Example Verifier")
     );
     assert!(matches!(
         verifier.endpoint(),
         BoundEndpoint::ResponseUri { uri, basis: EndpointBasis::Request } if uri.as_str() == RESPONSE_URI
     ));
     assert!(verifier.metadata().is_some());
+}
+
+/// A Verifier name the wallet's context words none of ends the authentication with the wallet's
+/// fault, the `ResolveError` its cause: the End-User alone hears of it, by no route and no code.
+#[test]
+fn a_name_the_context_words_none_of_ends_the_authentication_as_a_fault() {
+    let uri = link("test%3Averifier", "");
+    let object = request_object(&uri_payload(""));
+    let received = fetched(&uri, &object).expect("fetched");
+    let envelope = envelope(&received);
+    let registry = registry();
+    let trust = TestTrust {
+        name: Some("Example Verifier".to_owned()),
+        ..TestTrust::default()
+    };
+    let rejected = envelope
+        .questions(&registry, &config(), &TestHost::default())
+        .and_then(|pending| {
+            pending.authenticate(
+                |evaluation| trust.decide(evaluation),
+                &config(),
+                &siros_i18n::Context::new(),
+                &TestHost::default(),
+            )
+        })
+        .map(drop)
+        .expect_err("a name of no text");
+    let Failure::Fault(fault) = rejected.failure() else {
+        panic!("{:?}", rejected.failure())
+    };
+    assert!(
+        matches!(
+            super::common::unworded(fault),
+            Some(siros_i18n::ResolveError::Unknown { .. })
+        ),
+        "{fault:?}"
+    );
+    assert_eq!(rejected.failure().code(), None);
+    assert!(rejected.route().is_none());
 }
 
 #[test]
@@ -396,9 +437,9 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
         refused
             .refusals()
             .iter()
-            .map(|refusal| refusal.id().as_str())
+            .map(|refusal| refusal.id())
             .collect::<Vec<_>>(),
-        ["openid4vp.rules.c8"]
+        ["err.openid4vp.rules.c8"]
     );
     // An unsigned request under OriginPolicy::Evaluate: the Origin's evaluation, A6 on a Deny.
     let parameters = fixtures::parameters(&super::test_queries(&["q"]), "");

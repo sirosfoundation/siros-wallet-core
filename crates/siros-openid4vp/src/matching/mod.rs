@@ -161,7 +161,8 @@ impl<'m> Match<'m> {
     ///
     /// # Errors
     ///
-    /// A plug-in's fault, which a text `context` resolves none of causes.
+    /// A plug-in's fault, such as one caused by the `ResolveError` of a text `context` cannot
+    /// resolve.
     pub fn run(
         accepted: &'m Accepted<'m>,
         wallet: &'m Wallet<'m>,

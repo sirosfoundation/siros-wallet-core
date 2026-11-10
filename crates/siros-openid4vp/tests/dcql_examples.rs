@@ -4,8 +4,10 @@
 
 mod common;
 
-use siros_explain::{ArgValue, Explain};
-use siros_openid4vp::claims::kit::ClaimsQuery;
+use std::error::Error;
+
+use siros_explain::Explain;
+use siros_openid4vp::claims::kit::{ClaimsQuery, KitRule};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::request::{Request, SetNeed, factor, project};
@@ -304,14 +306,10 @@ fn a_claims_format_refuses_a_query_without_its_meta() {
     let refusals = ClaimsQuery::parse(&format, &bare.queries()[0], None).expect_err("refused");
     let refusal = &refusals.items()[0];
     let rule = refusal
-        .args()
-        .as_slice()
-        .iter()
-        .find_map(|named| match named.arg().value() {
-            ArgValue::Message(rule) => Some(rule.id().as_str()),
-            _ => None,
-        });
-    assert_eq!(rule, Some("openid4vp.claims_kit.meta"));
+        .source()
+        .and_then(|rule| rule.downcast_ref::<KitRule>())
+        .map(Explain::id);
+    assert_eq!(rule, Some("err.openid4vp.claims_kit.meta"));
 }
 
 #[test]
@@ -338,10 +336,10 @@ fn trusted_authorities_take_a_value_of_one_of_the_querys_types() {
     ])
     .expect("wallet");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env("en"), &rendering).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env("en"), context).expect("match");
     let ids: Vec<&str> = matched
         .candidates(request.indexed_queries().next().expect("q").0)
         .iter()

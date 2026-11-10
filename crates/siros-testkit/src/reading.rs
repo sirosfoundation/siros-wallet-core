@@ -47,19 +47,11 @@ pub enum ReadError {
     /// The CBOR is unreadable.
     #[error("the DeviceResponse's CBOR")]
     #[explain(id = "read.cbor")]
-    Cbor(
-        #[from]
-        #[source]
-        CborError,
-    ),
+    Cbor(#[from] CborError),
     /// A projected object repeats a name.
     #[error("the projected JSON")]
     #[explain(id = "read.json")]
-    Json(
-        #[from]
-        #[source]
-        JsonError,
-    ),
+    Json(#[from] JsonError),
     /// Another shape than the port writes.
     #[error("{detail}")]
     #[explain(id = "read.shape")]
@@ -70,11 +62,7 @@ pub enum ReadError {
     /// coset's refusal.
     #[error("coset refuses a COSE structure")]
     #[explain(id = "read.cose")]
-    Cose(
-        #[from]
-        #[explain(skip)]
-        coset::CoseError,
-    ),
+    Cose(#[from] coset::CoseError),
     /// The device authentication covers other bytes than the rebuilt DeviceAuthentication.
     #[error("deviceAuth {found} covers other bytes than {expected}")]
     #[explain(id = "read.uncovered")]

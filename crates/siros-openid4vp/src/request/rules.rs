@@ -77,6 +77,7 @@ pub struct UndecodedEntry {
     /// The entry's position.
     pub entry: EntryIndex,
     /// Why it does not decode.
+    #[source]
     pub malformed: Malformed,
 }
 

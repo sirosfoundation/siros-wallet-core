@@ -12,7 +12,6 @@ use siros_openid4vp::request::{Item, ItemSet, Request};
 use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Binds;
-use siros_testkit::fixtures::OPTIONS;
 
 use common::{Held, PASO_A5, env, parameters, registry, request_of, unsigned, vector};
 
@@ -26,16 +25,14 @@ fn sets(text: &str, held: &[Held], choice: Choice) -> Vec<Vec<Vec<String>>> {
     let env = Env::new(
         vec![LocaleTag::parse("en").expect("tag")],
         Vec::new(),
-        OPTIONS,
-        Vec::new(),
         choice,
     )
     .expect("env");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
     let consent = Consent::of(&matched).expect("consent");
     offer(&matched, &consent, env.choice())
         .iter()
@@ -191,11 +188,10 @@ fn a_candidates_options_factor_like_the_credential_sets() {
         let request = request_of(&received).expect("request");
         let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
         let accepted = Accepted::new(&request, &registry).expect("accepted");
-        let app =
-            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-                .expect("the test app");
-        let rendering = app.rendering().expect("the rendering");
-        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+        let context = siros_testkit::render::Language::English
+            .shared()
+            .expect("the test app");
+        let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
         check(&request, &matched);
     };
     let mut stale = Held::answering("stale", &["q"], &[]);
@@ -292,9 +288,11 @@ fn a_candidates_options_factor_like_the_credential_sets() {
 
 #[test]
 fn a_record_id_reads_back_as_the_json_of_its_fields() {
+    use siros_openid4vp::consent::Card;
     use siros_openid4vp::ids::CredentialId;
-    use siros_openid4vp::matching::{Record, ReturnedRecord};
+    use siros_openid4vp::matching::{Record, ReturnedRecord, ShownDigest};
     use siros_openid4vp::plugins::Attested;
+    use siros_openid4vp::rows::{Icon, WalletText};
     let text = parameters(
         &common::test_queries(&["q"]),
         &format!(
@@ -319,15 +317,18 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
     ])
     .expect("attested");
     let query = &request.queries()[0].id();
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let env = siros_testkit::fixtures::env(&["de"], Vec::new()).expect("env");
-    let inputs = rendering
-        .renderer(None, None, None, &env)
-        .expect("no fault")
-        .expect("a language")
-        .inputs();
+    let card = Card {
+        icon: Icon::DEFAULT,
+        title: context
+            .resolve(&WalletText::Credential)
+            .expect("the test app words the title"),
+        subtitle: None,
+        rows: Vec::new(),
+    };
+    let shown = ShownDigest::of(&card, None, None);
     let options = Options::new(vec![OptionItems::new(Vec::new()); 3]);
     let (third, _) = options.indexed().nth(2).expect("three options");
     let record = Record::new(
@@ -337,47 +338,125 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
         &entries,
         Some(&attested),
         request.digest(),
-        &inputs,
+        shown,
     );
     assert!(ReturnedRecord::parse(record.id().as_str()).is_ok());
     let read: serde_json::Value = serde_json::from_str(record.id().as_str()).expect("json");
-    let modules: serde_json::Map<String, serde_json::Value> = inputs
-        .modules()
-        .entries()
-        .iter()
-        .map(|entry| {
-            let hex: String = entry
-                .value()
-                .bytes()
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
-            (
-                siros_openid4vp::rows::ModuleName::of(*entry.key()).to_string(),
-                serde_json::json!(hex),
-            )
-        })
-        .collect();
-    let rendering = serde_json::json!({"selected": null, "language": "de", "fallback": false, "modules": modules,
-        "amounts": "formatted", "bidi": "none", "renderer": siros_openid4vp::rows::RENDERER.number()});
     assert_eq!(
         read,
-        serde_json::json!(["q", "c \"1\" \\ \u{1} é", 2, [1, 2], {"display_locale": "de\n", "x": "é"}, request.digest().as_str(), rendering])
+        serde_json::json!(["q", "c \"1\" \\ \u{1} é", 2, [1, 2], {"display_locale": "de\n", "x": "é"}, request.digest().as_str(), shown.hex()])
     );
     // An id is a record in that shape only: each of these breaks it in one field.
     for malformed in [
-        r#"[1, "c", 0, [], {}, "d", {}]"#,
-        r#"["q", 1, 0, [], {}, "d", {}]"#,
-        r#"["q", "c", -1, [], {}, "d", {}]"#,
-        r#"["q", "c", 0, [1.5], {}, "d", {}]"#,
-        r#"["q", "c", 0, [], {"a": 1}, "d", {}]"#,
-        r#"["q", "c", 0, [], {}, 1, {}]"#,
-        r#"["q", "c", 0, [], {}, "d", []]"#,
+        r#"[1, "c", 0, [], {}, "d", "s"]"#,
+        r#"["q", 1, 0, [], {}, "d", "s"]"#,
+        r#"["q", "c", -1, [], {}, "d", "s"]"#,
+        r#"["q", "c", 0, [1.5], {}, "d", "s"]"#,
+        r#"["q", "c", 0, [], {"a": 1}, "d", "s"]"#,
+        r#"["q", "c", 0, [], {}, 1, "s"]"#,
+        r#"["q", "c", 0, [], {}, "d", {}]"#,
         r#"["q", "c", 0, [], {}, "d"]"#,
     ] {
         assert!(ReturnedRecord::parse(malformed).is_err(), "{malformed}");
     }
-    assert!(ReturnedRecord::parse(r#"["q", "c", 0, [], {}, "d", {}]"#).is_ok());
+    assert!(ReturnedRecord::parse(r#"["q", "c", 0, [], {}, "d", "s"]"#).is_ok());
+}
+
+/// A text of the test's own wording, by id.
+struct Own(&'static str);
+
+impl siros_i18n::Message for Own {
+    fn id(&self) -> &str {
+        self.0
+    }
+    fn args(&self, _arg: &mut dyn FnMut(&str, &dyn std::fmt::Display)) {}
+}
+
+#[test]
+fn a_shown_digest_tells_apart_texts_that_share_their_characters() {
+    use siros_openid4vp::consent::{Card, Header};
+    use siros_openid4vp::matching::ShownDigest;
+    use siros_openid4vp::rows::{Icon, Row, Value};
+    let context = siros_i18n::Context::new()
+        .bidi(siros_i18n::Bidi::None)
+        .module(
+            "@locale en\n---\n[t]\na = a\nb = b\nc = c\nab = ab\nbc = bc\nabc = abc\n\
+             split = a{#strong}bc{/strong}\nlate = ab{#strong}c{/strong}\n\
+             stressed = a{#emphasis}bc{/emphasis}\n",
+        )
+        .expect("the test's wording");
+    let text = |id| context.resolve(&Own(id)).expect("worded");
+    let card = |title, subtitle: Option<&'static str>, rows: Vec<Row>| Card {
+        icon: Icon::DEFAULT,
+        title: text(title),
+        subtitle: subtitle.map(text),
+        rows,
+    };
+    let header = Header {
+        title: text("t.a"),
+        confirm: text("t.b"),
+        cancel: text("t.c"),
+    };
+    // Each case's letters, read in order, are another case's: a hash of the letters alone
+    // merges them.
+    let shown = [
+        ShownDigest::of(&card("t.abc", None, vec![]), None, None),
+        ShownDigest::of(&card("t.ab", Some("t.c"), vec![]), None, None),
+        ShownDigest::of(&card("t.a", Some("t.bc"), vec![]), None, None),
+        ShownDigest::of(&card("t.split", None, vec![]), None, None),
+        ShownDigest::of(&card("t.late", None, vec![]), None, None),
+        ShownDigest::of(&card("t.stressed", None, vec![]), None, None),
+        ShownDigest::of(
+            &card(
+                "t.a",
+                None,
+                vec![Row::new(text("t.b"), Value::Text(text("t.c")))],
+            ),
+            None,
+            None,
+        ),
+        ShownDigest::of(
+            &card("t.a", None, vec![Row::full_text(text("t.bc"))]),
+            None,
+            None,
+        ),
+        ShownDigest::of(
+            &card(
+                "t.a",
+                None,
+                vec![Row::full_text(text("t.b")), Row::full_text(text("t.c"))],
+            ),
+            None,
+            None,
+        ),
+        ShownDigest::of(
+            &card(
+                "t.a",
+                None,
+                vec![Row::full_text(text("t.b")).in_section(text("t.c"))],
+            ),
+            None,
+            None,
+        ),
+        ShownDigest::of(&card("t.a", None, vec![]), Some(&header), None),
+        ShownDigest::of(
+            &card(
+                "t.a",
+                None,
+                vec![
+                    Row::full_text(text("t.a")),
+                    Row::full_text(text("t.b")),
+                    Row::full_text(text("t.c")),
+                ],
+            ),
+            None,
+            None,
+        ),
+    ];
+    let mut hexes: Vec<String> = shown.iter().map(ShownDigest::hex).collect();
+    hexes.sort();
+    hexes.dedup();
+    assert_eq!(hexes.len(), shown.len());
 }
 
 #[test]
@@ -399,12 +478,12 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     let wallet = Wallet::new(vec![held.credential()]).expect("wallet");
     let env = env("en");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
     let consent = Consent::of(&matched).expect("consent");
-    let views = Views::of(&matched, &env).expect("views");
+    let views = Views::of(&matched, &env, context).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
     let id = shown.sets()[0][0][0].id().as_str().to_owned();
@@ -416,23 +495,25 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     // transaction's.
     assert!(id.contains(r#",[0],{"entries":"0"},"#), "{id}");
     assert_eq!(
-        selection.header().title,
-        siros_explain::Text::Raw("entries 0".to_owned())
+        selection
+            .header(context)
+            .expect("the test app words the header")
+            .title
+            .to_string(),
+        "entries 0"
     );
     let host = TestHost::default();
-    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
-        .expect("authentic");
+    let authenticated =
+        siros_testkit::fixtures::authenticate(request.envelope(), &registry, context, &host)
+            .expect("authentic");
     let ids: &[&str] = &[&id];
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
     let response = Prepared::prepare(
         &authenticated,
         ids,
         &wallet,
         &registry,
         &env,
-        &rendering,
+        context,
         &host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
@@ -485,12 +566,12 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let env = env("en");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
     let consent = Consent::of(&matched).expect("consent");
-    let views = Views::of(&matched, &env).expect("views");
+    let views = Views::of(&matched, &env, context).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
     let ids: Vec<&str> = shown.sets()[0]
@@ -533,11 +614,11 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     ];
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
-    let views = Views::of(&matched, &env).expect("views");
+    let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
+    let views = Views::of(&matched, &env, context).expect("views");
     let m = request.indexed_queries().next().expect("m").0;
     let option = matched.candidates(m)[0].options[0];
     let picks: Vec<Offered> = matched

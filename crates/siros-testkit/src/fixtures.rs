@@ -118,19 +118,11 @@ pub enum FixtureError {
     /// The view is no JSON.
     #[error("the view")]
     #[explain(id = "fixture.view")]
-    View(
-        #[from]
-        #[source]
-        JsonError,
-    ),
+    View(#[from] JsonError),
     /// The view cannot be issued.
     #[error("the issued IssuerSigned")]
     #[explain(id = "fixture.issue")]
-    Issue(
-        #[from]
-        #[source]
-        IssueError,
-    ),
+    Issue(#[from] IssueError),
     /// The request cannot be read.
     #[error(transparent)]
     Unreadable(#[from] Unreadable),

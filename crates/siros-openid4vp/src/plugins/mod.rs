@@ -234,6 +234,7 @@ pub(crate) fn fault(detail: Detail) -> Fault {
 }
 
 /// The core's fault caused by an error, its log line written by `detail`.
+#[cfg(any(feature = "resolve", feature = "claims"))]
 pub(crate) fn caused(detail: Detail, cause: impl Error + Send + Sync + 'static) -> Fault {
     Fault::new(CoreFault {
         detail,

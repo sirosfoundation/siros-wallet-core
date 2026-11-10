@@ -139,6 +139,7 @@ pub enum PresentError {
     #[explain(id = "present.failed")]
     Failed {
         /// The plug-in's own error.
+        #[source]
         reason: Box<dyn Explain>,
     },
 }

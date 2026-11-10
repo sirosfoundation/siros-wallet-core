@@ -108,56 +108,71 @@ impl DoubleText {
     }
 }
 
-/// The text `context` words for `message`; the test doubles' fault, caused by the
-/// `siros_i18n::ResolveError`, for none.
+/// The text `context` words for `message`.
 ///
 /// # Errors
 ///
-/// The fault of a message `context` words no text for.
+/// The test doubles' fault, caused by the `siros_i18n::ResolveError` of a message `context`
+/// words no text for.
 pub fn resolve(context: &Context, message: &dyn Message) -> Result<Text, Fault> {
     context
         .resolve(message)
         .map_err(|e| caused(detail!("{id}: no text", id = message.id().to_owned()), e))
 }
 
+/// A typed value of a card's row: its kind's name, the row's label, and its statement.
+struct Typed {
+    kind: &'static str,
+    value: Box<dyn Message>,
+}
+
+impl Typed {
+    fn of(kind: &'static str, value: impl Message + 'static) -> Self {
+        Self {
+            kind,
+            value: Box::new(value),
+        }
+    }
+}
+
 /// A value of every kind PaSO View §3 types but an image, one row each in every card, under the
 /// kind's name: a boolean, a frequency, a date, a time, a date-time, a currency, an amount, a
 /// `mini_markdown` text and a URL.
-fn typed() -> Result<Vec<(&'static str, Box<dyn Message>)>, siros_syntax::Malformed> {
+fn typed() -> Result<Vec<Typed>, siros_syntax::Malformed> {
     let eur = Currency::parse("EUR")?;
     Ok(vec![
-        ("boolean", Box::new(BooleanText::Yes)),
-        ("frequency", Box::new(DoubleText::Monthly)),
-        (
+        Typed::of("boolean", BooleanText::Yes),
+        Typed::of("frequency", DoubleText::Monthly),
+        Typed::of(
             "date",
-            Box::new(DoubleText::Date {
+            DoubleText::Date {
                 value: Date::parse("2026-09-02")?,
-            }),
+            },
         ),
-        (
+        Typed::of(
             "time",
-            Box::new(DoubleText::Time {
+            DoubleText::Time {
                 value: OffsetTime::parse("10:15:30Z")?,
-            }),
+            },
         ),
-        (
+        Typed::of(
             "date_time",
-            Box::new(DoubleText::DateTime {
+            DoubleText::DateTime {
                 value: DateTime::parse("2026-06-02T10:15:30+02:00")?,
-            }),
+            },
         ),
-        ("currency", Box::new(DoubleText::Currency { code: eur })),
-        (
+        Typed::of("currency", DoubleText::Currency { code: eur }),
+        Typed::of(
             "currency_amount",
-            Box::new(DoubleText::Amount {
+            DoubleText::Amount {
                 value: Decimal::parse("1234567.50")?,
                 currency: eur,
-            }),
+            },
         ),
-        ("mini_markdown", Box::new(DoubleText::written("a b"))),
-        (
+        Typed::of("mini_markdown", DoubleText::written("a b")),
+        Typed::of(
             "url",
-            Box::new(DoubleText::written("https://xn--bcher-kva.example/x")),
+            DoubleText::written("https://xn--bcher-kva.example/x"),
         ),
     ])
 }
@@ -424,10 +439,10 @@ impl FormatQuery for TestQuery<'_> {
             Row::full_text(written("statement")?),
         ];
         let typed = typed().map_err(|e| caused(detail!("a test value"), e))?;
-        for (kind, text) in typed {
+        for row in typed {
             rows.push(Row::new(
-                written(kind)?,
-                RowValue::Text(resolve(context, &*text)?),
+                written(row.kind)?,
+                RowValue::Text(resolve(context, &*row.value)?),
             ));
         }
         Ok(Card {

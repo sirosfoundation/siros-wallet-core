@@ -171,6 +171,7 @@ pub enum Unreadable {
         /// The protocol.
         protocol: DcApiProtocol,
         /// What the shape lacks.
+        #[source]
         cause: DataShape,
     },
     /// U3: parameters that are no JSON object with unique member names at every level.

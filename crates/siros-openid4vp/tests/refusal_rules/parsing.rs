@@ -1,5 +1,7 @@
 //! DCQL's structure, B.3.3.1's algorithm list, and member names given once at every parse.
 
+use siros_openid4vp::json::JsonError;
+use siros_openid4vp::matching::RecordError;
 use siros_openid4vp::plugins::{Registry, RegistryError};
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::resolve::{Outcome, Prepared};
@@ -30,7 +32,7 @@ fn every_parse_refuses_a_member_named_twice() {
         let said: Vec<_> = refused.iter().map(|said| (said.cause, said.code)).collect();
         assert_eq!(
             said,
-            [("openid4vp.json.duplicate_member", code)],
+            [("err.openid4vp.json.duplicate_member", code)],
             "{parameters}"
         );
     }
@@ -38,21 +40,22 @@ fn every_parse_refuses_a_member_named_twice() {
     let text = request("dc_api", "{}", &[], "");
     let received = siros_testkit::fixtures::unsigned(&text).expect("received");
     let request = siros_testkit::fixtures::request_of(&received).expect("request");
-    let returned = r#"["q","c",0,[],{"a":"x","a":"y"},"d"]"#;
+    let returned = r#"["q","c",0,[],{"a":"x","a":"y"},"d","s"]"#;
     let host = TestHost::default();
-    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
-        .expect("authentic");
-    let ids: &[&str] = &[returned];
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
+    let authenticated =
+        siros_testkit::fixtures::authenticate(request.envelope(), &registry, context, &host)
+            .expect("authentic");
+    let ids: &[&str] = &[returned];
     let outcome = Prepared::prepare(
         &authenticated,
         ids,
         &Wallet::default(),
         &registry,
         &env("en"),
-        &rendering,
+        context,
         &host,
     )
     .and_then(|prepared| {
@@ -64,7 +67,9 @@ fn every_parse_refuses_a_member_named_twice() {
         matches!(
             outcome,
             Err(Outcome::Rejected(
-                siros_openid4vp::resolve::Rejection::NotARecord(_)
+                siros_openid4vp::resolve::Rejection::NotARecord(RecordError::Json(
+                    JsonError::DuplicateMember { .. }
+                ))
             ))
         ),
         "{outcome:?}"
@@ -77,11 +82,11 @@ fn transaction_data_hashes_alg_names_a_hash_the_wallet_computes() {
     let cases = [
         (
             r#"{"type": "t1", "credential_ids": ["q"], "transaction_data_hashes_alg": ["md5"]}"#,
-            "openid4vp.hashes_alg.unknown",
+            "err.openid4vp.hashes_alg.unknown",
         ),
         (
             r#"{"type": "t1", "credential_ids": ["q"], "transaction_data_hashes_alg": "sha-256"}"#,
-            "openid4vp.hashes_alg.not_array",
+            "err.openid4vp.hashes_alg.not_array",
         ),
     ];
     for (entry_json, cause) in cases {
@@ -100,18 +105,18 @@ fn a_dcql_query_breaking_section_6_is_refused() {
     let registry = registry(Binds::First);
     let query = r#"{"id":"q","format":"test"}"#;
     let cases = [
-        (r#"{"credentials":[]}"#.to_owned(), "openid4vp.dcql.credentials"),
-        (r#"{"credentials":[5]}"#.to_owned(), "openid4vp.dcql.query_not_object"),
-        (format!(r#"{{"credentials":[{query},{query}]}}"#), "openid4vp.dcql.id_twice"),
-        (r#"{"credentials":[{"id":"a b","format":"test"}]}"#.to_owned(), "openid4vp.dcql.query_id"),
-        (r#"{"credentials":[{"id":"q"}]}"#.to_owned(), "openid4vp.dcql.format"),
-        (r#"{"credentials":[{"id":"q","format":"test","multiple":"yes"}]}"#.to_owned(), "openid4vp.dcql.flag"),
-        (r#"{"credentials":[{"id":"q","format":"test","trusted_authorities":[]}]}"#.to_owned(), "openid4vp.dcql.trusted_authorities"),
-        (r#"{"credentials":[{"id":"q","format":"test","trusted_authorities":[{"type":"aki","values":[]}]}]}"#.to_owned(), "openid4vp.dcql.trusted_authorities"),
-        (format!(r#"{{"credentials":[{query}],"credential_sets":[]}}"#), "openid4vp.dcql.sets"),
-        (format!(r#"{{"credentials":[{query}],"credential_sets":[{{"options":[[]]}}]}}"#), "openid4vp.dcql.set"),
-        (format!(r#"{{"credentials":[{query}],"credential_sets":[{{"options":[["x"]]}}]}}"#), "openid4vp.dcql.set_query"),
-        (format!(r#"{{"credentials":[{query}],"credential_sets":[{{"options":[["q"]],"required":"no"}}]}}"#), "openid4vp.dcql.set"),
+        (r#"{"credentials":[]}"#.to_owned(), "err.openid4vp.dcql.credentials"),
+        (r#"{"credentials":[5]}"#.to_owned(), "err.openid4vp.dcql.query_not_object"),
+        (format!(r#"{{"credentials":[{query},{query}]}}"#), "err.openid4vp.dcql.id_twice"),
+        (r#"{"credentials":[{"id":"a b","format":"test"}]}"#.to_owned(), "err.openid4vp.dcql.query_id"),
+        (r#"{"credentials":[{"id":"q"}]}"#.to_owned(), "err.openid4vp.dcql.format"),
+        (r#"{"credentials":[{"id":"q","format":"test","multiple":"yes"}]}"#.to_owned(), "err.openid4vp.dcql.flag"),
+        (r#"{"credentials":[{"id":"q","format":"test","trusted_authorities":[]}]}"#.to_owned(), "err.openid4vp.dcql.trusted_authorities"),
+        (r#"{"credentials":[{"id":"q","format":"test","trusted_authorities":[{"type":"aki","values":[]}]}]}"#.to_owned(), "err.openid4vp.dcql.trusted_authorities"),
+        (format!(r#"{{"credentials":[{query}],"credential_sets":[]}}"#), "err.openid4vp.dcql.sets"),
+        (format!(r#"{{"credentials":[{query}],"credential_sets":[{{"options":[[]]}}]}}"#), "err.openid4vp.dcql.set"),
+        (format!(r#"{{"credentials":[{query}],"credential_sets":[{{"options":[["x"]]}}]}}"#), "err.openid4vp.dcql.set_query"),
+        (format!(r#"{{"credentials":[{query}],"credential_sets":[{{"options":[["q"]],"required":"no"}}]}}"#), "err.openid4vp.dcql.set"),
     ];
     for (dcql, rule) in &cases {
         let text = format!(
@@ -134,7 +139,7 @@ fn a_dcql_query_breaking_section_6_is_refused() {
     assert_eq!(refusals(&many(64), false, &registry), []);
     assert_eq!(
         refusals(&many(65), false, &registry)[0].rule,
-        "openid4vp.dcql.too_many"
+        "err.openid4vp.dcql.too_many"
     );
     // Two formats with one identifier make no registry.
     let mut builder = Registry::<TestHost>::builder();

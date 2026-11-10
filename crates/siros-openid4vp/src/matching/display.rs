@@ -81,7 +81,8 @@ impl<'m> Views<'m> {
     ///
     /// # Errors
     ///
-    /// A format's fault drawing a card, which a text `context` resolves none of causes.
+    /// A format's fault drawing a card, such as one caused by the `ResolveError` of a text
+    /// `context` cannot resolve.
     pub fn of(matched: &'m Match<'m>, env: &Env, context: &Context) -> Result<Self, Fault> {
         let accepted = matched.accepted();
         let request = accepted.request();

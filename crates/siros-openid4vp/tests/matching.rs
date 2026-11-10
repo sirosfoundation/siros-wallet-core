@@ -4,7 +4,7 @@
 
 mod common;
 
-use siros_explain::AllOf;
+use siros_i18n::Context;
 use siros_openid4vp::detail;
 use siros_openid4vp::host::{
     AnsweredContext, AnsweredQuery, Authentication, AuthenticationNeed, FormatHost, ProfileHost,
@@ -19,7 +19,7 @@ use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{EntryIndex, Request};
 use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_openid4vp::wallet::Wallet;
-use siros_testkit::FAULT;
+use siros_syntax::AllOf;
 use siros_testkit::{Binds, Stale, TestFormat, TestHost, TestProfile};
 
 use common::{Held, env, parameters, registry, request_of, unsigned};
@@ -35,11 +35,10 @@ fn holder_binding_and_carriage_decide_candidates() {
         let registry = registry(Binds::First);
         let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
         let accepted = Accepted::new(&request, &registry).expect("accepted");
-        let app =
-            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-                .expect("the test app");
-        let rendering = app.rendering().expect("the rendering");
-        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+        let context = siros_testkit::render::Language::English
+            .shared()
+            .expect("the test app");
+        let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
         let q = request.indexed_queries().next().expect("query").0;
         matched
             .candidates(q)
@@ -89,12 +88,10 @@ fn holder_binding_and_carriage_decide_candidates() {
     let other = Held::answering("other", &["r"], &[]);
     let wallet = Wallet::new(vec![other.credential()]).expect("wallet");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    assert!(
-        Consent::of(&Match::run(&accepted, &wallet, &env, &rendering).expect("match")).is_none()
-    );
+    assert!(Consent::of(&Match::run(&accepted, &wallet, &env, context).expect("match")).is_none());
 }
 
 /// How a scripted format answers.
@@ -206,10 +203,13 @@ impl siros_openid4vp::plugins::FormatQuery for ScriptedQuery<'_> {
         credential: &siros_openid4vp::wallet::Credential<'_>,
         shown: siros_openid4vp::plugins::Shown<'_>,
         env: &siros_openid4vp::rows::Env,
+        context: &Context,
     ) -> Result<siros_openid4vp::consent::Card, siros_openid4vp::plugins::Fault> {
         match self.1 {
-            Script::DrawFails => Err(Fault::new(FAULT, detail!("the format draws no card"))),
-            Script::WhenProvided | Script::OutOfRange => self.0.draw(credential, shown, env),
+            Script::DrawFails => Err(siros_testkit::fault(detail!("the format draws no card"))),
+            Script::WhenProvided | Script::OutOfRange => {
+                self.0.draw(credential, shown, env, context)
+            }
         }
     }
 }
@@ -256,10 +256,10 @@ fn a_format_answers_with_the_members_the_transaction_provides() {
     let env = env("en");
     let registry = scripted(Script::WhenProvided);
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
     let ids = |k: usize| -> Vec<String> {
         let q = request.indexed_queries().nth(k).expect("query").0;
         matched
@@ -287,8 +287,13 @@ impl Profile for Foreign {
     fn members(&self, placement: siros_openid4vp::wallet_metadata::Placement) -> Option<&[Member]> {
         self.0.members(placement)
     }
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
-        let bound = self.0.bind(binding, env)?;
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate> {
+        let bound = self.0.bind(binding, env, context)?;
         let every: Vec<EntryIndex> = binding
             .request
             .indexed_entries()
@@ -300,7 +305,7 @@ impl Profile for Foreign {
             .filter(|entry| !binding.entries.contains(entry))
             .collect();
         let entries = BoundEntries::select(&every, others)
-            .map_err(|e| Fault::caused(FAULT, detail!("other entries"), e))?;
+            .map_err(|e| siros_testkit::caused(detail!("other entries"), e))?;
         Ok(Bound { entries, ..bound })
     }
 }
@@ -345,8 +350,13 @@ impl Profile for Reserving {
     fn members(&self, placement: siros_openid4vp::wallet_metadata::Placement) -> Option<&[Member]> {
         self.0.members(placement)
     }
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
-        self.0.bind(binding, env)
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate> {
+        self.0.bind(binding, env, context)
     }
     fn reserves(
         &self,
@@ -408,10 +418,10 @@ fn a_reserved_credential_answers_only_a_query_its_profile_names() {
     let registry = builder.build().expect("registry");
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+    let context = siros_testkit::render::Language::English
+        .shared()
         .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
     let of = |id: &str| {
         let query = request
             .indexed_queries()
@@ -477,15 +487,39 @@ fn a_plug_in_failing_or_breaking_its_contract_fails_phase_1() {
     for (k, (registry, held, want)) in cases.iter().enumerate() {
         let wallet = Wallet::new(vec![held.credential()]).expect("wallet");
         let accepted = Accepted::new(&request, registry).expect("accepted");
-        let app =
-            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-                .expect("the test app");
-        let rendering = app.rendering().expect("the rendering");
-        let drawn = Match::run(&accepted, &wallet, &env, &rendering)
+        let context = siros_testkit::render::Language::English
+            .shared()
+            .expect("the test app");
+        let drawn = Match::run(&accepted, &wallet, &env, context)
             .ok()
-            .map(|matched| Views::of(&matched, &env).is_ok());
+            .map(|matched| Views::of(&matched, &env, context).is_ok());
         assert_eq!(drawn, *want, "case {k}");
     }
+}
+
+/// A text the wallet's context words none of fails phase 1 with the `ResolveError` as the fault's
+/// cause, the record's and the card's texts left unshown.
+#[test]
+fn a_text_the_context_words_none_of_fails_phase_1_with_its_cause() {
+    let text = parameters(&common::test_queries(&["q"]), "");
+    let received = unsigned(&text).expect("received");
+    let request = request_of(&received).expect("request");
+    let held = Held::answering("c", &["q"], &[]);
+    let wallet = Wallet::new(vec![held.credential()]).expect("wallet");
+    let env = env("en");
+    let registry = registry(Binds::First);
+    let accepted = Accepted::new(&request, &registry).expect("accepted");
+    let wordless = Context::new();
+    let fault = Match::run(&accepted, &wallet, &env, &wordless)
+        .and_then(|matched| Views::of(&matched, &env, &wordless).map(drop))
+        .expect_err("a card of no text");
+    assert!(
+        matches!(
+            common::unworded(&fault),
+            Some(siros_i18n::ResolveError::Unknown { .. })
+        ),
+        "{fault:?}"
+    );
 }
 
 /// The code of an unmet request (§8.5): `vp_formats_not_supported` when every alternative holds
@@ -518,11 +552,10 @@ fn an_unmet_requests_code_tells_unsupported_formats_from_the_rest() {
         let accepted = Accepted::new(&request, &registry).expect("accepted");
         let held = Held::answering("c", &answers, &[]);
         let wallet = Wallet::new(vec![held.credential()]).expect("wallet");
-        let app =
-            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-                .expect("the test app");
-        let rendering = app.rendering().expect("the rendering");
-        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("matched");
+        let context = siros_testkit::render::Language::English
+            .shared()
+            .expect("the test app");
+        let matched = Match::run(&accepted, &wallet, &env, context).expect("matched");
         assert!(Consent::of(&matched).is_none(), "{dcql} {answers:?}");
         assert_eq!(matched.unmet(), code, "{dcql} {extra} {answers:?}");
     }

@@ -4,6 +4,8 @@
 //! asserting the rule's variant or code, the tamper cases with why each fails, and the known
 //! answers of OpenID4VP's examples.
 
+siros_explain::scope!("flows");
+
 mod authenticate;
 #[path = "../common/mod.rs"]
 mod common;
@@ -98,7 +100,8 @@ fn fetched<'a>(uri: &'a str, body: &'a str) -> Result<Received<'a>, Box<Rejected
     fetch.resume(FetchAnswer::Body(body), &registry, &host)
 }
 
-/// The envelope's questions answered by the trust service, and the checks under the bound key.
+/// The envelope's questions answered by the trust service, and the checks under the bound key,
+/// in the test app's English.
 fn authenticated<'e>(
     envelope: &'e Envelope<'e>,
     registry: &'e Registry<TestHost>,
@@ -110,8 +113,16 @@ fn authenticated<'e>(
     pending.authenticate(
         |evaluation| trust.decide(evaluation),
         config,
+        english(),
         &TestHost::default(),
     )
+}
+
+/// The test app's English context.
+fn english() -> &'static siros_i18n::Context {
+    siros_testkit::render::Language::English
+        .shared()
+        .expect("the test app")
 }
 
 /// The envelope of a URI request in the test host's modes.

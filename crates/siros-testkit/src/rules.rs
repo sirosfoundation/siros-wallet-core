@@ -23,6 +23,7 @@ pub enum FormatRule {
         /// The query's id.
         query: String,
         /// Why.
+        #[source]
         cause: JsonError,
     },
     /// `options` is no array of item arrays.
@@ -48,6 +49,7 @@ pub struct EntryRule {
     /// The entry's position.
     pub entry: usize,
     /// The rule.
+    #[source]
     pub rule: HashesAlgRule,
 }
 

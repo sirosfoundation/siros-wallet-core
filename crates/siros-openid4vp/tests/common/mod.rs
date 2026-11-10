@@ -3,7 +3,8 @@
 
 #![allow(dead_code)]
 
-use siros_explain::Explained;
+use siros_explain::Explain;
+use siros_i18n::ResolveError;
 use siros_openid4vp::claims::kit::ClaimsFormat;
 use siros_openid4vp::claims::{Claim, ClaimPath, Step};
 use siros_openid4vp::ids::{
@@ -16,7 +17,6 @@ use siros_openid4vp::plugins::{Clause, Fault, Member};
 use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::wallet::{Credential, Document, Facts, HeldAuthority, Holder};
 use siros_testkit::TestHost;
-use siros_testkit::fixtures::OPTIONS;
 use siros_testkit::rules::TestRule;
 use siros_testkit::{Binds, TestFormat, TestProfile};
 
@@ -64,8 +64,6 @@ pub fn registry(binds: Binds) -> Registry<TestHost> {
 pub fn env(locale: &'static str) -> Env {
     Env::new(
         vec![LocaleTag::parse(locale).expect("tag")],
-        Vec::new(),
-        OPTIONS,
         Vec::new(),
         Choice::First,
     )
@@ -135,6 +133,18 @@ impl Held {
     }
 }
 
+/// The `ResolveError` among an error's sources: the text the wallet's context words none of.
+pub fn unworded<'e>(error: &'e (dyn std::error::Error + 'static)) -> Option<&'e ResolveError> {
+    let mut source = Some(error);
+    while let Some(cause) = source {
+        if let Some(unworded) = cause.downcast_ref::<ResolveError>() {
+            return Some(unworded);
+        }
+        source = cause.source();
+    }
+    None
+}
+
 /// base64url without padding over a JSON text, as a Verifier writes an entry.
 pub fn entry(json: &str) -> String {
     siros_testkit::verifier::encode(json).expect("entry")
@@ -190,13 +200,13 @@ impl ClaimsFormat for ClaimsTest {
     fn read_meta<'n, 'm>(
         &self,
         meta: Option<&'n Node<'m>>,
-    ) -> Result<&'n Node<'m>, Box<dyn Explained>> {
+    ) -> Result<&'n Node<'m>, Box<dyn Explain>> {
         meta.filter(|meta| meta.get(self.member).is_some())
             .ok_or_else(|| {
                 Box::new(TestRule::invalid_request(format!(
                     "meta.{} is absent",
                     self.member
-                ))) as Box<dyn Explained>
+                ))) as Box<dyn Explain>
             })
     }
     fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<CredentialType<'n>>, Fault> {
@@ -204,7 +214,7 @@ impl ClaimsFormat for ClaimsTest {
             .and_then(Node::as_str)
             .and_then(|kind| CredentialType::parse(kind).ok())
             .map(|kind| vec![kind])
-            .ok_or_else(|| Fault::new(siros_testkit::FAULT, siros_openid4vp::detail!("no type")))
+            .ok_or_else(|| siros_testkit::fault(siros_openid4vp::detail!("no type")))
     }
     fn meta_matches(&self, meta: &Node<'_>, types: &[CredentialType<'_>]) -> bool {
         let names = |value: &Node<'_>| {
@@ -226,7 +236,7 @@ impl ClaimsFormat for ClaimsTest {
             _ => false,
         }
     }
-    fn pointer_refusal(&self, _path: &ClaimPath<'_>) -> Option<Box<dyn Explained>> {
+    fn pointer_refusal(&self, _path: &ClaimPath<'_>) -> Option<Box<dyn Explain>> {
         None
     }
 }

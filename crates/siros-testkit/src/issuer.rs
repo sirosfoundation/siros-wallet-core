@@ -36,11 +36,7 @@ pub enum IssueError {
     /// A value does not convert or encode.
     #[error("a value of the view")]
     #[explain(id = "issue.cbor")]
-    Cbor(
-        #[from]
-        #[source]
-        CborError,
-    ),
+    Cbor(#[from] CborError),
     /// coset could not write IssuerAuth.
     #[error("IssuerAuth")]
     #[explain(id = "issue.cose")]

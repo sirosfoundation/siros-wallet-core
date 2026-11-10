@@ -31,7 +31,7 @@ fn refusals(payload: &str) -> Vec<(&'static str, ErrorCode)> {
         refused
             .into_refusals()
             .into_iter()
-            .map(|refusal| (refusal.id().as_str(), refusal.code()))
+            .map(|refusal| (refusal.id(), refusal.code()))
             .collect()
     })
 }
@@ -52,39 +52,39 @@ fn each_routed_rule_refuses_with_its_code() {
         // P1: absent, another type.
         (
             with(p1, ""),
-            "openid4vp.routing.p1_absent",
+            "err.openid4vp.routing.p1_absent",
             ErrorCode::INVALID_REQUEST,
         ),
         (
             with(p1, r#""response_type":"code","#),
-            "openid4vp.routing.p1_other",
+            "err.openid4vp.routing.p1_other",
             ErrorCode::UNSUPPORTED_RESPONSE_TYPE,
         ),
         // C5: absent; off the channel; direct_post.
         (
             with(&format!("{mode},"), ""),
-            "openid4vp.routing.c5_uri",
+            "err.openid4vp.routing.c5_uri",
             ErrorCode::INVALID_REQUEST,
         ),
         (
             with(mode, r#""response_mode":"dc_api.jwt""#),
-            "openid4vp.routing.c5_uri",
+            "err.openid4vp.routing.c5_uri",
             ErrorCode::INVALID_REQUEST,
         ),
         (
             with(mode, r#""response_mode":"direct_post""#),
-            "openid4vp.routing.c5_uri",
+            "err.openid4vp.routing.c5_uri",
             ErrorCode::INVALID_REQUEST,
         ),
         // P5, P6, P7.
         (
             uri_payload(r#","redirect_uri":"https://verifier.example/cb""#),
-            "openid4vp.routing.p5",
+            "err.openid4vp.routing.p5",
             ErrorCode::INVALID_REQUEST,
         ),
         (
             with(r#""state":"eyJhb-6-sVA""#, r#""state":"a b""#),
-            "openid4vp.routing.p6",
+            "err.openid4vp.routing.p6",
             ErrorCode::INVALID_REQUEST,
         ),
         (
@@ -92,30 +92,30 @@ fn each_routed_rule_refuses_with_its_code() {
                 r#""format":"test""#,
                 r#""format":"test","require_cryptographic_holder_binding":false"#,
             ),
-            "openid4vp.parameters.p7",
+            "err.openid4vp.parameters.p7",
             ErrorCode::INVALID_REQUEST,
         ),
         // N1, S3.
         (
             with("n-0S6_WzA2Mj", "n 0"),
-            "openid4vp.parameters.n1",
+            "err.openid4vp.parameters.n1",
             ErrorCode::INVALID_REQUEST,
         ),
         (
             uri_payload(r#","scope":"openid""#),
-            "openid4vp.parameters.s3",
+            "err.openid4vp.parameters.s3",
             ErrorCode::INVALID_SCOPE,
         ),
         // S4: dcql_query beside a scope naming a query (§5.1: "but not both").
         (
             uri_payload(r#","scope":"org.example.test""#),
-            "openid4vp.parameters.s4",
+            "err.openid4vp.parameters.s4",
             ErrorCode::INVALID_REQUEST,
         ),
         // C7: no key the rule accepts (alg absent), no enc it accepts.
         (
             with(r#","alg":"ECDH-ES""#, ""),
-            "openid4vp.modes.c7_key",
+            "err.openid4vp.modes.c7_key",
             ErrorCode::INVALID_REQUEST,
         ),
         (
@@ -123,7 +123,7 @@ fn each_routed_rule_refuses_with_its_code() {
                 r#"]}}"#,
                 r#"]},"encrypted_response_enc_values_supported":["A128CBC-HS256"]}"#,
             ),
-            "openid4vp.modes.c7_enc",
+            "err.openid4vp.modes.c7_enc",
             ErrorCode::INVALID_REQUEST,
         ),
     ];
