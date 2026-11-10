@@ -79,7 +79,7 @@ pub enum EnvelopeFault {
     #[error("`documents` holds {count} documents, where one is read")]
     #[explain(id = "stored.envelope_fault.documents")]
     Documents {
-        /// The documents.
+        /// The number of documents.
         count: usize,
     },
     /// The `Document` has no `issuerSigned`.
@@ -223,7 +223,7 @@ pub enum ValueDigestsFault {
         namespace: NameSpace,
         /// The `digestID`.
         digest_id: DigestId,
-        /// The digest's bytes.
+        /// The number of the digest's bytes.
         length: usize,
     },
 }

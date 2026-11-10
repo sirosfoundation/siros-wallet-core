@@ -128,7 +128,7 @@ pub enum IssuerJwtFault {
     #[error("it has {count} `.`-separated segments, where a JWS has three")]
     #[explain(id = "issuer_jwt.segments")]
     Segments {
-        /// The segments.
+        /// The number of segments.
         count: usize,
     },
     /// The signature segment is empty.
@@ -176,7 +176,7 @@ pub enum DisclosureFault {
     #[error("the array has {count} elements, where a disclosure has two or three")]
     #[explain(id = "disclosure.length")]
     Length {
-        /// The elements.
+        /// The number of elements.
         count: usize,
     },
     /// The salt is not a string.
