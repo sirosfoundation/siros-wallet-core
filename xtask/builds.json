@@ -19,6 +19,7 @@
         {
           "name": "siros-i18n",
           "features": [
+            "nfc",
             "number"
           ]
         }
@@ -60,6 +61,7 @@
           "name": "siros-i18n",
           "features": [
             "derive",
+            "nfc",
             "number"
           ]
         }
@@ -90,7 +92,9 @@
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
@@ -123,6 +127,7 @@
           "name": "siros-i18n",
           "features": [
             "date",
+            "nfc",
             "number"
           ]
         }
@@ -158,6 +163,7 @@
           "features": [
             "date",
             "derive",
+            "nfc",
             "number"
           ]
         }
@@ -190,7 +196,9 @@
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
@@ -226,6 +234,7 @@
         {
           "name": "siros-i18n",
           "features": [
+            "nfc",
             "number"
           ]
         }
@@ -257,6 +266,7 @@
           "name": "siros-i18n",
           "features": [
             "derive",
+            "nfc",
             "number"
           ]
         }
@@ -286,7 +296,9 @@
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
@@ -327,6 +339,7 @@
           "features": [
             "currency",
             "date",
+            "nfc",
             "number"
           ]
         }
@@ -364,6 +377,7 @@
             "currency",
             "date",
             "derive",
+            "nfc",
             "number"
           ]
         }
@@ -400,7 +414,9 @@
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
@@ -446,6 +462,7 @@
           "name": "siros-i18n",
           "features": [
             "date",
+            "nfc",
             "number"
           ]
         }
@@ -471,6 +488,7 @@
           "features": [
             "date",
             "derive",
+            "nfc",
             "number"
           ]
         }
@@ -506,7 +524,9 @@
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
@@ -563,6 +583,7 @@
           "features": [
             "currency",
             "date",
+            "nfc",
             "number"
           ]
         }
@@ -595,6 +616,7 @@
             "currency",
             "date",
             "derive",
+            "nfc",
             "number"
           ]
         }
@@ -635,7 +657,9 @@
         ],
         "forbid": [
           "siros-openid4vp/resolve",
-          "siros-credman/register"
+          "siros-credman/register",
+          "siros-i18n/nfc",
+          "unicode-normalization"
         ],
         "exact": [
           {
