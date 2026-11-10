@@ -14,6 +14,7 @@ use crate::format::{
     Refused, Root, Selector,
 };
 use crate::mf2::ast::{self, Key, MarkupKind};
+use crate::normal::Hold;
 use crate::text::{Style, Text, Writer};
 
 /// An expression's `u:dir`.
@@ -206,33 +207,37 @@ fn string(root: Root) -> Expression {
     }
 }
 
-/// The compilation of one message: its id, its line, the context's formats, and the variables
-/// its declarations bound so far.
+/// The compilation of one message: its id, its line, the context's formats, how the load holds
+/// selector literals, and the variables its declarations bound so far.
 struct Compiler<'c> {
     id: &'c str,
     line: usize,
     formats: &'c Formats,
+    hold: Hold,
     bound: Vec<(String, Binding)>,
 }
 
 /// Compiles the message `id`, which starts at `line` of a module whose direction is
-/// `direction`.
+/// `direction`, each literal a selector compares held by `hold`.
 ///
 /// # Errors
 ///
 /// [`LoadError`] for a function the build lacks, a function whose section no module defined, a
-/// call its function refuses, and markup outside the styles or not nested.
+/// call its function refuses, a selector literal `hold` refuses, and markup outside the styles
+/// or not nested.
 pub(crate) fn compile(
     id: &str,
     line: usize,
     message: &ast::Message,
     direction: Direction,
     formats: &Formats,
+    hold: Hold,
 ) -> Result<Compiled, LoadError> {
     let mut compiler = Compiler {
         id,
         line,
         formats,
+        hold,
         bound: Vec::new(),
     };
     for declaration in &message.declarations {
@@ -286,6 +291,10 @@ impl Compiler<'_> {
                 id,
                 function,
                 refusal,
+            },
+            Refused::Unnormalized(literal) => LoadError::Unnormalized {
+                id,
+                text: literal.written(),
             },
         }
     }
@@ -452,7 +461,7 @@ impl Compiler<'_> {
                     keys.push(key.clone());
                 }
             }
-            let selector = Selector::compile(&chain, &keys, self.formats)
+            let selector = Selector::compile(&chain, &keys, self.formats, self.hold)
                 .map_err(|refused| self.refused(chain.outer.function, refused))?;
             columns.push(Column {
                 selector,

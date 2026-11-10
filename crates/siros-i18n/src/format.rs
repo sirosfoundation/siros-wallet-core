@@ -6,6 +6,7 @@
 //! selects at resolution.
 
 use crate::error::{FormatRule, LoadError, Refusal};
+use crate::normal::{Hold, Unnormalized};
 #[cfg(any(
     feature = "number",
     feature = "currency",
@@ -313,6 +314,8 @@ pub(crate) enum Refused {
     Undefined,
     /// The function refuses the call.
     Call(Refusal),
+    /// A selector's literal the load's [`Hold`] refuses.
+    Unnormalized(Unnormalized),
 }
 
 impl From<Refusal> for Refused {
@@ -465,13 +468,13 @@ impl Formatter {
 
 impl Selector {
     /// The chain compiled by its outermost function for a selector, with the variant keys of
-    /// its column.
+    /// its column, a literal `:string` compares held by `hold`.
     ///
     /// # Errors
     ///
-    /// [`Refused`] for a section no module defined, or a call the function refuses: a function
-    /// that does not select refuses with [`Refusal::Selector`], a key its selection does not
-    /// read with [`Refusal::Key`].
+    /// [`Refused`] for a section no module defined, a call the function refuses, or a literal
+    /// `hold` refuses: a function that does not select refuses with [`Refusal::Selector`], a key
+    /// its selection does not read with [`Refusal::Key`].
     pub(crate) fn compile(
         chain: &Chain,
         #[cfg_attr(
@@ -489,9 +492,10 @@ impl Selector {
             expect(unused_variables, reason = "only the format functions read a section")
         )]
         formats: &Formats,
+        hold: Hold,
     ) -> Result<Self, Refused> {
         match chain.outer.function {
-            Function::String => Ok(Self::String(crate::string::compile(chain)?)),
+            Function::String => Ok(Self::String(crate::string::selector(chain, hold)?)),
             #[cfg(feature = "number")]
             Function::Number | Function::Integer => numeric_selector(chain, keys, formats),
             #[cfg(feature = "offset")]

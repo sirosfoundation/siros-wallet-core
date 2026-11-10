@@ -1,6 +1,6 @@
 //! MF2's data model (spec/data-model): what the parser makes of a message. Names, identifiers
-//! and variant keys are held in NFC; literals and text as written. Attributes are dropped: they
-//! have no effect on formatting.
+//! and variant keys are held as the parse's [`Hold`](crate::normal::Hold) holds them; literals and
+//! text as written. Attributes are dropped: they have no effect on formatting.
 
 /// A message: its declarations and its body.
 #[derive(Debug)]
@@ -46,7 +46,7 @@ pub(crate) struct Variant {
 /// A variant key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Key {
-    /// A literal, in NFC.
+    /// A literal, held.
     Literal(String),
     /// `*`.
     CatchAll,
@@ -83,7 +83,7 @@ pub(crate) enum Expression {
 pub(crate) enum Operand {
     /// A literal's string value.
     Literal(String),
-    /// A variable's name, in NFC.
+    /// A variable's name, held.
     Variable(String),
 }
 
@@ -94,7 +94,7 @@ pub(crate) struct Function {
     pub(crate) options: Vec<Opt>,
 }
 
-/// An option: its identifier, in NFC, and its value.
+/// An option: its identifier, held, and its value.
 #[derive(Debug)]
 pub(crate) struct Opt {
     pub(crate) name: String,

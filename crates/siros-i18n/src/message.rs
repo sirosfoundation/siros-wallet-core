@@ -19,6 +19,9 @@ use siros_explain::Explain;
 /// marked `#[message(skip)]` is none, and a tuple field must be one. An `Option<T>` field gives
 /// its value when `Some` and `""` when `None`. An id names one statement of its crate. A type
 /// that derives `Explain` is a message already, and deriving both fails to build.
+///
+/// An implementation by hand gives each key in Unicode Normalization Form C, as a derived key
+/// is: a build without the feature `nfc` compares keys as given.
 pub trait Message {
     /// The id the context's modules word.
     fn id(&self) -> &str;

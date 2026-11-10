@@ -3,7 +3,6 @@
 use std::fmt::Write as _;
 
 use rustc_hash::FxHashSet;
-use unicode_normalization::UnicodeNormalization;
 
 use crate::compile::{self, Compiled};
 #[cfg(feature = "check")]
@@ -13,6 +12,8 @@ use crate::format::Formats;
 use crate::locale::LocaleTag;
 use crate::message::Message;
 use crate::mf2;
+use crate::mf2::parse::Unparsed;
+use crate::normal::{Hold, normal};
 use crate::resource;
 use crate::text::Text;
 
@@ -48,7 +49,8 @@ struct Worded {
     message: Compiled,
 }
 
-/// A message's arguments: each key in NFC with its text, ascending by key, each key once.
+/// A message's arguments: each key as [`normal`] holds it with its text, ascending by key, each
+/// key once.
 struct Args(Vec<(String, String)>);
 
 impl Args {
@@ -64,7 +66,7 @@ impl Args {
             if failed.is_some() {
                 return;
             }
-            let key: String = key.nfc().collect();
+            let key = normal(key).into_owned();
             let mut text = String::new();
             match write!(text, "{value}") {
                 Ok(()) => args.push((key, text)),
@@ -123,7 +125,29 @@ impl Context {
     /// locale, an id or a section the context holds, a format section its format refuses, a
     /// function the build lacks or whose options no module defines, or a call its function
     /// refuses.
-    pub fn module(mut self, source: &str) -> Result<Self, LoadError> {
+    pub fn module(self, source: &str) -> Result<Self, LoadError> {
+        self.load(source, Hold::Normal)
+    }
+
+    /// The context with `source` loaded as [`Context::module`] loads it, when Unicode
+    /// Normalization Form C changes none of its names, variant keys and selector literals. A
+    /// build without `nfc` holds each as written, so it loads such a module into the same
+    /// messages, which resolve to the same texts. The wallet loads through it the sources it
+    /// hands to a matcher built without `nfc`.
+    ///
+    /// # Errors
+    ///
+    /// The [`LoadError`] of [`Context::module`], and [`LoadError::Unnormalized`] for the first
+    /// message that holds a name, a variant key or a selector literal NFC changes: its first such
+    /// name or key in source order, else its selector literal.
+    #[cfg(feature = "nfc")]
+    pub fn module_in_nfc(self, source: &str) -> Result<Self, LoadError> {
+        self.load(source, Hold::Written)
+    }
+
+    /// The context with `source` loaded, its names, variant keys and selector literals held by
+    /// `hold`.
+    fn load(mut self, source: &str, hold: Hold) -> Result<Self, LoadError> {
         let resource = resource::parse(source)?;
         match (&resource.locale, &self.locale) {
             (Some(locale), None) => self.locale = Some(locale.clone()),
@@ -149,11 +173,15 @@ impl Context {
                 line: entry.line,
                 rule,
             };
-            let message = mf2::parse::parse(&entry.value).map_err(|error| {
-                syntax(SyntaxRule::Message {
+            let message = mf2::parse::parse(&entry.value, hold).map_err(|error| match error {
+                Unparsed::Syntax(at) => syntax(SyntaxRule::Message {
                     id: id.to_owned(),
-                    at: error.0,
-                })
+                    at,
+                }),
+                Unparsed::Unnormalized(item) => LoadError::Unnormalized {
+                    id: id.to_owned(),
+                    text: item.written(),
+                },
             })?;
             mf2::valid::check(id, &message).map_err(syntax)?;
             worded.push(Worded {
@@ -164,6 +192,7 @@ impl Context {
                     &message,
                     resource.direction,
                     &self.formats,
+                    hold,
                 )?,
             });
         }
@@ -179,7 +208,8 @@ impl Context {
     }
 
     /// The message's id worded by the context's modules, over the message's arguments: each
-    /// argument's text is its value's `Display`, its key compared in NFC.
+    /// argument's text is its value's `Display`, its key compared in NFC with `nfc` and as given
+    /// without it.
     ///
     /// # Errors
     ///

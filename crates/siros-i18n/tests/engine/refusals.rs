@@ -306,3 +306,43 @@ fn each_resolution_rule_refuses_its_fixture() {
         assert_eq!(context.resolve(message).expect_err("refused"), expected);
     }
 }
+
+/// `Context::module_in_nfc` refuses a name, a variant key and a selector literal that NFC
+/// changes, each naming it as written, and loads text and a literal a placeholder formats as
+/// written. U+1E0A U+0323 is outside NFC, which writes it U+1E0C U+0307 (UAX #15; the
+/// conformance suite's "NFC:" cases).
+#[cfg(feature = "nfc")]
+#[test]
+fn module_in_nfc_refuses_each_item_nfc_changes() {
+    const WRITTEN: &str = "\u{1E0A}\u{323}";
+    const NORMAL: &str = "\u{1E0C}\u{307}";
+    let unnormalized = LoadError::Unnormalized {
+        id: "hello".to_owned(),
+        text: WRITTEN.to_owned(),
+    };
+    // A variable's name, a variant key, and the literal a `:string` selector compares.
+    let refused = [
+        format!("{{${WRITTEN}}}"),
+        format!(".input {{$x :string}} .match $x {WRITTEN} {{{{a}}}} * {{{{b}}}}"),
+        format!(".local $x = {{|{WRITTEN}| :string}} .match $x {NORMAL} {{{{a}}}} * {{{{b}}}}"),
+    ];
+    for message in refused {
+        assert_eq!(
+            Context::new()
+                .module_in_nfc(&english(&format!("hello = {message}")))
+                .expect_err("refused"),
+            unnormalized,
+            "{message:?}"
+        );
+    }
+    let context = Context::new()
+        .bidi(Bidi::None)
+        .module_in_nfc(&english(&format!(
+            "hello = .local $y = {{|{WRITTEN}| :string}} {{{{{WRITTEN} {{$y}} {{|{WRITTEN}|}} {{$name}}}}}}"
+        )))
+        .expect("loads");
+    let text = context
+        .resolve(&Given::with("hello", "name", WRITTEN))
+        .expect("resolves");
+    assert_eq!(text.to_string(), [WRITTEN; 4].join(" "));
+}

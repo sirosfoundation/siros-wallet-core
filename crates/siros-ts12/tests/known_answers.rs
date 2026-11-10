@@ -7,17 +7,12 @@
 
 mod common;
 
-use std::num::NonZeroU32;
-
 use common::{CS12_IBAN, CS12_USER, TESTBED_IBAN, bound_entry, bound_entry_in, env, registered};
 use siros_i18n::Styles;
-use siros_openid4vp::host::{
-    AttackDetection, Factor, Inherence, Isolation, Knowledge, Modality, Possession, Sensor,
-};
 use siros_openid4vp::plugins::{Bound, NoCandidate};
 use siros_openid4vp::rows::Value;
 use siros_paso::outcome::Excluded;
-use siros_ts12::{AmrCategory, Ts12Type, amr};
+use siros_ts12::Ts12Type;
 
 const CS12_PAYMENT: &str = r#"{"type": "urn:eudi:sca:payment:1", "credential_ids": ["sca"],
   "transaction_data_hashes_alg": ["sha-256"],
@@ -115,8 +110,16 @@ fn level_4_leaves_the_fields_a_type_always_shows_on_screen() {
     );
 }
 
+#[cfg(feature = "resolve")]
 #[test]
 fn ka24_each_factor_answers_a_value_ts12_lists() {
+    use std::num::NonZeroU32;
+
+    use siros_openid4vp::host::{
+        AttackDetection, Factor, Inherence, Isolation, Knowledge, Modality, Possession, Sensor,
+    };
+    use siros_ts12::{AmrCategory, amr};
+
     let pin = |digits| Factor::Knowledge(Knowledge::Pin(NonZeroU32::new(digits)));
     let phrase = |chars| Factor::Knowledge(Knowledge::Passphrase(NonZeroU32::new(chars)));
     let inherence = |modality, sensor| {
@@ -282,11 +285,14 @@ fn i33_one_entry_takes_the_generic_tag() {
     assert_eq!(confirm(&generic, "en"), "Approve payment");
 }
 
-/// An issuer's label holding MessageFormat 2's syntax shows as its characters, unstyled, through
-/// the source the registration carries: `view::convert` escapes it.
+/// An issuer's label holding MessageFormat 2's syntax and text outside Unicode Normalization Form
+/// C (U+1E0A U+0323, which NFC writes U+1E0C U+0307) shows as its characters, unstyled, through
+/// the source the registration carries: `view::convert` escapes it. The workspace's
+/// `--all-features` runs it with siros-i18n's `nfc`, and `cargo test -p siros-ts12 --all-features
+/// --test known_answers` without it: both show the same characters.
 #[test]
 fn an_issuers_label_shows_as_its_characters() {
-    const LABEL: &str = r".match {$x} {#strong} | \ end";
+    const LABEL: &str = ".match {$x} {#strong} | \\ \u{1E0A}\u{323}";
     let own = TESTBED_IBAN.replace(
         r#""value": "Confirm payment""#,
         &format!(r#""value": "{}""#, LABEL.replace('\\', r"\\")),
