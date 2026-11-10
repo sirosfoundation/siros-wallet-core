@@ -3,7 +3,6 @@
 
 use std::borrow::Cow;
 
-use siros_explain::Keyed;
 use siros_openid4vp::detail;
 use siros_openid4vp::effects::Fetch;
 use siros_openid4vp::hash;
@@ -17,30 +16,32 @@ use siros_openid4vp::rows::HttpsUrl;
 use siros_paso::RandomIds;
 use siros_paso::image::{self, Resolution};
 use siros_paso::outcome::NotCompatible;
+use siros_syntax::Keyed;
 
 use crate::payload::{Integrity, Logo};
 use crate::{
-    FAULT, Translated, Ts12Finding, Ts12Profile, amr, read_document, read_registered, translate,
+    Translated, Ts12Finding, Ts12Profile, amr, caused, fault, read_document, read_registered,
+    translate,
 };
 
 /// The record's one entry.
 fn the_entry<'r>(record: &Answered<'r>) -> Result<&'r Entry<'r>, Fault> {
     let [index] = record.entries().entries() else {
-        return Err(Fault::new(FAULT, detail!("bound entries other than one")));
+        return Err(fault(detail!("bound entries other than one")));
     };
     record
         .request()
         .entry(*index)
-        .ok_or_else(|| Fault::new(FAULT, detail!("a bound entry the request lacks")))
+        .ok_or_else(|| fault(detail!("a bound entry the request lacks")))
 }
 
 /// The record's entry translated for its credential, which phase 1 bound.
 fn translated_of(record: &Answered<'_>) -> Result<Translated, Fault> {
     let node = read_document(record.credential())?
-        .ok_or_else(|| Fault::new(FAULT, detail!("a bound credential without its document")))?;
+        .ok_or_else(|| fault(detail!("a bound credential without its document")))?;
     let document = read_registered(&node)?;
     translate(&document, the_entry(record)?)
-        .map_err(|_| Fault::new(FAULT, detail!("a bound entry that no longer translates")))
+        .map_err(|_| fault(detail!("a bound entry that no longer translates")))
 }
 
 /// The https logo the metadata displays: its URL and its integrity value.
@@ -70,7 +71,7 @@ where
     /// credential.
     fn informed(&self, findings: &[&Ts12Finding]) -> Self {
         let failed = findings.iter().map(|finding| {
-            siros_explain::Entry::new(
+            siros_syntax::Entry::new(
                 finding.url.clone(),
                 siros_paso::Fetch::Failed(finding.failure.to_string()),
             )
@@ -103,7 +104,7 @@ where
         let fetch = record
             .resources()
             .fetched(url)
-            .ok_or_else(|| Fault::new(FAULT, detail!("a logo the profile wanted is unanswered")))?;
+            .ok_or_else(|| fault(detail!("a logo the profile wanted is unanswered")))?;
         let resolution = |_: &str| match fetch {
             Fetch::Fetched { content, media } => Resolution::Fetched { content, media },
             Fetch::Unfetched => Resolution::Failed("the fetch failed"),
@@ -115,7 +116,7 @@ where
                 url: url.clone(),
                 failure,
             })),
-            Err(other) => Err(Fault::caused(FAULT, detail!("a logo"), other)),
+            Err(other) => Err(caused(detail!("a logo"), other)),
         }
     }
 
@@ -142,9 +143,9 @@ where
             ),
         ];
         let hashes = hash::members(&[the_entry(&record)?], record.request().envelope().hashes())
-            .map_err(|e| Fault::caused(FAULT, detail!("B.3.3.1 hashes"), e))?;
+            .map_err(|e| caused(detail!("B.3.3.1 hashes"), e))?;
         members.extend(hashes.iter().cloned());
-        Members::new(members).map_err(|e| Fault::caused(FAULT, detail!("TS12's claims"), e))
+        Members::new(members).map_err(|e| caused(detail!("TS12's claims"), e))
     }
 }
 

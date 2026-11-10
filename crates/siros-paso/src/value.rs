@@ -1,18 +1,20 @@
 //! PaSO View §3's value types, and a written value of a kind other than an image parsed into the
-//! [`RequestText`] the core renders when it is displayed: dates, times, amounts and currencies as
-//! typed values, booleans and frequencies as the core module's messages, every other kind as
-//! written.
+//! value it shows ([`Parsed`]): a date, a time, a date and time, a currency and an amount as
+//! siros-syntax's values, a boolean and a frequency as what they state, every other kind as its
+//! text. Shown alone, a value resolves through the statement that carries its literal
+//! ([`Parsed::shown`]).
 
 use std::borrow::Cow;
 use std::fmt;
 
-use siros_explain::{
-    Amount, Currency, Date, DateTime, Decimal, Explain, Fraction, IntoArg, Offset, RequestText,
-    Second, Time,
-};
+use siros_explain::Explain;
+use siros_i18n::Message;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::refusal::ReprItem;
-use siros_openid4vp::rows::{BooleanText, HttpsUrl};
+use siros_openid4vp::rows::{BooleanText, ClaimText, HttpsUrl};
+use siros_syntax::{
+    Amount, Currency, Date, DateTime, Decimal, Fraction, Offset, OffsetTime, Second, Time,
+};
 
 use crate::frequency::Frequency;
 
@@ -69,14 +71,6 @@ impl fmt::Display for FormattedKind {
     }
 }
 
-impl IntoArg for FormattedKind {
-    type Kind = siros_explain::kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.as_str()
-    }
-}
-
 impl FormattedKind {
     /// The kind's name.
     #[must_use]
@@ -120,70 +114,155 @@ impl Written<'_> {
 
 /// A written value that does not conform to its kind.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso")]
 #[error("{kind} value {written}: {why}")]
+#[explain(id = "bad_value")]
 pub struct BadValue {
     /// The kind.
     pub kind: FormattedKind,
     /// The value.
     pub written: ReprItem,
     /// The rule it breaks.
+    #[source]
     pub why: Breach,
 }
 
 /// The rule of its kind a written value breaks (View §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.value")]
 pub enum Breach {
     /// A boolean that is no JSON boolean.
     #[error("not a JSON boolean")]
+    #[explain(id = "value.not_boolean")]
     NotBoolean,
     /// A value of a text kind that is no JSON string.
     #[error("not a string")]
+    #[explain(id = "value.not_string")]
     NotString,
     /// A frequency outside ISO 20022's codes.
     #[error("not a frequency code")]
+    #[explain(id = "value.not_frequency")]
     NotFrequency,
     /// A date outside ISO 8601's calendar dates.
     #[error("not an ISO 8601 calendar date")]
+    #[explain(id = "value.not_date")]
     NotDate,
     /// A time outside ISO 8601's times.
     #[error("not an ISO 8601 time")]
+    #[explain(id = "value.not_time")]
     NotTime,
     /// A date-time outside ISO 8601's.
     #[error("not an ISO 8601 date-time")]
+    #[explain(id = "value.not_date_time")]
     NotDateTime,
     /// A currency outside ISO 4217's table.
     #[error("not an ISO 4217 code of the table")]
+    #[explain(id = "value.not_currency")]
     NotCurrency,
     /// An amount that is no number, a space and a code of ISO 4217's table.
     #[error("not 'number CODE'")]
+    #[explain(id = "value.not_amount")]
     NotAmount,
     /// An amount whose number is not ISO 4217's form for its currency: digits without a sign or
     /// a leading zero, then exactly its minor units as fractional digits.
-    #[error("the number needs {0} fractional digits (ISO 4217)")]
-    NumberForm(#[explain(name = "digits")] u8),
+    #[error("the number needs {digits} fractional digits (ISO 4217)")]
+    #[explain(id = "value.number_form")]
+    NumberForm {
+        /// The currency's minor units.
+        digits: u8,
+    },
     /// An amount whose number exceeds an exact decimal's 38 digits.
     #[error("the number exceeds 38 digits")]
+    #[explain(id = "value.too_long")]
     TooLong,
     /// A URL that is no https URL.
     #[error("not an https URL")]
+    #[explain(id = "value.not_url")]
     NotUrl,
     /// A template value holding every character of the Supplementary Private Use Area-A, one of
     /// which marks a typed value while it is read.
     #[error("holds every character of the Supplementary Private Use Area-A")]
+    #[explain(id = "value.no_slot")]
     NoSlot,
 }
 
-/// A written value of a kind other than an image, parsed, as its text: a typed value for a date,
-/// a time, a date and time, a currency and an amount; the crate module's message for a boolean
-/// and a frequency; the text as written for text; a URL's [`HttpsUrl::ascii`]; the text of
-/// `mini_markdown` without its styles, as a text from outside any module holds none.
+/// A written value of a kind other than an image, parsed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Parsed {
+    /// A text as shown: a text as written, a `mini_markdown` text without its styles, a URL's
+    /// [`HttpsUrl::ascii`].
+    Text(String),
+    /// A boolean.
+    Boolean(bool),
+    /// A frequency.
+    Frequency(Frequency),
+    /// A calendar date.
+    Date(Date),
+    /// A time of day, with its offset when written.
+    Time(OffsetTime),
+    /// A date and time.
+    DateTime(DateTime),
+    /// A currency.
+    Currency(Currency),
+    /// An amount: its number with exactly its currency's minor digits, and its currency.
+    Amount(Amount),
+}
+
+impl Parsed {
+    /// The statement that shows the value alone, carrying its literal: siros-openid4vp's
+    /// [`ClaimText`] for a text, a date and a date and time, [`BooleanText`] for a boolean, the
+    /// crate's [`Frequency`] and [`ValueText`] for the other kinds.
+    #[must_use]
+    pub fn shown(self) -> Box<dyn Message> {
+        match self {
+            Self::Text(value) => Box::new(ClaimText::Text { value }),
+            Self::Boolean(true) => Box::new(BooleanText::Yes),
+            Self::Boolean(false) => Box::new(BooleanText::No),
+            Self::Frequency(frequency) => Box::new(frequency),
+            Self::Date(value) => Box::new(ClaimText::Date { value }),
+            Self::Time(value) => Box::new(ValueText::Time { value }),
+            Self::DateTime(value) => Box::new(ClaimText::DateTime { value }),
+            Self::Currency(code) => Box::new(ValueText::Currency { code }),
+            Self::Amount(amount) => Box::new(ValueText::Amount {
+                value: amount.value(),
+                currency: amount.currency(),
+            }),
+        }
+    }
+}
+
+/// A value shown alone whose kind siros-openid4vp's statements lack, carrying its literal: the
+/// wallet's wording formats it (`{$value :siros:time}`,
+/// `{$value :currency currency=$currency}`) or writes it as given.
+#[derive(Debug, Clone, PartialEq, Eq, Message)]
+pub enum ValueText {
+    /// A time of day (`12:30:15+02:00`), unzoned without an offset.
+    #[message(id = "value.time")]
+    Time {
+        /// The time.
+        value: OffsetTime,
+    },
+    /// An ISO 4217 currency (`EUR`).
+    #[message(id = "value.currency")]
+    Currency {
+        /// The code.
+        code: Currency,
+    },
+    /// An amount: its number with exactly its currency's minor digits (`42.50`), and the
+    /// currency's code.
+    #[message(id = "value.amount")]
+    Amount {
+        /// The number.
+        value: Decimal,
+        /// The currency.
+        currency: Currency,
+    },
+}
+
+/// A written value of a kind other than an image, parsed.
 ///
 /// # Errors
 ///
 /// [`BadValue`]: the written value does not conform to the kind.
-pub fn formatted(kind: FormattedKind, written: Written<'_>) -> Result<RequestText, BadValue> {
+pub fn formatted(kind: FormattedKind, written: Written<'_>) -> Result<Parsed, BadValue> {
     let bad = |why: Breach| BadValue {
         kind,
         written: written.named(),
@@ -192,48 +271,35 @@ pub fn formatted(kind: FormattedKind, written: Written<'_>) -> Result<RequestTex
     let text = match written {
         Written::Text(text) => text,
         Written::Boolean(value) if kind == FormattedKind::Boolean => {
-            let answer = if value {
-                BooleanText::Yes
-            } else {
-                BooleanText::No
-            };
-            return Ok(RequestText::of(&answer));
+            return Ok(Parsed::Boolean(value));
         }
         _ if kind == FormattedKind::Boolean => return Err(bad(Breach::NotBoolean)),
         _ => return Err(bad(Breach::NotString)),
     };
     Ok(match kind {
         FormattedKind::Boolean => return Err(bad(Breach::NotBoolean)),
-        FormattedKind::Text => RequestText::raw(text.to_owned()),
+        FormattedKind::Text => Parsed::Text(text.to_owned()),
         FormattedKind::MiniMarkdown => {
-            RequestText::raw(spans(text).into_iter().map(|span| span.text).collect())
+            Parsed::Text(spans(text).into_iter().map(|span| span.text).collect())
         }
         FormattedKind::Frequency => {
-            let frequency = Frequency::parse(text).ok_or_else(|| bad(Breach::NotFrequency))?;
-            RequestText::of(&crate::PasoRequested::Frequency(frequency))
+            Parsed::Frequency(Frequency::parse(text).ok_or_else(|| bad(Breach::NotFrequency))?)
         }
-        FormattedKind::Date => RequestText::value(siros_explain::Value::Date(
-            date(text).ok_or_else(|| bad(Breach::NotDate))?,
-        )),
-        FormattedKind::Time => {
-            let (at, offset) = time(text).ok_or_else(|| bad(Breach::NotTime))?;
-            RequestText::value(siros_explain::Value::Time { at, offset })
+        FormattedKind::Date => Parsed::Date(date(text).ok_or_else(|| bad(Breach::NotDate))?),
+        FormattedKind::Time => Parsed::Time(time(text).ok_or_else(|| bad(Breach::NotTime))?),
+        FormattedKind::DateTime => {
+            Parsed::DateTime(date_time(text).ok_or_else(|| bad(Breach::NotDateTime))?)
         }
-        FormattedKind::DateTime => RequestText::value(siros_explain::Value::DateTime(
-            date_time(text).ok_or_else(|| bad(Breach::NotDateTime))?,
-        )),
-        FormattedKind::Currency => {
-            let currency = Currency::from_code(text)
+        FormattedKind::Currency => Parsed::Currency(
+            Currency::parse(text)
+                .ok()
                 .filter(|currency| currency.minor_units().is_some())
-                .ok_or_else(|| bad(Breach::NotCurrency))?;
-            RequestText::value(siros_explain::Value::Currency(currency))
-        }
-        FormattedKind::CurrencyAmount => {
-            RequestText::value(siros_explain::Value::Amount(amount(text).map_err(bad)?))
-        }
+                .ok_or_else(|| bad(Breach::NotCurrency))?,
+        ),
+        FormattedKind::CurrencyAmount => Parsed::Amount(amount(text).map_err(bad)?),
         FormattedKind::Url => {
             let url = HttpsUrl::parse(text).map_err(|_| bad(Breach::NotUrl))?;
-            RequestText::raw(url.ascii().to_owned())
+            Parsed::Text(url.ascii().to_owned())
         }
     })
 }
@@ -325,7 +391,7 @@ fn clock(text: &str) -> Option<Clock> {
 }
 
 /// A time of day: its seconds 00 to 59, a leap second having no date to place it.
-fn time(text: &str) -> Option<(Time, Option<Offset>)> {
+fn time(text: &str) -> Option<OffsetTime> {
     let Clock {
         hour,
         minute,
@@ -336,7 +402,7 @@ fn time(text: &str) -> Option<(Time, Option<Offset>)> {
         None => None,
         Some((whole, fraction)) => Some(Second::new(whole, fraction)?),
     };
-    Some((Time::new(hour, minute, second)?, offset))
+    Some(OffsetTime::new(Time::new(hour, minute, second)?, offset))
 }
 
 /// An ISO 8601 date-time `date T time`: second 60 where RFC 3339 places a leap second.
@@ -364,9 +430,9 @@ fn date_time(text: &str) -> Option<DateTime> {
 fn amount(text: &str) -> Result<Amount, Breach> {
     let not_amount = || Breach::NotAmount;
     let (number, code) = text.split_once(' ').ok_or_else(not_amount)?;
-    let currency = Currency::from_code(code).ok_or_else(not_amount)?;
+    let currency = Currency::parse(code).map_err(|_| not_amount())?;
     let digits = currency.minor_units().ok_or_else(not_amount)?;
-    let wrong = || Breach::NumberForm(digits);
+    let wrong = || Breach::NumberForm { digits };
     let (whole, fraction) = match number.split_once('.') {
         Some((whole, fraction)) if digits > 0 && fraction.len() == usize::from(digits) => {
             (whole, fraction)

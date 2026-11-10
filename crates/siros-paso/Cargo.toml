@@ -28,8 +28,11 @@ sha2 = { workspace = true }
 hmac = { workspace = true }
 thiserror = { workspace = true }
 siros-explain = { workspace = true }
-# The format modules PaSO View's values render through: amounts and dates.
-siros-i18n = { workspace = true, features = ["number", "currency", "date"] }
+# The value types View §3's kinds parse into, and `checked!`.
+siros-syntax = { workspace = true }
+# The functions the converted sources call (`:currency`, `:siros:date`, `:siros:time`,
+# `:siros:datetime`), and the statements' derive.
+siros-i18n = { workspace = true, features = ["currency", "date", "derive"] }
 rustc-hash = { workspace = true }
 unicode-segmentation = { workspace = true }
 # CommonMark's whitespace and punctuation, which mini_markdown's emphasis reads.
@@ -44,8 +47,8 @@ serde_json = { workspace = true }
 siros-paso = { path = ".", features = ["test-util", "sealed-signals"] }
 siros-openid4vp = { workspace = true, features = ["resolve"] }
 siros-testkit = { workspace = true }
-# The test app's loader, which loads the modules metadata converts to.
 siros-i18n = { workspace = true }
+siros-syntax = { workspace = true }
 # The placements the tests' credentials take from their formats' plug-ins.
 siros-mdoc = { workspace = true }
 siros-sdjwt = { workspace = true }

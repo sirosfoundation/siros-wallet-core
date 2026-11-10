@@ -22,17 +22,21 @@ pub const DOCUMENT: &str = "paso";
 
 /// A PaSO document that is none.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.document")]
 pub enum DocumentError {
     /// The document is no UTF-8.
     #[error("the PaSO document is not UTF-8")]
+    #[explain(id = "document.not_utf8")]
     NotUtf8,
     /// The document is no JSON with unique member names.
     #[error(transparent)]
     Json(#[from] JsonError),
     /// A member is absent or of another kind.
-    #[error("the PaSO document's {0} is absent or malformed")]
-    Member(#[explain(name = "member")] &'static str),
+    #[error("the PaSO document's {member} is absent or malformed")]
+    #[explain(id = "document.member")]
+    Member {
+        /// The member.
+        member: &'static str,
+    },
 }
 
 /// The bytes a document's `issuer.x5c.root` decodes to, which Proof Metadata §7 step 6 compares
@@ -119,19 +123,23 @@ impl<'d> PasoDocument<'d> {
         let text = |name: &'static str| {
             node.get(name)
                 .and_then(Node::as_str)
-                .ok_or(DocumentError::Member(name))
+                .ok_or(DocumentError::Member { member: name })
         };
-        let issuer = node.get("issuer").ok_or(DocumentError::Member("issuer"))?;
+        let issuer = node
+            .get("issuer")
+            .ok_or(DocumentError::Member { member: "issuer" })?;
         let iss = issuer
             .get("iss")
             .and_then(Node::as_str)
-            .ok_or(DocumentError::Member("issuer.iss"))?;
+            .ok_or(DocumentError::Member {
+                member: "issuer.iss",
+            })?;
         let decoded = |chain: &Node<'_>, name: &'static str, member: &'static str| {
             chain
                 .get(name)
                 .and_then(Node::as_str)
                 .and_then(|text| STANDARD.decode(text).ok())
-                .ok_or(DocumentError::Member(member))
+                .ok_or(DocumentError::Member { member })
         };
         let issuer = match (issuer.get("x5c"), issuer.get("keys")) {
             (Some(chain), _) => Issuer::Chain {
@@ -140,26 +148,33 @@ impl<'d> PasoDocument<'d> {
                 subject: ChainSubject(decoded(chain, "subject", "issuer.x5c.subject")?),
             },
             (None, Some(Node::Object(keys))) => Issuer::KeySet { iss, keys },
-            (None, _) => return Err(DocumentError::Member("issuer.keys")),
+            (None, _) => {
+                return Err(DocumentError::Member {
+                    member: "issuer.keys",
+                });
+            }
         };
         let keys = match node.get("risk_signals_encryption_keys") {
             None => &[][..],
             Some(published) => match published.get("keys") {
                 None => &[][..],
-                Some(keys) => keys
-                    .as_array()
-                    .ok_or(DocumentError::Member("risk_signals_encryption_keys.keys"))?,
+                Some(keys) => keys.as_array().ok_or(DocumentError::Member {
+                    member: "risk_signals_encryption_keys.keys",
+                })?,
             },
         };
         Ok(Self {
-            integrity: Integrity::parse(text("integrity")?)
-                .map_err(|_| DocumentError::Member("integrity"))?,
+            integrity: Integrity::parse(text("integrity")?).map_err(|_| DocumentError::Member {
+                member: "integrity",
+            })?,
             credential_type: text("type")?,
             issuer,
             types: node
                 .get("transaction_data_types")
                 .and_then(Node::as_object)
-                .ok_or(DocumentError::Member("transaction_data_types"))?,
+                .ok_or(DocumentError::Member {
+                    member: "transaction_data_types",
+                })?,
             keys,
         })
     }

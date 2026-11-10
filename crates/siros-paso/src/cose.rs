@@ -19,27 +19,22 @@ pub struct SealedCose(Vec<u8>);
 /// A ciphertext [`crate::CoseEncrypt`] returned that breaks its form's rule: the module broke its
 /// contract.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "paso.sealed")]
 pub enum NotSealedCose {
     /// The bytes are no CBOR data item the wallet reads.
     #[error("the ciphertext is no CBOR data item the wallet reads")]
-    Cbor(
-        #[source]
-        #[explain(name = "cause")]
-        CborError,
-    ),
+    #[explain(id = "sealed.cbor")]
+    Cbor(#[source] CborError),
     /// The data item is no tag 96.
     #[error("the ciphertext is no item tagged 96 (COSE_Encrypt)")]
+    #[explain(id = "sealed.untagged")]
     Untagged,
     /// The tagged content is no `COSE_Encrypt` structure (RFC 9052 §5.1).
     #[error("the ciphertext's content is no COSE_Encrypt structure")]
-    Structure(
-        #[source]
-        #[explain(name = "cause")]
-        CoseShape,
-    ),
+    #[explain(id = "sealed.structure")]
+    Structure(#[source] CoseShape),
     /// A content encryption the module does not state.
     #[error("the ciphertext's content encryption is none the module states")]
+    #[explain(id = "sealed.enc")]
     Enc,
 }
 
@@ -86,19 +81,17 @@ impl SealedCose {
 
 #[cfg(feature = "test-util")]
 mod test_util {
-    use siros_explain::checked;
     use siros_openid4vp::cbor::cose::coset::iana::{self, EnumI64};
     use siros_openid4vp::cbor::cose::coset::{
         CoseEncryptBuilder, CoseRecipientBuilder, HeaderBuilder, TaggedCborSerializable,
     };
     use siros_openid4vp::detail;
-    use siros_openid4vp::plugins::{Fault, FaultDomain};
+    use siros_openid4vp::plugins::Fault;
     use siros_openid4vp::request::{AgreeableKey, KeyAgreement};
+    use siros_syntax::checked;
 
     use crate::modules::{CoseEnc, CoseEncrypt};
-
-    /// The crate's domain.
-    const FAULT: FaultDomain = checked!(FaultDomain, "paso.fault");
+    use crate::{caused, fault};
 
     /// The key agreements the stand-in writes, with their COSE algorithms (RFC 9053 §6.3).
     const AGREEMENTS: [(KeyAgreement<'static>, iana::Algorithm); 4] = [
@@ -140,17 +133,9 @@ mod test_util {
                 .iter()
                 .find(|(known, _)| known.as_str() == alg.as_str())
                 .map(|(_, cose)| *cose)
-                .ok_or_else(|| {
-                    Fault::new(
-                        FAULT,
-                        detail!("a key agreement the stand-in does not write"),
-                    )
-                })?;
+                .ok_or_else(|| fault(detail!("a key agreement the stand-in does not write")))?;
             let content = iana::Algorithm::from_i64(enc.id()).ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!("a content encryption the stand-in does not write"),
-                )
+                fault(detail!("a content encryption the stand-in does not write"))
             })?;
             CoseEncryptBuilder::new()
                 .protected(HeaderBuilder::new().algorithm(content).build())
@@ -168,7 +153,7 @@ mod test_util {
                 )
                 .build()
                 .to_tagged_vec()
-                .map_err(|e| Fault::caused(FAULT, detail!("the COSE_Encrypt stand-in"), e))
+                .map_err(|e| caused(detail!("the COSE_Encrypt stand-in"), e))
         }
     }
 }

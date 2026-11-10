@@ -1,15 +1,15 @@
 //! View §3 `template:`: placeholders `{n}` naming the claim at index `n` of the metadata's
 //! `claims`, each `null` of the referenced path resolved to the referencing instance's index. A
 //! template label names each referenced value as an argument of its converted message
-//! ([`crate::view`]). A template value of an inner text kind sets each referenced value of a
-//! typed kind in the template as its typed text (step 3); an inner kind that parses its text
-//! reads the interpolation as written, as its value type takes precedence over theirs.
+//! ([`crate::view`]). A template value of an inner text kind joins its text and each referenced
+//! value of a typed kind, shown as its statement shows it alone (step 3); an inner kind that
+//! parses its text reads the interpolation as written, as its value type takes precedence over
+//! theirs.
 
 use std::ops::Range;
 
 use crate::markdown::spans;
-use crate::value::{BadValue, Breach, FormattedKind, ValueKind, Written, formatted};
-use siros_explain::{AllOf, Entry, ParamName, RequestText, Text};
+use crate::value::{BadValue, Breach, FormattedKind, Parsed, ValueKind, Written, formatted};
 use siros_openid4vp::claims::Step;
 use siros_openid4vp::json::Node;
 
@@ -17,7 +17,6 @@ use crate::conform::{ClaimIndex, NullIndices, written};
 use crate::metadata::{ClaimMeta, ValueType, kind_name};
 use crate::outcome::NotCompatible;
 use crate::path::{at, substitute};
-use crate::view::argument;
 
 /// A placeholder in a template: its place and the claim index it names, `None` beyond the
 /// platform's integers.
@@ -105,7 +104,9 @@ impl<'c, 'm> Reference<'c, 'm> {
         }
         let steps = self.claim.path.steps();
         if steps.iter().filter(|step| **step == Step::All).count() > nulls.len() {
-            return Err(NotCompatible::MoreNulls(self.index));
+            return Err(NotCompatible::MoreNulls {
+                placeholder: self.index,
+            });
         }
         let Some(path) = substitute(steps, nulls) else {
             return Ok(None);
@@ -114,7 +115,9 @@ impl<'c, 'm> Reference<'c, 'm> {
             return Ok(None);
         };
         if value_type == ValueType::Plain && value.as_str().is_none() {
-            return Err(NotCompatible::ReferenceNotString(self.index));
+            return Err(NotCompatible::ReferenceNotString {
+                placeholder: self.index,
+            });
         }
         Ok(Some(value))
     }
@@ -176,15 +179,15 @@ impl Template<'_> {
 
     /// A template value of the inner kind `kind`, its interpolation as written held to `kind`
     /// first. Of `text` and `mini_markdown`, the template's text (a `mini_markdown` one without
-    /// its styles, read after the values written as text are set in it) with each value of a
-    /// typed kind as its typed text; of another kind, the interpolation read by the kind.
+    /// its styles, read after the values written as text are set in it) joined with each value
+    /// of a typed kind; of another kind, the interpolation read by the kind.
     pub(crate) fn value(
         &self,
         kind: FormattedKind,
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
         nulls: &NullIndices,
-    ) -> Result<RequestText, NotCompatible> {
+    ) -> Result<Valued, NotCompatible> {
         let interpolated = self.interpolate(claims, payload, nulls)?;
         let read =
             formatted(kind, Written::Text(&interpolated)).map_err(|bad| NotCompatible::Value {
@@ -192,7 +195,7 @@ impl Template<'_> {
                 bad,
             })?;
         if !matches!(kind, FormattedKind::Text | FormattedKind::MiniMarkdown) {
-            return Ok(read);
+            return Ok(Valued::Alone(read));
         }
         let mut parts: Vec<Part> = Vec::new();
         let mut copied = 0;
@@ -209,12 +212,12 @@ impl Template<'_> {
                     .unwrap_or_default()
                     .to_owned(),
             ));
-            let typed = text(reference.value_type(), value)?;
-            parts.push(match (typed.text(), kind) {
-                (Text::Value(_) | Text::Query(_), _) => Part::Typed(typed),
-                (_, FormattedKind::MiniMarkdown) => Part::Written(value_written(value)),
-                (Text::Raw(shown), _) => Part::Written(shown.clone()),
-                _ => Part::Typed(typed),
+            parts.push(match (text(reference.value_type(), value)?, kind) {
+                (Parsed::Text(_), FormattedKind::MiniMarkdown) => {
+                    Part::Written(value_written(value))
+                }
+                (Parsed::Text(shown), _) => Part::Written(shown),
+                (typed, _) => Part::Typed(typed),
             });
             copied = placeholder.span.end;
         }
@@ -222,7 +225,7 @@ impl Template<'_> {
             self.0.get(copied..).unwrap_or_default().to_owned(),
         ));
         if parts.iter().all(|part| matches!(part, Part::Written(_))) {
-            return Ok(read);
+            return Ok(Valued::Alone(read));
         }
         let slot = slot(&parts).ok_or_else(|| NotCompatible::Value {
             value_type: kind_name(ValueKind::Formatted(kind)),
@@ -237,59 +240,95 @@ impl Template<'_> {
         for part in parts {
             match part {
                 Part::Written(text) => marked.push_str(&text),
-                Part::Typed(text) => {
+                Part::Typed(value) => {
                     marked.push(slot);
-                    typed.push(text);
+                    typed.push(value);
                 }
             }
         }
-        let plain = if kind == FormattedKind::MiniMarkdown {
-            spans(&marked).into_iter().map(|span| span.text).collect()
-        } else {
-            marked
-        };
-        let mut typed = typed.into_iter();
-        let mut items = Vec::new();
-        for (k, piece) in plain.split(slot).enumerate() {
-            if k > 0
-                && let Some(text) = typed.next()
-            {
-                items.push(text);
-            }
-            if !piece.is_empty() {
-                items.push(RequestText::raw(piece.to_owned()));
-            }
-        }
-        Ok(AllOf::new(items).map_or(read, RequestText::joined))
+        Ok(Valued::Joined(Joined {
+            marked,
+            slot,
+            typed,
+            markdown: kind == FormattedKind::MiniMarkdown,
+        }))
     }
 
-    /// Each referenced value as its message's argument, under its claim's name, by its value
-    /// type, absent when the payload lacks it.
+    /// Each referenced value the payload holds, under its claim, read by the claim's value type.
     pub(crate) fn arguments(
         &self,
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
         nulls: &NullIndices,
-    ) -> Result<Vec<Entry<ParamName, RequestText>>, NotCompatible> {
-        let mut args: Vec<Entry<ParamName, RequestText>> = Vec::new();
+    ) -> Result<Vec<(ClaimIndex, Parsed)>, NotCompatible> {
+        let mut args = Vec::new();
         for placeholder in placeholders(self.0) {
             let Some(reference) = Reference::of(&placeholder, claims) else {
                 continue;
             };
-            let value = match reference.read(payload, nulls)? {
-                Some(value) => text(reference.value_type(), value)?,
-                None => RequestText::absent(),
-            };
-            args.push(Entry::new(argument(reference.index), value));
+            if let Some(value) = reference.read(payload, nulls)? {
+                args.push((reference.index, text(reference.value_type(), value)?));
+            }
         }
         Ok(args)
     }
 }
 
-/// A part of a template value: text shown as written, or a value's typed text.
+/// A template value: one value shown alone, or text joined with typed values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Valued {
+    /// The interpolation read by the inner kind, or a text without a typed value.
+    Alone(Parsed),
+    /// Text and typed values.
+    Joined(Joined),
+}
+
+/// A template value's text with each typed value standing as `slot`, in order; a
+/// `mini_markdown` value's styles are stripped when it is shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Joined {
+    marked: String,
+    slot: char,
+    typed: Vec<Parsed>,
+    markdown: bool,
+}
+
+impl Joined {
+    /// The value's text: its pieces, without their styles for `mini_markdown`, around each typed
+    /// value as `show` writes it; `None` when reading the styles kept other than one slot per
+    /// typed value.
+    pub(crate) fn text<E>(
+        self,
+        mut show: impl FnMut(Parsed) -> Result<String, E>,
+    ) -> Result<Option<String>, E> {
+        let plain: String = if self.markdown {
+            spans(&self.marked)
+                .into_iter()
+                .map(|span| span.text)
+                .collect()
+        } else {
+            self.marked
+        };
+        let pieces: Vec<&str> = plain.split(self.slot).collect();
+        let Some((first, rest)) = pieces.split_first() else {
+            return Ok(None);
+        };
+        if rest.len() != self.typed.len() {
+            return Ok(None);
+        }
+        let mut out = (*first).to_owned();
+        for (piece, value) in rest.iter().zip(self.typed) {
+            out.push_str(&show(value)?);
+            out.push_str(piece);
+        }
+        Ok(Some(out))
+    }
+}
+
+/// A part of a template value: text shown as written, or a typed value.
 enum Part {
     Written(String),
-    Typed(RequestText),
+    Typed(Parsed),
 }
 
 /// A character of Unicode's Supplementary Private Use Area-A that no written part holds: where
@@ -308,8 +347,8 @@ fn value_written(value: &Node<'_>) -> String {
     value.written_compact()
 }
 
-/// A referenced value's text by its value type: a string as written without one.
-fn text(value_type: ValueType, value: &Node<'_>) -> Result<RequestText, NotCompatible> {
+/// A referenced value read by its value type: a string as written without one.
+fn text(value_type: ValueType, value: &Node<'_>) -> Result<Parsed, NotCompatible> {
     let kind = match value_type {
         ValueType::Kind(ValueKind::Formatted(kind)) => kind,
         _ => FormattedKind::Text,

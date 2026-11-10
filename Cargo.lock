@@ -3511,6 +3511,7 @@ dependencies = [
  "siros-openid4vp",
  "siros-paso",
  "siros-sdjwt",
+ "siros-syntax",
  "siros-testkit",
  "siros-x509",
  "thiserror 2.0.21",
@@ -3609,6 +3610,7 @@ dependencies = [
  "siros-openid4vp",
  "siros-paso",
  "siros-sdjwt",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]

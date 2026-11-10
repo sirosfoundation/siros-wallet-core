@@ -67,9 +67,9 @@ pub trait CoseEncrypt {
 
 /// DER that is no certificate.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.root")]
 #[error("no DER certificate: {0}")]
-pub struct NotRootCertificate(#[explain(skip)] DerError);
+#[explain(id = "root.not_root_certificate")]
+pub struct NotRootCertificate(#[source] DerError);
 
 /// A root certificate of the wallet's trust store, as DER.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -126,24 +126,31 @@ pub struct RandomId(Uuid);
 
 /// A text that is no version 4 UUID in lowercase hyphenated form.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.random_id")]
 pub enum NotRandomId {
     /// No UUID text (RFC 9562 §4).
     #[error("{text:?} is no UUID: {cause}")]
+    #[explain(id = "random_id.uuid")]
     Uuid {
         /// The text.
         text: String,
         /// uuid's reason.
         #[source]
-        #[explain(skip)]
         cause: uuid::Error,
     },
     /// A UUID of another version or variant.
-    #[error("{0:?} is no version 4 UUID of the RFC 9562 variant")]
-    Version(#[explain(name = "text")] String),
+    #[error("{text:?} is no version 4 UUID of the RFC 9562 variant")]
+    #[explain(id = "random_id.version")]
+    Version {
+        /// The text.
+        text: String,
+    },
     /// A UUID written in another form: braces, a URN, no hyphens, or uppercase digits.
-    #[error("{0:?} is no UUID's lowercase hyphenated text")]
-    Text(#[explain(name = "text")] String),
+    #[error("{text:?} is no UUID's lowercase hyphenated text")]
+    #[explain(id = "random_id.text")]
+    Text {
+        /// The text.
+        text: String,
+    },
 }
 
 impl RandomId {
@@ -164,11 +171,15 @@ impl RandomId {
             cause,
         })?;
         if uuid.get_version() != Some(Version::Random) || uuid.get_variant() != Variant::RFC4122 {
-            return Err(NotRandomId::Version(text.to_owned()));
+            return Err(NotRandomId::Version {
+                text: text.to_owned(),
+            });
         }
         let mut buffer = Uuid::encode_buffer();
         if uuid.hyphenated().encode_lower(&mut buffer) != text {
-            return Err(NotRandomId::Text(text.to_owned()));
+            return Err(NotRandomId::Text {
+                text: text.to_owned(),
+            });
         }
         Ok(Self(uuid))
     }

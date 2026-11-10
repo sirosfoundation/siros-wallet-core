@@ -7,12 +7,13 @@ use std::fmt;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use siros_explain::{Count, Currency, Explain, IntoArg, kind};
+use siros_explain::Explain;
 use siros_openid4vp::json::{Node, Number, Object};
 use siros_openid4vp::known_object;
 use siros_openid4vp::rows::HttpsUrl;
 use siros_paso::frequency::Frequency;
 use siros_paso::value::{FormattedKind, Written, formatted};
+use siros_syntax::Currency;
 
 use crate::document::Ts12Type;
 use crate::field::{
@@ -47,15 +48,6 @@ impl MaxChars {
 impl fmt::Display for MaxChars {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
-    }
-}
-
-/// A length is named as a count in a message.
-impl IntoArg for MaxChars {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.0.arg()
     }
 }
 
@@ -104,15 +96,6 @@ impl fmt::Display for Expected {
     }
 }
 
-/// A form is named as the code fixes it.
-impl IntoArg for Expected {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.name()
-    }
-}
-
 /// The ISO 8601 form a date member takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DateForm {
@@ -137,21 +120,12 @@ impl fmt::Display for DateForm {
     }
 }
 
-/// A form is named as the code fixes it.
-impl IntoArg for DateForm {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.name()
-    }
-}
-
 /// Why a payload is refused: the entry is not compatible.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "ts12.payload")]
 pub enum PayloadRefusal {
     /// A member TS12 does not list in that object, at any depth.
     #[error("{within}: {name} is a member TS12 does not list")]
+    #[explain(id = "payload.member")]
     Member {
         /// The object.
         within: FieldPath,
@@ -160,12 +134,14 @@ pub enum PayloadRefusal {
     },
     /// A required member absent.
     #[error("{path} is required")]
+    #[explain(id = "payload.required")]
     Required {
         /// The member.
         path: FieldPath,
     },
     /// A member of another form than TS12's.
     #[error("{path} is no {kind}")]
+    #[explain(id = "payload.kind")]
     Kind {
         /// The member.
         path: FieldPath,
@@ -175,6 +151,7 @@ pub enum PayloadRefusal {
     /// A string outside the lengths TS12's schema gives its member: at most `max` characters, and
     /// at least one for `transaction_id`.
     #[error("{path} is outside its length, at most {max} characters")]
+    #[explain(id = "payload.length")]
     Length {
         /// The member.
         path: FieldPath,
@@ -184,21 +161,25 @@ pub enum PayloadRefusal {
     /// An amount with more fractional digits than its currency's minor unit, or beyond an exact
     /// decimal's 38 digits.
     #[error("{path} has more digits than its currency")]
+    #[explain(id = "payload.digits")]
     Digits {
         /// The member.
         path: FieldPath,
     },
     /// A negative amount: TS12 defines no negative payment.
     #[error("{path} is negative")]
+    #[explain(id = "payload.negative")]
     Negative {
         /// The member.
         path: FieldPath,
     },
     /// `execution_date` beside `recurrence` (TS12 §4.3.1).
     #[error("execution_date beside recurrence")]
+    #[explain(id = "payload.execution_and_recurrence")]
     ExecutionAndRecurrence,
     /// A date that is no ISO 8601 calendar date, or a date-time that is none.
     #[error("{path} is no ISO 8601 {form}")]
+    #[explain(id = "payload.date")]
     Date {
         /// The member.
         path: FieldPath,
@@ -207,15 +188,18 @@ pub enum PayloadRefusal {
     },
     /// An https `payee.logo` without a valid `payee.logo#integrity` (View §3 `image`).
     #[error("payee.logo is an https URL without a valid payee.logo#integrity")]
+    #[explain(id = "payload.logo_integrity")]
     LogoIntegrity,
     /// A frequency code outside TS12 §4.3.1's list.
     #[error("{value} is no frequency code of TS12")]
+    #[explain(id = "payload.frequency")]
     Frequency {
         /// The value as written.
         value: String,
     },
     /// A currency code outside the core's ISO 4217 table.
     #[error("{value} is no ISO 4217 code of the table")]
+    #[explain(id = "payload.currency")]
     Currency {
         /// The value as written.
         value: String,
@@ -449,12 +433,7 @@ pub struct CurrencyCode {
 impl CurrencyCode {
     /// The alphabetic code.
     fn code(&self) -> String {
-        self.currency
-            .code()
-            .iter()
-            .copied()
-            .map(char::from)
-            .collect()
+        self.currency.to_string()
     }
 }
 
@@ -893,16 +872,15 @@ fn with_code(amount: &Amount, currency: &CurrencyCode) -> Node<'static> {
 
 /// The code as the core's table reads it, which holds `^[A-Z]{3}$` (TS12's schema).
 fn currency(code: &str) -> Result<CurrencyCode, PayloadRefusal> {
-    Currency::from_code(code)
-        .and_then(|currency| {
-            currency.minor_units().map(|minor| CurrencyCode {
-                currency,
-                minor: MinorDigits(minor),
-            })
-        })
-        .ok_or_else(|| PayloadRefusal::Currency {
-            value: code.to_owned(),
-        })
+    let refused = || PayloadRefusal::Currency {
+        value: code.to_owned(),
+    };
+    let currency = Currency::parse(code).map_err(|_| refused())?;
+    let minor = currency.minor_units().ok_or_else(refused)?;
+    Ok(CurrencyCode {
+        currency,
+        minor: MinorDigits(minor),
+    })
 }
 
 impl Payee {

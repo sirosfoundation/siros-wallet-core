@@ -2,8 +2,6 @@
 
 use std::fmt;
 
-use siros_explain::{IntoArg, kind};
-
 /// A member of TS12's field tables, or `payload` itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FieldPath(&'static str);
@@ -29,15 +27,6 @@ impl FieldPath {
 impl fmt::Display for FieldPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
-    }
-}
-
-/// A field is named as the code fixes it.
-impl IntoArg for FieldPath {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
     }
 }
 

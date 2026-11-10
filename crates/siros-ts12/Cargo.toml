@@ -18,8 +18,9 @@ resolve = ["siros-openid4vp/resolve", "siros-paso/resolve"]
 siros-openid4vp = { workspace = true, features = ["transaction-data"] }
 siros-paso = { path = "../siros-paso", default-features = false }
 siros-explain = { workspace = true }
-# The converted module's types, in `view::convert`'s signature.
+# The context `view::convert` and `Profile::bind` take.
 siros-i18n = { workspace = true }
+siros-syntax = { workspace = true }
 base64 = { workspace = true }
 thiserror = { workspace = true }
 

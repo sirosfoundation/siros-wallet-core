@@ -15,7 +15,6 @@ use siros_openid4vp::routing::ModeName;
 use siros_openid4vp::sri;
 use siros_openid4vp::wallet_metadata::Placement;
 
-use crate::FAULT;
 use crate::amr;
 #[cfg(feature = "sealed-signals")]
 use crate::cose::SealedCose;
@@ -26,6 +25,7 @@ use crate::modules::CoseEnc;
 use crate::modules::{CoseEncrypt, RandomIds};
 use crate::risk::{Effective, RiskSignal, Sealing, SignalSpec};
 use crate::sca::{self, Sca};
+use crate::{caused, fault};
 
 /// An instant as Risk Signals §2.2's `collected_at` writes it: `YYYY-MM-DDTHH:MM:SSZ` in UTC;
 /// `None` past the year 9999.
@@ -97,10 +97,10 @@ fn floats(node: &Node<'_>) -> Result<Node<'static>, Fault> {
                 .to_double()
                 .and_then(Number::of_double)
                 .ok_or_else(|| {
-                    Fault::new(
-                        FAULT,
-                        detail!("{number} has no double", number = number.text().to_owned()),
-                    )
+                    fault(detail!(
+                        "{number} has no double",
+                        number = number.text().to_owned()
+                    ))
                 })?,
         ),
         Node::Array(items) => Node::Array(items.iter().map(floats).collect::<Result<_, _>>()?),
@@ -117,7 +117,7 @@ fn floats(node: &Node<'_>) -> Result<Node<'static>, Fault> {
                     })
                     .collect::<Result<Vec<_>, Fault>>()?,
             )
-            .map_err(|e| Fault::caused(FAULT, detail!("a measured value"), e))?,
+            .map_err(|e| caused(detail!("a measured value"), e))?,
         ),
         other => other.clone().into_owned(),
     })
@@ -184,10 +184,10 @@ impl Answer<'_> {
         let placement = self.placement;
         let attested = |name: &str| {
             self.attested.get(name).ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!("the record attests no {name}", name = name.to_owned()),
-                )
+                fault(detail!(
+                    "the record attests no {name}",
+                    name = name.to_owned()
+                ))
             })
         };
         // Core §6.1: SHA-256 over the entry as received, B.3.3.1's default algorithm.
@@ -220,12 +220,10 @@ impl Answer<'_> {
                 MemberValue::Text(integrity.as_str().to_owned()),
             ));
         }
-        let request_object = self.request.request_object().ok_or_else(|| {
-            Fault::new(
-                FAULT,
-                detail!("PaSO answers a signed request only (Core §3)"),
-            )
-        })?;
+        let request_object = self
+            .request
+            .request_object()
+            .ok_or_else(|| fault(detail!("PaSO answers a signed request only (Core §3)")))?;
         out.push((
             sca::member(placement, Sca::RequestIntegrity),
             MemberValue::Text(
@@ -247,8 +245,7 @@ impl Answer<'_> {
             };
             out.push((sca::member(placement, Sca::RiskSignals), value));
         }
-        Members::new(out)
-            .map_err(|twice| Fault::caused(FAULT, detail!("the SCA response claims"), twice))
+        Members::new(out).map_err(|twice| caused(detail!("the SCA response claims"), twice))
     }
 
     /// Risk Signals §7: the envelopes as [`Node::json_ascii`] writes them, encrypted to the
@@ -260,7 +257,7 @@ impl Answer<'_> {
             Placement::NameSpaces => None,
         };
         let key = self.document.encryption_key(sealer.as_ref()).ok_or_else(|| {
-            Fault::new(FAULT, detail!("the entry rendered and revalidated with a key to encrypt its risk signals to, now without"))
+            fault(detail!("the entry rendered and revalidated with a key to encrypt its risk signals to, now without"))
         })?;
         let plaintext = envelopes.json_ascii().to_string();
         Ok(match self.placement {
@@ -272,29 +269,23 @@ impl Answer<'_> {
             ),
             #[cfg(not(feature = "sealed-signals"))]
             Placement::NameSpaces => {
-                return Err(Fault::new(
-                    FAULT,
-                    detail!(
-                        "an mdoc's sealed risk signals in a build without sealed-signals, which revalidation refuses"
-                    ),
-                ));
+                return Err(fault(detail!(
+                    "an mdoc's sealed risk signals in a build without sealed-signals, which revalidation refuses"
+                )));
             }
             #[cfg(feature = "sealed-signals")]
             Placement::NameSpaces => {
                 let cose = modules.cose.ok_or_else(|| {
-                    Fault::new(
-                        FAULT,
-                        detail!("an mdoc's sealed risk signals without the COSE_Encrypt module revalidation requires"),
+                    fault(detail!("an mdoc's sealed risk signals without the COSE_Encrypt module revalidation requires"),
                     )
                 })?;
                 let sealed = cose.encrypt_cose(&key, CoseEnc::A256GCM, plaintext.as_bytes())?;
-                let sealed = SealedCose::parse(sealed, cose.encryptions()).map_err(|e| {
-                    Fault::caused(FAULT, detail!("the COSE_Encrypt module's ciphertext"), e)
-                })?;
+                let sealed = SealedCose::parse(sealed, cose.encryptions())
+                    .map_err(|e| caused(detail!("the COSE_Encrypt module's ciphertext"), e))?;
                 MemberValue::Cbor(
                     sealed
                         .into_item()
-                        .map_err(|e| Fault::caused(FAULT, detail!("a sealed COSE_Encrypt"), e))?,
+                        .map_err(|e| caused(detail!("a sealed COSE_Encrypt"), e))?,
                 )
             }
         })
@@ -310,9 +301,8 @@ impl Answer<'_> {
         let mut out = Vec::new();
         for spec in self.signals.required() {
             let (collected_at, status) = self.reading(spec, modules, authentication)?;
-            let stamped = stamp(collected_at).ok_or_else(|| {
-                Fault::new(FAULT, detail!("a measurement collected past the year 9999"))
-            })?;
+            let stamped = stamp(collected_at)
+                .ok_or_else(|| fault(detail!("a measurement collected past the year 9999")))?;
             let mut members = vec![
                 member(
                     "type",
@@ -329,8 +319,7 @@ impl Answer<'_> {
                 members.push(member("value", value));
             }
             out.push(Node::Object(
-                Object::new(members)
-                    .map_err(|e| Fault::caused(FAULT, detail!("an envelope"), e))?,
+                Object::new(members).map_err(|e| caused(detail!("an envelope"), e))?,
             ));
         }
         Ok(out)
@@ -364,7 +353,7 @@ impl Answer<'_> {
             let status = match measurement.reading {
                 Reading::Ok(raw) => Status::Ok(
                     Node::parse(raw.get())
-                        .map_err(|e| Fault::caused(FAULT, detail!("a measured value"), e))?
+                        .map_err(|e| caused(detail!("a measured value"), e))?
                         .into_owned(),
                 ),
                 Reading::Unavailable => Status::Unavailable,
@@ -374,13 +363,10 @@ impl Answer<'_> {
         };
         let age = now.0.saturating_sub(collected_at.0);
         if spec.max_age.is_some_and(|bound| age > bound.0) {
-            return Err(Fault::new(
-                FAULT,
-                detail!(
-                    "{signal} was collected {age} s ago, past its bound",
-                    signal = spec.signal.as_str().to_owned()
-                ),
-            ));
+            return Err(fault(detail!(
+                "{signal} was collected {age} s ago, past its bound",
+                signal = spec.signal.as_str().to_owned()
+            )));
         }
         Ok((collected_at, status))
     }

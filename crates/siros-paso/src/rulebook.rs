@@ -5,7 +5,8 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use siros_explain::{Explain, IntoArg, kind};
+use siros_explain::Explain;
+use siros_i18n::Message;
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::refusal::ReprItem;
@@ -69,9 +70,12 @@ pub struct PasoType<'t> {
 
 /// A type identifier outside `urn:paso:sca:`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.type")]
-#[error("{0} is no urn:paso:sca: type")]
-pub struct NotPasoType(#[explain(name = "type")] String);
+#[error("{type} is no urn:paso:sca: type")]
+#[explain(id = "type.not_paso_type")]
+pub struct NotPasoType {
+    /// The type as written.
+    r#type: String,
+}
 
 impl<'t> PasoType<'t> {
     /// The type a text identifies.
@@ -82,7 +86,9 @@ impl<'t> PasoType<'t> {
     pub fn parse(text: &'t str) -> Result<Self, NotPasoType> {
         Family::of(text)
             .map(|family| Self::rendered_by(text, family))
-            .ok_or_else(|| NotPasoType(text.to_owned()))
+            .ok_or_else(|| NotPasoType {
+                r#type: text.to_owned(),
+            })
     }
 
     /// A type under a profile's own identifier, rendered by a family's rulebook.
@@ -119,14 +125,6 @@ impl<'t> PasoType<'t> {
 impl fmt::Display for PasoType<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.text)
-    }
-}
-
-impl IntoArg for PasoType<'_> {
-    type Kind = kind::Raw;
-
-    fn arg(&self) -> &str {
-        &self.text
     }
 }
 
@@ -174,14 +172,16 @@ impl<'t> Subtype<'t> {
 
     /// A Generic type identifier's subtype (Generic §1).
     pub(crate) fn generic(kind: &'t PasoType<'_>) -> Result<Self, Unsupported> {
-        Self::parse(kind.as_str(), GENERIC)
-            .ok_or_else(|| Unsupported::NotGeneric(kind.to_owned_type()))
+        Self::parse(kind.as_str(), GENERIC).ok_or_else(|| Unsupported::NotGeneric {
+            kind: kind.to_owned_type(),
+        })
     }
 
     /// A Mandate type identifier's subtype (Mandate §1).
     pub(crate) fn mandate(kind: &'t PasoType<'_>) -> Result<Self, Unsupported> {
-        Self::parse(kind.as_str(), MANDATE)
-            .ok_or_else(|| Unsupported::NotMandate(kind.to_owned_type()))
+        Self::parse(kind.as_str(), MANDATE).ok_or_else(|| Unsupported::NotMandate {
+            kind: kind.to_owned_type(),
+        })
     }
 
     /// Whether it is the named subtype.
@@ -259,7 +259,9 @@ impl Rulebook<'_> {
         let object = payload.object();
         match self {
             Self::View => Ok(()),
-            Self::Payment => required(payload.node(), NotCompatible::PaymentRequired),
+            Self::Payment => required(payload.node(), |member| NotCompatible::PaymentRequired {
+                member,
+            }),
             Self::Generic(_) => {
                 if object.members().len() > 11 {
                     return Err(NotCompatible::GenericProperties.into());
@@ -277,11 +279,14 @@ impl Rulebook<'_> {
                     !matches!(member.name.as_ref(), "transaction_id" | "payment_payload")
                         && !matches!(member.value, Node::Null | Node::String(_))
                 }) {
-                    return Err(NotCompatible::GenericCustom(custom.name.to_string()).into());
+                    return Err(NotCompatible::GenericCustom {
+                        claim: custom.name.to_string(),
+                    }
+                    .into());
                 }
-                embedded(object, NotCompatible::GenericPayment)
+                embedded(object, |member| NotCompatible::GenericPayment { member })
             }
-            Self::Mandate(_) => embedded(object, NotCompatible::MandatePayment),
+            Self::Mandate(_) => embedded(object, |member| NotCompatible::MandatePayment { member }),
         }
     }
 }
@@ -314,56 +319,71 @@ fn embedded(payload: &Object<'_>, absent: fn(ReprItem) -> NotCompatible) -> Resu
 }
 
 /// A transaction title of the wallet's own, by rulebook: a message of the crate's module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
-#[explain(domain = "paso.title")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Message)]
 pub enum Title {
     /// PaSO View's generic renderer.
+    #[message(id = "title.transaction")]
     Transaction,
     /// The Payment rulebook.
+    #[message(id = "title.payment")]
     Payment,
     /// The Generic rulebook's `aisp` subtype.
+    #[message(id = "title.data_sharing")]
     DataSharing,
     /// The Generic rulebook's other subtypes.
+    #[message(id = "title.generic_payment")]
     GenericPayment,
     /// The Mandate rulebook without a subtype.
+    #[message(id = "title.account_delegate")]
     AccountDelegate,
     /// The Mandate rulebook's `emandate` subtype.
+    #[message(id = "title.recurring_payment")]
     RecurringPayment,
     /// The Mandate rulebook's `agentic` subtype.
+    #[message(id = "title.agent_purchase")]
     AgentPurchase,
     /// The Mandate rulebook's other subtypes.
+    #[message(id = "title.mandate")]
     Mandate,
 }
 
 /// A confirm action of the wallet's own, by rulebook: a message of the crate's module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
-#[explain(domain = "paso.confirm")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Message)]
 pub enum Confirm {
     /// PaSO View's generic renderer.
+    #[message(id = "confirm.confirm")]
     Confirm,
     /// The Generic rulebook's `aisp` subtype.
+    #[message(id = "confirm.allow_sharing")]
     AllowSharing,
     /// The Payment rulebook and the Generic rulebook's other subtypes.
+    #[message(id = "confirm.pay")]
     Pay,
     /// The Mandate rulebook without a subtype.
+    #[message(id = "confirm.delegate")]
     Delegate,
     /// The Mandate rulebook's `emandate` subtype.
+    #[message(id = "confirm.mandate")]
     Mandate,
     /// The Mandate rulebook's `agentic` subtype.
+    #[message(id = "confirm.agent")]
     Agent,
     /// The Mandate rulebook's other subtypes.
+    #[message(id = "confirm.authorize")]
     Authorize,
 }
 
 /// The title of the section an embedded `payment_payload` renders in: a message of the crate's
 /// module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
-#[explain(domain = "paso.section")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Message)]
 pub enum Section {
     /// The Generic rulebook's.
+    #[message(id = "section.payment_details")]
     PaymentDetails,
     /// The Mandate rulebook's `emandate` subtype's.
+    #[message(id = "section.first_collection")]
     FirstCollection,
     /// The Mandate rulebook's other subtypes'.
+    #[message(id = "section.payment")]
     Payment,
 }

@@ -8,13 +8,14 @@ use unicode_segmentation::UnicodeSegmentation;
 
 /// A string that breaks the directional rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.directional")]
 pub enum Directional {
     /// U+202A to U+202E: an embedding or override.
     #[error("directional embedding or override U+{:04X}", u32::from(*.0))]
+    #[explain(id = "directional.embedding")]
     Embedding(#[explain(skip)] char),
     /// An isolate U+2066 to U+2068 without a later U+2069.
     #[error("a directional isolate is not terminated by U+2069")]
+    #[explain(id = "directional.unterminated_isolate")]
     UnterminatedIsolate,
 }
 
@@ -108,16 +109,17 @@ impl LabelLimits {
 
 /// A label that breaks Proof Metadata §3.3.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.label")]
 pub enum LabelViolation {
     /// A C0 (U+0000 to U+001F) or C1 (U+0080 to U+009F) control character.
     #[error("control character U+{:04X}", u32::from(*.0))]
+    #[explain(id = "label.control")]
     Control(#[explain(skip)] char),
     /// The directional rule.
     #[error(transparent)]
     Directional(#[from] Directional),
     /// More extended grapheme clusters than the limit allows.
     #[error("{clusters} grapheme clusters, more than {max}")]
+    #[explain(id = "label.too_long")]
     TooLong {
         /// The clusters.
         clusters: usize,

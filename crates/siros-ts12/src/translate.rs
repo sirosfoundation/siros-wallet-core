@@ -27,74 +27,89 @@ use crate::field::{
 
 /// Why a type is unsupported for a credential (TS12 §3.2 step 5, §3.3.1: cease).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "ts12.unsupported")]
 pub enum Ts12Unsupported {
     /// No `ts12` document.
     #[error("the credential holds no TS12 metadata")]
+    #[explain(id = "unsupported.no_document")]
     NoDocument,
     /// `category` absent or other than SCA's.
     #[error("the credential's category is no SCA attestation's")]
+    #[explain(id = "unsupported.category")]
     Category,
     /// No configured attestation type among the credential's types.
     #[error("the credential's types name no configured attestation type")]
+    #[explain(id = "unsupported.attestation_type")]
     AttestationType,
     /// The type no key of `transaction_data_types`.
     #[error("{kind} is no key of the credential's transaction_data_types")]
+    #[explain(id = "unsupported.not_listed")]
     NotListed {
         /// The entry's type.
         kind: TransactionType<'static>,
     },
     /// An entry with neither `schema` nor `schema_uri`.
     #[error("the type's entry names no schema")]
+    #[explain(id = "unsupported.no_schema")]
     NoSchema,
     /// A `schema` or `schema_uri` that is no string (TS12 §4.1).
     #[error("the type's schema is no string")]
+    #[explain(id = "unsupported.schema_form")]
     SchemaForm,
     /// A schema naming no built-in type: an issuer's JSON Schema.
     #[error("{schema}: the schema names no built-in type")]
+    #[explain(id = "unsupported.schema")]
     Schema {
         /// The schema as written.
         schema: String,
     },
     /// `affirmative_action_label` absent.
     #[error("affirmative_action_label is absent")]
+    #[explain(id = "unsupported.affirmative")]
     Affirmative,
     /// A field TS12 §3.3.1 displays without labels: one the type displays at every level, a claim
     /// without `display` below level 4, or a payload field the claims metadata omits.
     #[error("{field} has no labels")]
+    #[explain(id = "unsupported.labels")]
     Labels {
         /// The field.
         field: FieldPath,
     },
     /// `claims` that is no array (TS12 §3.3.2).
     #[error("claims is no array")]
+    #[explain(id = "unsupported.claims_form")]
     ClaimsForm,
     /// A claim without a `path` (TS12 §3.3.2).
     #[error("a claim holds no path")]
+    #[explain(id = "unsupported.no_claim_path")]
     NoClaimPath,
     /// A claim whose `path` falls outside the type's field table.
     #[error("{path}: no claim path of the type's field table")]
+    #[explain(id = "unsupported.claim_path")]
     ClaimPath {
         /// The path as written, in compact JSON.
         path: String,
     },
     /// A `visualisation` outside TS12 §3.3.1's 1 to 4.
     #[error("{field}: a level outside 1 to 4")]
+    #[explain(id = "unsupported.level")]
     Level {
         /// The field.
         field: FieldPath,
     },
     /// A claim's `display` entry without its `lang` and `label` as strings (TS12 §3.3.2).
     #[error("{field}: a display entry outside TS12's form")]
+    #[explain(id = "unsupported.claim_labels")]
     ClaimLabels {
         /// The field.
         field: FieldPath,
     },
     /// `ui_labels` that is no object (TS12 §3.3.3).
     #[error("ui_labels is no object")]
+    #[explain(id = "unsupported.catalogue_form")]
     CatalogueForm,
     /// A UI label entry without its `lang` and `value` as strings (TS12 §3.3.3).
     #[error("{element}: a UI label entry outside TS12's form")]
+    #[explain(id = "unsupported.ui_labels")]
     UiLabels {
         /// The UI element.
         element: UiKey,

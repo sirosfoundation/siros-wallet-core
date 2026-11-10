@@ -34,37 +34,49 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(
 
 /// An image the rules refuse.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.image")]
 pub enum ImageFailure {
     /// A Data URL over 512 KiB encoded.
     #[error("over 512 KiB encoded")]
+    #[explain(id = "image.encoded_too_large")]
     EncodedTooLarge,
     /// A Data URL whose base64 does not decode.
     #[error("bad base64")]
+    #[explain(id = "image.bad_base64")]
     BadBase64,
     /// An https image without a string `#integrity` sibling.
     #[error("no #integrity sibling")]
+    #[explain(id = "image.no_integrity")]
     NoIntegrity,
     /// The image could not be fetched, with the reason the wallet recorded.
     #[error("{0}")]
+    #[explain(id = "image.fetch")]
     Fetch(#[explain(skip)] String),
     /// Fetched content over 512 KiB.
     #[error("over 512 KiB")]
+    #[explain(id = "image.too_large")]
     TooLarge,
     /// Fetched content its `#integrity` does not verify.
     #[error("the content does not match its #integrity")]
+    #[explain(id = "image.integrity_mismatch")]
     IntegrityMismatch,
     /// Fetched content of a media type other than PNG, JPEG or SVG.
-    #[error("media type {0}")]
-    MediaType(#[explain(name = "media_type")] MediaType),
+    #[error("media type {media_type}")]
+    #[explain(id = "image.media_type")]
+    MediaType {
+        /// The fetched media type.
+        media_type: MediaType,
+    },
     /// Neither a Data URL of a supported image nor an https URL.
     #[error("neither a Data URL nor https")]
+    #[explain(id = "image.neither_data_nor_https")]
     NeitherDataNorHttps,
     /// Content that is no image of its media type, or without a size.
     #[error("unreadable image")]
+    #[explain(id = "image.unreadable")]
     Unreadable,
     /// More than 2048 pixels one way.
     #[error("{width}x{height} exceeds 2048 pixels")]
+    #[explain(id = "image.oversized")]
     Oversized {
         /// The width.
         width: u64,
@@ -178,8 +190,14 @@ pub fn resolve<'r>(
             if !sri::matches(content, &integrity) {
                 return Err(refuse(shown, ImageFailure::IntegrityMismatch));
             }
-            let media = Media::of(media.essence())
-                .ok_or_else(|| refuse(shown, ImageFailure::MediaType(media.clone())))?;
+            let media = Media::of(media.essence()).ok_or_else(|| {
+                refuse(
+                    shown,
+                    ImageFailure::MediaType {
+                        media_type: media.clone(),
+                    },
+                )
+            })?;
             (Cow::Borrowed(content), media, Some(https))
         }
     };
