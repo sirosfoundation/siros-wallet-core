@@ -111,11 +111,15 @@ fn leaf() -> siros_testkit::jose::P256Scalar {
 /// An x5c chain of a leaf of this subject under siros-x509's test root, the root in the host's
 /// trust store.
 fn chain(subject: &str) -> Vec<String> {
-    x509::x5c(&x509::certificate(&x509::Leaf {
-        subject,
-        point: x509::point(leaf().octets()),
-        dns: &[],
-    }))
+    x509::x5c(
+        &x509::certificate(&x509::Leaf {
+            subject,
+            point: x509::point(leaf().octets()).expect("a point"),
+            dns: &[],
+        })
+        .expect("the root signs"),
+    )
+    .expect("the chain")
 }
 
 /// An issuer whose keys an x5c chain certifies: the credential's own chain's root and leaf
@@ -169,7 +173,7 @@ pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks() {
     );
     let chained =
         adhoc_jwt(&claims, &leaf(), None, Some(&chain("Bank Issuer"))).expect("a chained JWT");
-    let issuer = chained_issuer(&x509::root(), "Bank Issuer");
+    let issuer = chained_issuer(&x509::root().expect("the root"), "Bank Issuer");
     assert_eq!(
         adhoc_case(&chained, &card("{}", None, &issuer), PasoProfile::default()),
         Ok(sca_claims())
@@ -247,9 +251,10 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
     let keys = ISSUER.to_owned();
     let other_root = x509::certificate(&x509::Leaf {
         subject: "Other Root",
-        point: x509::point(&[3; 32]),
+        point: x509::point(&[3; 32]).expect("a point"),
         dns: &[],
-    });
+    })
+    .expect("the root signs");
     let elsewhere = adhoc_jwt(
         &claims,
         &leaf(),
@@ -338,7 +343,7 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
         (
             "step 6, the leaf's subject",
             chained,
-            chained_issuer(&x509::root(), "Bank Card Issuer"),
+            chained_issuer(&x509::root().expect("the root"), "Bank Card Issuer"),
             AdhocFailure::ForeignChain,
         ),
         (

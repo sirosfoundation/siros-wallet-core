@@ -9,7 +9,8 @@ use crate::json::{JsonError, Node, Object};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
-/// `client_metadata` that is no JSON object, or whose `vp_formats_supported` is none (rule C6).
+/// `client_metadata` that is no JSON object, or whose `vp_formats_supported` or `jwks` breaks its
+/// rule (rule C6).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum MetadataError {
     /// No JSON with unique member names.
@@ -24,12 +25,18 @@ pub enum MetadataError {
     #[error("vp_formats_supported is not a JSON object")]
     #[explain(id = "metadata.vp_formats")]
     VpFormats,
+    /// `jwks` is no JWK Set: an object whose `keys` is an array (RFC 7517 §5).
+    #[error("jwks is not a JWK Set")]
+    #[explain(id = "metadata.jwks")]
+    Jwks,
 }
 
-/// The client metadata: an object whose `vp_formats_supported`, when present, is an object.
+/// The client metadata: an object whose `vp_formats_supported`, when present, is an object, and
+/// whose `jwks`, when present, is a JWK Set, its keys held apart.
 #[derive(Debug, Clone)]
 pub struct ClientMetadata<'a> {
     object: Object<'a>,
+    keys: Vec<Node<'a>>,
 }
 
 impl<'a> ClientMetadata<'a> {
@@ -39,6 +46,7 @@ impl<'a> ClientMetadata<'a> {
             None => {
                 return Ok(Self {
                     object: Object::default(),
+                    keys: Vec::new(),
                 });
             }
             Some(raw) => match Node::from_raw(raw)? {
@@ -52,7 +60,15 @@ impl<'a> ClientMetadata<'a> {
         {
             return Err(MetadataError::VpFormats);
         }
-        Ok(Self { object })
+        let keys = match object.get("jwks") {
+            None => Vec::new(),
+            Some(jwks) => jwks
+                .get("keys")
+                .and_then(Node::as_array)
+                .ok_or(MetadataError::Jwks)?
+                .to_vec(),
+        };
+        Ok(Self { object, keys })
     }
 
     /// The Verifier's `vp_formats_supported` value for a format; `None` when it states nothing.
@@ -72,12 +88,7 @@ impl<'a> ClientMetadata<'a> {
     /// The `jwks` keys the wallet can agree a key with, in the Verifier's order.
     #[must_use]
     pub fn agreeable_keys(&self) -> Vec<AgreeableKey<'_>> {
-        self.object
-            .get("jwks")
-            .and_then(|jwks| jwks.get("keys"))
-            .and_then(Node::as_array)
-            .map(|keys| keys.iter().filter_map(AgreeableKey::of).collect())
-            .unwrap_or_default()
+        self.keys.iter().filter_map(AgreeableKey::of).collect()
     }
 }
 
@@ -309,7 +320,7 @@ impl<'k> AgreeableKey<'k> {
         usable.then_some(Self {
             jwk,
             kty: KeyType(kty),
-            kid: KeyId::parse(member("kid")?).ok()?,
+            kid: KeyId::new(member("kid")?),
             curve,
             point: Point { x, y },
             alg,

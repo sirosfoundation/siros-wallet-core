@@ -54,9 +54,10 @@ fn config() -> TrustConfig {
 fn leaf(dns: &[&str]) -> Vec<u8> {
     certificate(&Leaf {
         subject: "rp.example.com",
-        point: point(VERIFIER_SECRET.octets()),
+        point: point(VERIFIER_SECRET.octets()).expect("a point"),
         dns,
     })
+    .expect("the root signs")
 }
 
 /// A.3.2.1's payload: a signed DC API request's parameters under the Client Identifier.
@@ -124,7 +125,7 @@ fn each_x509_rule_refuses_its_claim() {
     let san = "x509_san_dns:rp.example.com";
     let hash = x509_hash(&good);
     assert_eq!(
-        refusal(&header(&x5c(&good)), "x509_hash:abc"),
+        refusal(&header(&x5c(&good).expect("the chain")), "x509_hash:abc"),
         X509Refusal::HashSyntax {
             original: "abc".to_owned()
         }
@@ -132,7 +133,7 @@ fn each_x509_rule_refuses_its_claim() {
     // The tamper case: another leaf than the identifier's.
     let other = x509_hash(&leaf(&["other.example.com"]));
     assert_eq!(
-        refusal(&header(&x5c(&good)), &other),
+        refusal(&header(&x5c(&good).expect("the chain")), &other),
         X509Refusal::Hash {
             original: LeafHash::parse(other.trim_start_matches("x509_hash:"))
                 .expect("a hash")
@@ -140,7 +141,10 @@ fn each_x509_rule_refuses_its_claim() {
         }
     );
     assert_eq!(
-        refusal(&header(&x5c(&good)), "x509_san_dns:rp_example"),
+        refusal(
+            &header(&x5c(&good).expect("the chain")),
+            "x509_san_dns:rp_example"
+        ),
         X509Refusal::SanSyntax {
             original: "rp_example".to_owned()
         }
@@ -148,7 +152,7 @@ fn each_x509_rule_refuses_its_claim() {
     // The tamper case: the leaf names another DNS name.
     let elsewhere = leaf(&["elsewhere.example.com"]);
     assert_eq!(
-        refusal(&header(&x5c(&elsewhere)), san),
+        refusal(&header(&x5c(&elsewhere).expect("the chain")), san),
         X509Refusal::San {
             original: SanDnsName::parse("rp.example.com").expect("a name")
         }
@@ -187,15 +191,19 @@ fn each_x509_rule_refuses_its_claim() {
         ));
     }
     // A compressed point (RFC 5480 §2.2 reads the uncompressed form).
-    let mut compressed = point(VERIFIER_SECRET.octets());
+    let mut compressed = point(VERIFIER_SECRET.octets()).expect("a point");
     compressed.truncate(33);
     compressed[0] = 0x02;
     let weak = certificate(&Leaf {
         subject: "rp.example.com",
         point: compressed,
         dns: &["rp.example.com"],
-    });
-    assert_eq!(refusal(&header(&x5c(&weak)), san), X509Refusal::Key);
+    })
+    .expect("the root signs");
+    assert_eq!(
+        refusal(&header(&x5c(&weak).expect("the chain")), san),
+        X509Refusal::Key
+    );
     // The entry's tag [2], dNSName, turned into [15], which GeneralName (RFC 5280 §4.2.1.6) lacks.
     let entry = [&[0x82, 14][..], b"rp.example.com"].concat();
     let at = good
@@ -205,7 +213,7 @@ fn each_x509_rule_refuses_its_claim() {
     let mut unreadable = good.clone();
     unreadable[at] = 0x8f;
     assert!(matches!(
-        refusal(&header(&x5c(&unreadable)), san),
+        refusal(&header(&x5c(&unreadable).expect("the chain")), san),
         X509Refusal::SubjectAltName(_)
     ));
 }
@@ -216,7 +224,7 @@ fn a_dc_api_request_authenticates_under_either_prefix() {
     // expected_origins and dc_api; the classification names x509_san_dns.
     let good = leaf(&["rp.example.com"]);
     let san = "x509_san_dns:rp.example.com";
-    let data = data(&header(&x5c(&good)), &payload(san));
+    let data = data(&header(&x5c(&good).expect("the chain")), &payload(san));
     let origin = Origin::parse("https://origin1.example.com").expect("origin");
     let received = Received::dc_api("openid4vp-v1-signed", &data, origin, &DcApiProtocols::ALL)
         .expect("received");
@@ -248,10 +256,13 @@ fn a_dc_api_request_authenticates_under_either_prefix() {
     );
     // x509_hash over the same leaf.
     let hash = x509_hash(&good);
-    let data =
-        siros_testkit::jose::compact_jws(&VERIFIER_SECRET, &header(&x5c(&good)), &payload(&hash))
-            .map(|jws| format!(r#"{{"request":"{jws}"}}"#))
-            .expect("signs");
+    let data = siros_testkit::jose::compact_jws(
+        &VERIFIER_SECRET,
+        &header(&x5c(&good).expect("the chain")),
+        &payload(&hash),
+    )
+    .map(|jws| format!(r#"{{"request":"{jws}"}}"#))
+    .expect("signs");
     let origin = Origin::parse(ORIGIN).expect("origin");
     let received = Received::dc_api("openid4vp-v1-signed", &data, origin, &DcApiProtocols::ALL)
         .expect("received");
@@ -282,7 +293,12 @@ fn a_uri_request_binds_its_endpoint_as_the_prefix_says() {
         let payload = format!(
             r#"{{"client_id":"{client_id}","response_type":"vp_token","response_mode":"direct_post.jwt","response_uri":"{response_uri}","nonce":"n-0S6_WzA2Mj","state":"s","dcql_query":{{"credentials":[{{"id":"q","format":"test"}}]}}}}"#
         );
-        let object = compact_jws(&VERIFIER_SECRET, &header(&x5c(&good)), &payload).expect("signs");
+        let object = compact_jws(
+            &VERIFIER_SECRET,
+            &header(&x5c(&good).expect("the chain")),
+            &payload,
+        )
+        .expect("signs");
         let uri = format!(
             "openid4vp://?client_id={}&request_uri=https%3A%2F%2Frp.example.com%2Fr",
             client_id.replace(':', "%3A")

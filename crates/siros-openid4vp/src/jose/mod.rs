@@ -50,6 +50,13 @@ pub enum JwsError {
         /// The `alg`, when the header names one.
         alg: Option<String>,
     },
+    /// `typ` or `kid` is no string (RFC 7515 §4.1.4, §4.1.9).
+    #[error("the protected header's {member} is no string")]
+    #[explain(id = "jws.member")]
+    Member {
+        /// The member's name.
+        member: &'static str,
+    },
     /// `crit` empty, outside the protected header, or naming a header the wallet does not
     /// process (RFC 7515 §4.1.11; U16).
     #[error("crit {header}: the wallet does not process it")]
@@ -136,11 +143,16 @@ impl ProtectedHeader {
             }
         };
         critical(&members)?;
-        let member = |name: &str| members.get(name).and_then(Node::as_str).map(str::to_owned);
-        let kid = member("kid").and_then(|kid| KeyId::parse(kid).ok());
+        let member = |name: &'static str| match members.get(name) {
+            None => Ok(None),
+            Some(Node::String(text)) => Ok(Some(text.to_string())),
+            Some(_) => Err(JwsError::Member { member: name }),
+        };
+        let typ = member("typ")?.map(HeaderType);
+        let kid = member("kid")?.map(KeyId::new);
         Ok(Self {
             alg,
-            typ: member("typ").map(HeaderType),
+            typ,
             kid,
             members,
         })

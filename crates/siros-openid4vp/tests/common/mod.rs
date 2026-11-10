@@ -133,6 +133,18 @@ impl Held {
     }
 }
 
+/// A credential of the test format holding `view`.
+pub fn viewed(view: &str) -> Credential<'_> {
+    Credential::new(
+        CredentialId::parse("c").expect("id"),
+        FormatId::parse("test").expect("format"),
+        view.as_bytes(),
+        Vec::new(),
+        Facts::new(Holder::Bound, Vec::new()).expect("facts"),
+    )
+    .expect("credential")
+}
+
 /// The `ResolveError` among an error's sources: the text the wallet's context words none of.
 pub fn unworded<'e>(error: &'e (dyn std::error::Error + 'static)) -> Option<&'e ResolveError> {
     let mut source = Some(error);

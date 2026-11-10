@@ -79,9 +79,10 @@ pub(super) fn config() -> TrustConfig {
 pub(super) fn leaf() -> Vec<u8> {
     certificate(&Leaf {
         subject: DNS,
-        point: point(VERIFIER_SECRET.octets()),
+        point: point(VERIFIER_SECRET.octets()).expect("a point"),
         dns: &[DNS],
     })
+    .expect("the root signs")
 }
 
 /// A request's parameters: its mode, `client_metadata` with B.2.6's key, the PID query, then
@@ -421,7 +422,12 @@ fn f3_f4_a_signed_dc_api_request_answers_its_origin() {
     // F3: x509_san_dns, dc_api.jwt; x509_hash, dc_api.
     for (client_id, mode) in [(SAN.to_owned(), "dc_api.jwt"), (x509_hash(&leaf), "dc_api")] {
         let payload = parameters(mode, &format!(r#","client_id":"{client_id}"{origins}"#));
-        let jws = compact_jws(&VERIFIER_SECRET, &header(&x5c(&leaf)), &payload).expect("signs");
+        let jws = compact_jws(
+            &VERIFIER_SECRET,
+            &header(&x5c(&leaf).expect("the chain")),
+            &payload,
+        )
+        .expect("signs");
         let data = format!(r#"{{"request":"{jws}"}}"#);
         let received = dc_api("openid4vp-v1-signed", &data);
         let envelope = Envelope::parse(&received, &registry).expect("an envelope");
@@ -444,7 +450,7 @@ fn f3_f4_a_signed_dc_api_request_answers_its_origin() {
     // F4: two signatures, each with its client_id in its protected header (A.3.2.2, U17); the
     // first, under an unknown prefix, fails, and the second authenticates (A11).
     let payload = URL_SAFE_NO_PAD.encode(parameters("dc_api.jwt", &origins));
-    let x5c: Vec<String> = x5c(&leaf);
+    let x5c: Vec<String> = x5c(&leaf).expect("the chain");
     let signature = |client_id: &str| {
         let protected = URL_SAFE_NO_PAD.encode(format!(
             r#"{{"alg":"ES256","typ":"oauth-authz-req+jwt","client_id":"{client_id}","x5c":{}}}"#,
@@ -503,7 +509,12 @@ pub(super) fn link(client_id: &str, method: &str) -> String {
 
 /// The Request Object of the payload, signed with the leaf in `x5c`.
 pub(super) fn signed_object(payload: &str) -> String {
-    compact_jws(&VERIFIER_SECRET, &header(&x5c(&leaf())), payload).expect("signs")
+    compact_jws(
+        &VERIFIER_SECRET,
+        &header(&x5c(&leaf()).expect("the chain")),
+        payload,
+    )
+    .expect("signs")
 }
 
 /// The URI flows' Authorization Response: `state` as received, the Key Binding JWT's `aud` the
@@ -666,7 +677,8 @@ fn f9_a_request_refused_before_authentication_replies_plain_on_its_route() {
     // A8 after the decision listed the Response URI: the signature by another key.
     let payload = uri_payload(SAN, "direct_post.jwt", "");
     let other = P256Scalar::new([7; 32]).expect("a scalar");
-    let forged = compact_jws(&other, &header(&x5c(&leaf())), &payload).expect("signs");
+    let forged =
+        compact_jws(&other, &header(&x5c(&leaf()).expect("the chain")), &payload).expect("signs");
     let uri = link(SAN, "");
     let mut body = String::new();
     let received = by_uri(&uri, &registry, &host, |_| forged, &mut body);

@@ -84,7 +84,11 @@ pub struct Member<'a> {
 /// A JSON number as written. Two numbers are equal as Python's `json` reads them: integers by
 /// value, other numbers as IEEE 754 doubles, an integer equal to integers alone.
 #[derive(Debug, Clone)]
-pub struct Number<'a>(Cow<'a, str>);
+pub struct Number<'a> {
+    text: Cow<'a, str>,
+    /// Python's `float` of the value: the nearest double, infinite beyond the double range.
+    double: f64,
+}
 
 impl<'a> Node<'a> {
     /// Parses a JSON text whose objects name each member once.
@@ -111,7 +115,9 @@ impl<'a> Node<'a> {
             Some(b'n') => serde_json::from_str::<()>(text)
                 .map(|()| Node::Null)
                 .map_err(JsonError::from),
-            _ => Ok(Node::Number(Number(Cow::Borrowed(text)))),
+            _ => Number::parse(text)
+                .map(Node::Number)
+                .map_err(|e| JsonError::Syntax(e.to_string())),
         }
     }
 
@@ -179,13 +185,19 @@ impl Node<'static> {
     /// The integer as a JSON number.
     #[must_use]
     pub fn integer(value: i128) -> Self {
-        Node::Number(Number(Cow::Owned(value.to_string())))
+        Node::Number(Number {
+            text: Cow::Owned(value.to_string()),
+            double: value as f64,
+        })
     }
 
     /// A natural number: a length or a position.
     #[must_use]
     pub fn natural(value: usize) -> Self {
-        Node::Number(Number(Cow::Owned(value.to_string())))
+        Node::Number(Number {
+            text: Cow::Owned(value.to_string()),
+            double: value as f64,
+        })
     }
 }
 
@@ -232,6 +244,15 @@ impl<'a> Object<'a> {
             Some(member) => member.value = value,
             None => self.0.push(Member { name, value }),
         }
+    }
+
+    /// The value of the member of that name, which the object no longer holds.
+    pub(crate) fn take(&mut self, name: &str) -> Option<Node<'a>> {
+        let (taken, kept): (Vec<Member<'a>>, Vec<Member<'a>>) = std::mem::take(&mut self.0)
+            .into_iter()
+            .partition(|member| member.name == name);
+        self.0 = kept;
+        taken.into_iter().next().map(|member| member.value)
     }
 
     /// The object without the members `keep` refuses.
@@ -468,54 +489,68 @@ macro_rules! known_object {
         .object([$($value),+])
     };
 }
+impl<'a> Number<'a> {
+    /// The number of a JSON number's text (RFC 8259 §6).
+    fn parse(text: &'a str) -> Result<Self, std::num::ParseFloatError> {
+        let double: f64 = text.parse()?;
+        let number = Self {
+            text: Cow::Borrowed(text),
+            double,
+        };
+        // Python reads `-0` as the integer 0, whose `float` is 0.0.
+        Ok(if number.is_integer() && double == 0.0 {
+            Self {
+                double: 0.0,
+                ..number
+            }
+        } else {
+            number
+        })
+    }
+}
+
 impl Number<'_> {
     /// The number, owning its text.
     #[must_use]
     pub fn into_owned(self) -> Number<'static> {
-        Number(Cow::Owned(self.0.into_owned()))
+        Number {
+            text: Cow::Owned(self.text.into_owned()),
+            double: self.double,
+        }
     }
 
     /// The number as written.
     #[must_use]
     pub fn text(&self) -> &str {
-        &self.0
+        &self.text
     }
 
     /// The number Python's `repr` writes for a finite double; `None` for an infinite one or NaN.
     #[must_use]
     pub fn of_double(value: f64) -> Option<Number<'static>> {
-        FiniteDouble::of(value).map(|finite| Number(Cow::Owned(finite.to_string())))
+        FiniteDouble::of(value).map(|finite| Number {
+            text: Cow::Owned(finite.to_string()),
+            double: value,
+        })
     }
 
     /// Whether the number is an integer: written without a fraction or an exponent.
     #[must_use]
     pub fn is_integer(&self) -> bool {
-        !self.0.contains(['.', 'e', 'E'])
+        !self.text.contains(['.', 'e', 'E'])
     }
 
     /// Python's `float` of the value `json` reads: an integer rounded to the nearest double,
     /// `None` beyond the double range; another number as its double.
     #[must_use]
     pub fn to_double(&self) -> Option<f64> {
-        match self.integer() {
-            Some(digits) => digits.parse::<f64>().ok().filter(|value| value.is_finite()),
-            None => self.double(),
-        }
+        (!self.is_integer() || self.double.is_finite()).then_some(self.double)
     }
 
     /// The integer's digits without a sign for zero, when the number is an integer.
     fn integer(&self) -> Option<&str> {
         self.is_integer()
-            .then(|| if self.0 == "-0" { "0" } else { self.text() })
-    }
-
-    /// The double nearest to a non-integer number; infinite beyond the double range.
-    fn double(&self) -> Option<f64> {
-        if self.is_integer() {
-            None
-        } else {
-            self.0.parse().ok()
-        }
+            .then(|| if self.text == "-0" { "0" } else { self.text() })
     }
 
     /// The value as a `u64`, when it is an integer in range.
@@ -529,7 +564,7 @@ impl PartialEq for Number<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self.integer(), other.integer()) {
             (Some(a), Some(b)) => a == b,
-            (None, None) => self.double() == other.double(),
+            (None, None) => self.double == other.double,
             _ => false,
         }
     }

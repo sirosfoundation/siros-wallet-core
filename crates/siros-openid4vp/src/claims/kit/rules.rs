@@ -7,7 +7,7 @@ use siros_explain::Explain;
 use siros_i18n::ResolveError;
 use siros_syntax::Malformed;
 
-use super::super::{ClaimsError, PathError};
+use super::super::{ClaimsError, Foreign, PathError};
 use crate::ids::{FormatName, QueryId};
 use crate::json::JsonError;
 use crate::plugins::{Clause, Exclusion};
@@ -101,11 +101,24 @@ pub enum CardError {
     #[error("{0}")]
     #[explain(id = "claims_kit.text")]
     Text(#[source] TextError),
-    /// A count of the view, a byte string's length or a claim's natural number, is no count
-    /// literal.
+    /// A claim's natural number is no count literal.
     #[error("{0}")]
     #[explain(id = "claims_kit.count")]
     Count(#[source] Malformed),
+    /// An option or an item is another query's.
+    #[error(transparent)]
+    Foreign(#[from] Foreign),
+}
+
+/// Why the kit lists no elements an option discloses.
+#[derive(Debug, thiserror::Error, Explain)]
+pub enum DiscloseError {
+    /// A claim's pointer selects nothing the values hold.
+    #[error(transparent)]
+    Path(#[from] PathError),
+    /// The option is another query's.
+    #[error(transparent)]
+    Foreign(#[from] Foreign),
 }
 
 /// Why the kit draws no card.

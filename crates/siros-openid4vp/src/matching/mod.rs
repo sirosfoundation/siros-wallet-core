@@ -34,7 +34,7 @@ use crate::refusal::ErrorCode;
 use crate::request::{AgreeableKey, HolderBinding, Query, QueryIndex, Request};
 use crate::rows::Env;
 use crate::wallet::{Credential, Holder, Wallet};
-use rules::Formatted;
+use rules::{Formatted, Plan};
 
 /// A candidate by its position among a query's candidates. Only the core's match makes one
 /// ([`Match::indexed_candidates`]).
@@ -172,9 +172,10 @@ impl<'m> Match<'m> {
         let keys = accepted.metadata().agreeable_keys();
         let mut candidates = Vec::new();
         let mut excluded = Vec::new();
-        for (index, query) in accepted.request().indexed_queries() {
+        for plan in accepted.plans() {
+            let index = plan.index;
             let mut found = Vec::new();
-            let matcher = QueryMatcher::of(accepted, index, query, &keys, env, context)?;
+            let matcher = QueryMatcher::of(accepted, plan, &keys, env, context);
             if let Some(matcher) = matcher {
                 for credential in wallet.credentials().iter().filter(|c| matcher.eligible(c)) {
                     match matcher.consider(credential)? {
@@ -295,44 +296,25 @@ struct QueryMatcher<'m, 'k> {
 
 impl<'m, 'k> QueryMatcher<'m, 'k> {
     /// The matcher of a query whose format has a plug-in; `None` for another query.
-    ///
-    /// # Errors
-    ///
-    /// The transaction naming the query names a profile the registry does not hold.
     fn of(
         accepted: &'m Accepted<'m>,
-        index: QueryIndex,
-        query: &'m Query<'m>,
+        plan: &'m Plan<'m>,
         keys: &'k [AgreeableKey<'k>],
         env: &'k Env,
         context: &'k Context,
-    ) -> Result<Option<Self>, Fault> {
-        let Some(formatted) = accepted
-            .plan(index)
-            .and_then(|plan| plan.formatted.as_ref())
-        else {
-            return Ok(None);
-        };
-        let transaction = accepted
-            .transaction(index)
-            .map(|t| {
-                accepted
-                    .registry()
-                    .profile_ref(t.profile)
-                    .map(|profile| (t, profile))
-                    .ok_or_else(|| {
-                        fault(detail!(
-                            "a transaction names a profile the registry does not hold"
-                        ))
-                    })
-            })
-            .transpose()?;
+    ) -> Option<Self> {
+        let query = plan.query;
+        let formatted = plan.formatted.as_ref()?;
+        let transaction = plan
+            .transaction
+            .as_ref()
+            .map(|transacted| (&transacted.transaction, transacted.profile));
         let members = transaction.and_then(|(_, profile)| {
             formatted
                 .placement
                 .and_then(|placement| profile.members(placement))
         });
-        Ok(Some(Self {
+        Some(Self {
             query,
             request: accepted.request(),
             formatted,
@@ -342,7 +324,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             keys,
             env,
             context,
-        }))
+        })
     }
 
     /// OpenID4VP §6.1: the query's format, an issuer the query trusts, and a key the credential

@@ -618,10 +618,12 @@ impl<R> Registration<R> {
 
     /// The span of `kind`'s source; `None` for a type the registration does not register.
     fn find(&self, kind: &TransactionType<'_>) -> Option<Span<TransactionPart>> {
+        let at = self
+            .transactions
+            .partition_point(|registered| registered.kind.as_str() < kind.as_str());
         self.transactions
-            .binary_search_by(|registered| registered.kind.as_str().cmp(kind.as_str()))
-            .ok()
-            .and_then(|at| self.transactions.get(at))
+            .get(at)
+            .filter(|registered| registered.kind.as_str() == kind.as_str())
             .map(|registered| registered.span)
     }
 }

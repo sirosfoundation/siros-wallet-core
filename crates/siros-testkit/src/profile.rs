@@ -15,7 +15,7 @@ use siros_openid4vp::plugins::{
     Exclude, Fault, FetchedRecord, Member, MemberValue, Members, NoCandidate, Profile,
 };
 use siros_openid4vp::refusal::Refusal;
-use siros_openid4vp::request::{EntryIndex, Request};
+use siros_openid4vp::request::{Entry, EntryIndex, Request};
 use siros_openid4vp::rows::{Env, HttpsUrl, Image, ImageRef, Row, Value, WalletText};
 use siros_openid4vp::wallet::Credential;
 
@@ -104,9 +104,9 @@ impl Profile for TestProfile {
     type Finding = Stale;
 
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal> {
-        entries
-            .iter()
-            .filter_map(|index| request.entry(*index).map(|entry| (index, entry)))
+        request
+            .indexed_entries()
+            .filter(|(index, _)| entries.contains(index))
             .flat_map(|(index, entry)| {
                 hash::rule(entry, request.envelope().hashes()).map(|rule| {
                     Refusal::new(EntryRule {
@@ -139,43 +139,42 @@ impl Profile for TestProfile {
         let document = document(binding.credential)?;
         let supported = array(&document, "supports", binding.credential)?;
         let nonconforming = array(&document, "nonconforming", binding.credential)?;
-        let fit: Vec<EntryIndex> = binding
-            .entries
-            .iter()
-            .copied()
-            .filter(|index| {
-                binding.request.entry(*index).is_some_and(|entry| {
-                    supported
+        let fit: Vec<(EntryIndex, &Entry<'_>)> = binding
+            .request
+            .indexed_entries()
+            .filter(|(index, entry)| {
+                binding.entries.contains(index)
+                    && supported
                         .iter()
                         .any(|kind| kind.as_str() == Some(entry.kind().as_str()))
-                }) && !lists(nonconforming, *index)
+                    && !lists(nonconforming, *index)
                     && !self.stale.iter().any(|(credential, e)| {
                         *credential == binding.credential.id.as_str() && *e == index.get()
                     })
             })
             .collect();
-        if binding.carriage == Carriage::Uncarried || fit.is_empty() {
+        let (Some((_, head)), Carriage::Carried) = (fit.first(), binding.carriage) else {
             return Err(Exclude::new(Excluded::NoEntry).into());
-        }
+        };
+        let t2 = head.kind().as_str() == "t2";
         let chosen = match self.binds {
             Binds::Every => fit,
             Binds::First => fit.into_iter().take(1).collect(),
         };
         if self.binds == Binds::Every {
-            let entries: Vec<_> = chosen
-                .iter()
-                .filter_map(|index| binding.request.entry(*index))
-                .collect();
-            if hash::algorithm(&entries, binding.request.envelope().hashes()).is_none() {
+            let entries: Vec<_> = chosen.iter().map(|(_, entry)| *entry).collect();
+            let algorithm = hash::algorithm(&entries, binding.request.envelope().hashes())
+                .map_err(|rule| caused(detail!("a bound entry"), rule))?;
+            if algorithm.is_none() {
                 return Err(Exclude::new(Excluded::NoAlgorithm).into());
             }
         }
-        let reference: Vec<String> = chosen.iter().map(|index| index.get().to_string()).collect();
+        let reference: Vec<String> = chosen
+            .iter()
+            .map(|(index, _)| index.get().to_string())
+            .collect();
         let reference = reference.join(",");
-        let first = chosen
-            .first()
-            .and_then(|index| binding.request.entry(*index))
-            .map(|entry| entry.kind().as_str() == "t2");
+        let chosen = chosen.into_iter().map(|(index, _)| index).collect();
         let entries = BoundEntries::select(binding.entries, chosen)
             .map_err(|e| caused(detail!("bound entries"), e))?;
         let section = resolve(context, &DoubleText::Section)?;
@@ -196,13 +195,14 @@ impl Profile for TestProfile {
             )
             .in_section(section),
         ];
-        let transaction = match first {
-            Some(true) => Some(TransactionHeader {
+        let transaction = if t2 {
+            Some(TransactionHeader {
                 counterparty: resolve(context, &DoubleText::Merchant)?,
                 amount: resolve(context, &DoubleText::written("1.00 EUR"))?,
                 rows: Vec::new(),
-            }),
-            Some(false) | None => None,
+            })
+        } else {
+            None
         };
         Ok(Bound {
             entries,
@@ -282,12 +282,17 @@ impl<H> ProfileHost<H> for TestProfile {
     ) -> Result<Members, Fault> {
         match self.binds {
             Binds::Every => {
-                let entries: Vec<_> = record
+                let entries = record
                     .entries()
                     .entries()
                     .iter()
-                    .filter_map(|index| record.request().entry(*index))
-                    .collect();
+                    .map(|index| {
+                        record
+                            .request()
+                            .entry(*index)
+                            .ok_or_else(|| fault(detail!("a bound entry the request lacks")))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 hash::members(&entries, record.request().envelope().hashes())
                     .map_err(|e| caused(detail!("B.3.3.1 hashes"), e))
             }

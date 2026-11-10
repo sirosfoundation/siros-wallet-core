@@ -3,6 +3,7 @@
 
 mod common;
 
+use siros_openid4vp::claims::Foreign;
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::matching::{
     Accepted, Consent, Match, Offered, answer_slots, offer, option_items, option_of,
@@ -165,9 +166,12 @@ fn items(numbers: &[usize]) -> ItemSet {
 }
 
 /// A candidate's choices as the wallet lists them: each choice's items, then each option's.
-fn listed(slots: Vec<(ItemSet, Vec<ItemSet>)>) -> Vec<(Vec<usize>, Vec<Vec<usize>>)> {
+fn listed(
+    slots: Result<Vec<(ItemSet, Vec<ItemSet>)>, Foreign>,
+) -> Vec<(Vec<usize>, Vec<Vec<usize>>)> {
     let numbers = |set: ItemSet| set.iter().map(Item::get).collect();
     slots
+        .expect("the candidate's options are the query's")
         .into_iter()
         .map(|(block, options)| (numbers(block), options.into_iter().map(numbers).collect()))
         .collect()
@@ -218,14 +222,14 @@ fn a_candidates_options_factor_like_the_credential_sets() {
                     option_of(options, both, items(&[0, 1])),
                     option_of(options, both, items(&[0]))
                 ),
-                (Some(first), Some(second))
+                (Ok(Some(first)), Ok(Some(second)))
             );
             assert_eq!(
                 option_items(options, &both.options, first),
-                (
+                Ok((
                     vec![Item::new(0).expect("item")],
                     vec![Item::new(1).expect("item")]
-                ),
+                )),
                 "item 0 is general, item 1 chosen"
             );
         },

@@ -7,14 +7,16 @@ mod common;
 use std::error::Error;
 
 use siros_explain::Explain;
-use siros_openid4vp::claims::kit::{ClaimsQuery, KitRule};
+use siros_openid4vp::claims::kit::{ClaimsQuery, ClaimsView, KitRule};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::request::{Request, SetNeed, factor, project};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Binds;
 
-use common::{ClaimsTest, Held, PASO_A5, env, parameters, registry, request_of, unsigned, vector};
+use common::{
+    ClaimsTest, Held, PASO_A5, env, parameters, registry, request_of, unsigned, vector, viewed,
+};
 
 /// Each block with its options, as sorted query ids.
 fn shape(request: &Request<'_>) -> Vec<(Vec<String>, Vec<Vec<String>>)> {
@@ -155,7 +157,8 @@ fn answered(
         .filter_map(|(id, kind, values)| {
             let view_text =
                 format!(r#"{{"type": "{kind}", "metadata": {{}}, "values": {values}}}"#);
-            let view = Node::parse(&view_text).expect("view");
+            let credential = viewed(&view_text);
+            let view = ClaimsView::read(&credential).expect("view");
             let options: Vec<usize> = query
                 .answerable(&format, &view, &[])
                 .expect("the view's types")
@@ -278,9 +281,10 @@ fn a_json_boolean_is_no_integer() {
     };
     let query = ClaimsQuery::parse(&format, &request.queries()[0], None).expect("query");
     let answers = |values: &str| {
-        let view = format!(r#"{{"type": "t", "values": {values}}}"#);
+        let view = format!(r#"{{"type": "t", "metadata": {{}}, "values": {values}}}"#);
+        let credential = viewed(&view);
         query
-            .answerable(&format, &Node::parse(&view).expect("view"), &[])
+            .answerable(&format, &ClaimsView::read(&credential).expect("view"), &[])
             .expect("the view's types")
     };
     assert_eq!(answers(r#"{"age_over_18": true}"#), []);

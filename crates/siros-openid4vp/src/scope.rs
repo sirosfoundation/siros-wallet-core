@@ -87,14 +87,12 @@ impl ScopeEntry {
         let raw: &'static RawValue = serde_json::from_str(query.query()).ok()?;
         let queries = Query::read_all(raw).ok()?;
         let object = RawObject::parse(raw.get()).ok()?;
-        let list = |name: &str| -> Option<Vec<&'static RawValue>> {
-            object
-                .get(name)
-                .map(|value| serde_json::from_str(value.get()).ok())
-                .unwrap_or(Some(Vec::new()))
-        };
-        let credentials = list("credentials")?;
-        let sets = list("credential_sets")?;
+        let credentials: Vec<&'static RawValue> =
+            serde_json::from_str(object.get("credentials")?.get()).ok()?;
+        let sets: Vec<&'static RawValue> = object
+            .get("credential_sets")
+            .map(|sets| serde_json::from_str(sets.get()).ok())
+            .unwrap_or(Some(Vec::new()))?;
         let mut ids: Vec<String> = queries.iter().map(|query| query.id().to_string()).collect();
         for credential in &credentials {
             let claims = RawObject::parse(credential.get())

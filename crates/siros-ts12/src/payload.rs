@@ -293,14 +293,15 @@ fn hash_expression(expression: &str) -> bool {
 }
 
 /// A JSON number's exact decimal value, its sign aside: its digits without leading or trailing
-/// zeros, and how many of the value's digits stand before its point.
+/// zeros, their count, and how many of the value's digits stand before its point.
 struct Exact {
     significant: String,
+    digits: i64,
     point: i64,
 }
 
 impl Exact {
-    /// The value of a number as written; `None` for an exponent beyond 64 bits.
+    /// The value of a number as written; `None` for an exponent or a digit count beyond 64 bits.
     fn of(text: &str) -> Option<Self> {
         let text = text.strip_prefix('-').unwrap_or(text);
         let (mantissa, exponent) = match text.split_once(['e', 'E']) {
@@ -315,6 +316,7 @@ impl Exact {
         if significant.is_empty() {
             return Some(Self {
                 significant: String::new(),
+                digits: 0,
                 point: 0,
             });
         }
@@ -326,16 +328,14 @@ impl Exact {
         let leading = i64::try_from(leading).ok()?;
         Some(Self {
             significant: significant.to_owned(),
+            digits: i64::try_from(significant.len()).ok()?,
             point: before.saturating_add(exponent).saturating_sub(leading),
         })
     }
 
     /// The digits the value holds after its point.
     fn fraction_digits(&self) -> i64 {
-        i64::try_from(self.significant.len())
-            .unwrap_or(i64::MAX)
-            .saturating_sub(self.point)
-            .max(0)
+        self.digits.saturating_sub(self.point).max(0)
     }
 
     /// The digits before its point and those after, in full; `None` beyond what a text can hold.
@@ -352,8 +352,10 @@ impl Exact {
             let zeros = "0".repeat(at - self.significant.len());
             return Some((format!("{}{zeros}", self.significant), String::new()));
         }
-        let (units, cents) = self.significant.split_at_checked(at)?;
-        Some((units.to_owned(), cents.to_owned()))
+        Some((
+            self.significant.chars().take(at).collect(),
+            self.significant.chars().skip(at).collect(),
+        ))
     }
 }
 

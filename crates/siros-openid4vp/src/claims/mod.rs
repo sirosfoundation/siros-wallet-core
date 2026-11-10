@@ -20,7 +20,7 @@ use siros_explain::Explain;
 
 use crate::ids::ClaimId;
 use crate::json::{Node, Number};
-use crate::plugins::{OptionItems, Options};
+use crate::plugins::{OptionIndex, OptionItems, Options};
 use crate::request::Item;
 
 /// An index into an array (§7.1).
@@ -109,6 +109,25 @@ impl PathError {
     pub const fn step(&self) -> usize {
         self.step
     }
+}
+
+/// An option or an item another query's options hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+pub enum Foreign {
+    /// The option index is past the query's options.
+    #[error("option {option} is no option of the query")]
+    #[explain(id = "claims.foreign_option")]
+    Option {
+        /// The option's position.
+        option: usize,
+    },
+    /// The item is past the query's claims.
+    #[error("item {item} names no claim of the query")]
+    #[explain(id = "claims.foreign_item")]
+    Item {
+        /// The item's number.
+        item: usize,
+    },
 }
 
 impl<'a> Step<'a> {
@@ -369,10 +388,10 @@ impl<'a> Claims<'a> {
                 .collect::<Result<Vec<_>, _>>()?,
         };
         if let Some(twice) = claims.iter().enumerate().find_map(|(k, claim)| {
-            let before = claims.get(..k)?;
             claim.id.as_ref().filter(|id| {
-                before
+                claims
                     .iter()
+                    .take(k)
                     .any(|earlier| earlier.id.as_ref() == Some(*id))
             })
         }) {
@@ -430,9 +449,23 @@ impl<'a> Claims<'a> {
     }
 
     /// The claim of an item.
-    #[must_use]
-    pub fn claim(&self, item: Item) -> Option<&Claim<'a>> {
-        self.claims.get(item.get())
+    ///
+    /// # Errors
+    ///
+    /// [`Foreign::Item`]: the item is another query's.
+    pub fn claim(&self, item: Item) -> Result<&Claim<'a>, Foreign> {
+        self.claims
+            .get(item.get())
+            .ok_or(Foreign::Item { item: item.get() })
+    }
+
+    /// The items of an option.
+    ///
+    /// # Errors
+    ///
+    /// [`Foreign::Option`]: the option is another query's.
+    pub fn items(&self, option: OptionIndex) -> Result<&[Item], Foreign> {
+        self.options.option(option).map(OptionItems::items)
     }
 
     /// The options as claim items.

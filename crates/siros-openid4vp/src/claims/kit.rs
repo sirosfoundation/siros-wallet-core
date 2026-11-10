@@ -20,20 +20,18 @@ use siros_explain::Explain;
 use siros_i18n::{Context, ResolveError};
 use siros_syntax::{AllOf, Count};
 
-use display::{
-    Described, Said, SaidRow, byte_strings, date_of, dates, issuer_display, label_text, metadata,
-    metadata_texts, value_rows,
-};
+use display::{Located, Said, SaidRow, date_of, label_text, length_of, metadata_texts, value_rows};
 pub use display::{format_entry, full_date, tdate};
 pub use merge::{IssuedMetadata, IssuedShape, MergeError, merge_metadata};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
 pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
 pub use rules::{
-    CardError, DrawError, KitRule, NoAlgorithm, QueryRule, RefusedText, VpFormatsMember,
+    CardError, DiscloseError, DrawError, KitRule, NoAlgorithm, QueryRule, RefusedText,
+    VpFormatsMember,
 };
 
-use super::{Claim, ClaimPath, Claims, ConcretePath, PathError};
+use super::{Claim, ClaimPath, Claims, ConcretePath, Foreign};
 use crate::consent::Card;
 use crate::detail;
 use crate::ids::{CredentialType, FormatName, LocaleTag, QueryId};
@@ -93,17 +91,17 @@ pub trait ClaimsFormat {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Display<'d> {
     pub(crate) locales: &'d [LocaleTag],
-    pub(crate) byte_strings: &'d [Node<'d>],
-    pub(crate) dates: &'d [Node<'d>],
+    pub(crate) byte_strings: &'d [Located<'d, Count>],
+    pub(crate) dates: &'d [Located<'d, ClaimText>],
 }
 
 impl<'d> Display<'d> {
     /// What gives the texts of the credential `view` holds.
-    fn of(view: &'d Node<'d>, locales: &'d [LocaleTag]) -> Self {
+    fn of(view: &'d ClaimsView<'d>, locales: &'d [LocaleTag]) -> Self {
         Self {
             locales,
-            byte_strings: byte_strings(view),
-            dates: dates(view),
+            byte_strings: &view.byte_strings,
+            dates: &view.dates,
         }
     }
 
@@ -291,38 +289,34 @@ impl<'q> ClaimsQuery<'q> {
     ///
     /// # Errors
     ///
-    /// The format cannot read the view's types.
+    /// The format cannot read the view's types, or an option holds another query's item.
     pub fn answerable(
         &self,
         format: &impl ClaimsFormat,
-        view: &Node<'_>,
+        view: &ClaimsView<'_>,
         provided: &[Member],
     ) -> Result<Vec<OptionIndex>, Fault> {
-        if !format.meta_matches(&self.meta, &format.types(view)?) {
+        if !format.meta_matches(&self.meta, &format.types(view.json())?) {
             return Ok(Vec::new());
         }
-        let values = view.get("values").unwrap_or(&NULL);
-        let found: Vec<bool> = self
-            .claims
-            .claims()
-            .iter()
-            .map(|claim| {
-                claim.found(values, |element| format.withheld(element))
-                    || format.written(claim, provided)
-            })
-            .collect();
-        Ok(self
-            .claims
-            .options()
-            .indexed()
-            .filter(|(_, option)| {
-                option
-                    .items()
-                    .iter()
-                    .all(|item| found.get(item.get()) == Some(&true))
-            })
-            .map(|(option, _)| option)
-            .collect())
+        let values = &view.values;
+        let found = |item: &Item| -> Result<bool, Foreign> {
+            let claim = self.claims.claim(*item)?;
+            Ok(claim.found(values, |element| format.withheld(element))
+                || format.written(claim, provided))
+        };
+        let mut answered = Vec::new();
+        for (option, items) in self.claims.options().indexed() {
+            let all = items
+                .items()
+                .iter()
+                .try_fold(true, |all, item| Ok::<_, Foreign>(all && found(item)?))
+                .map_err(|foreign| caused(detail!("an option of the query"), foreign))?;
+            if all {
+                answered.push(option);
+            }
+        }
+        Ok(answered)
     }
 
     /// Reads what the End-User could be shown of a credential answering `options` through
@@ -331,35 +325,26 @@ impl<'q> ClaimsQuery<'q> {
     ///
     /// # Errors
     ///
-    /// [`CardError`]: a text that breaks the rule of display text, or a pointer that selects
-    /// nothing.
+    /// [`CardError`]: a text that breaks the rule of display text, a pointer that selects
+    /// nothing, or another query's option or item.
     pub fn displayable(
         &self,
         format: &impl ClaimsFormat,
-        view: &Node<'_>,
+        view: &ClaimsView<'_>,
         options: &[OptionIndex],
         env: &Env,
     ) -> Result<(), CardError> {
-        view.get("metadata")
-            .map_or(Ok(()), |metadata| metadata_texts(format, metadata))
-            .map_err(CardError::Text)?;
-        issuer_display(view)
-            .iter()
-            .try_for_each(|entry| metadata_texts(format, entry))
-            .map_err(CardError::Text)?;
+        view.metadata_texts(format).map_err(CardError::Text)?;
         drop(
-            view.get("issuer")
+            view.json
+                .get("issuer")
                 .and_then(Node::as_str)
                 .map_or(Ok(None), label_text)
                 .map_err(CardError::Text)?,
         );
         let display = Display::of(view, env.priority());
         for option in options {
-            let items = self
-                .claims
-                .options()
-                .get(*option)
-                .map_or(&[][..], |option| option.items());
+            let items = self.claims.items(*option)?;
             drop(self.claim_rows(format, items, view, display)?);
         }
         Ok(())
@@ -374,25 +359,25 @@ impl<'q> ClaimsQuery<'q> {
     /// # Errors
     ///
     /// [`DrawError`]: a pointer that selects nothing, a text that breaks the rule of display
-    /// text, or a statement `context` resolves no text for.
+    /// text, another query's item, or a statement `context` resolves no text for.
     pub fn card(
         &self,
         format: &impl ClaimsFormat,
-        view: &Node<'_>,
+        view: &ClaimsView<'_>,
         shown: Shown<'_>,
         env: &Env,
         context: &Context,
     ) -> Result<Card, DrawError> {
         let locales = env.priority();
         let display = Display::of(view, locales);
-        let entry = format_entry(metadata(view, "display"), locales);
+        let entry = format_entry(&view.display, locales);
         let title = entry
             .and_then(|entry| entry.get("name"))
             .and_then(Node::as_str)
             .map_or(Ok(None), Display::label)
             .map_err(CardError::Text)?
             .unwrap_or(Said::Wallet(WalletText::Credential));
-        let named = format_entry(issuer_display(view), locales)
+        let named = format_entry(&view.issuer_display, locales)
             .and_then(|entry| entry.get("name"))
             .and_then(Node::as_str)
             .map_or(Ok(None), label_text)
@@ -400,6 +385,7 @@ impl<'q> ClaimsQuery<'q> {
         let subtitle = match named {
             Some(name) => Some(name),
             None => view
+                .json
                 .get("issuer")
                 .and_then(Node::as_str)
                 .map_or(Ok(None), label_text)
@@ -424,36 +410,31 @@ impl<'q> ClaimsQuery<'q> {
         &self,
         format: &impl ClaimsFormat,
         items: &[Item],
-        view: &Node<'_>,
+        view: &ClaimsView<'_>,
         display: Display<'_>,
     ) -> Result<Vec<SaidRow>, CardError> {
-        let described: Vec<Described<'_, '_>> = metadata(view, "claims")
-            .iter()
-            .filter_map(|claim| {
-                claim
-                    .get("path")
-                    .and_then(ClaimPath::parse)
-                    .map(|path| Described { path, claim })
-            })
-            .collect();
-        let rank = |item: Item| {
-            self.claims
-                .claim(item)
-                .and_then(|claim| described.iter().position(|known| known.path == claim.path))
+        let described = &view.claims;
+        let rank = |claim: &Claim<'_>| {
+            described
+                .iter()
+                .position(|known| known.path == claim.path)
                 .unwrap_or(described.len())
         };
-        let first = |item: Item| items.iter().position(|i| *i == item).unwrap_or(items.len());
-        let mut ordered: Vec<Item> = items.to_vec();
-        ordered.sort_by_key(|item| (rank(*item), first(*item)));
-        let values = view.get("values").unwrap_or(&NULL);
+        let first = |item: Item| items.iter().take_while(|i| **i != item).count();
+        let mut ordered = items
+            .iter()
+            .map(|item| Ok((*item, self.claims.claim(*item)?)))
+            .collect::<Result<Vec<_>, Foreign>>()?;
+        ordered.sort_by_key(|(item, claim)| (rank(claim), first(*item)));
+        let values = &view.values;
         let mut rows = Vec::new();
-        for claim in ordered.iter().filter_map(|item| self.claims.claim(*item)) {
+        for (_, claim) in ordered {
             let selected = claim
                 .path
                 .select_held(values, |element| format.withheld(element))
                 .map_err(CardError::Path)?;
             for (path, value) in selected {
-                rows.extend(value_rows(format, &path, value, &described, display, None)?);
+                rows.extend(value_rows(format, &path, value, described, display, None)?);
             }
         }
         Ok(rows)
@@ -461,21 +442,21 @@ impl<'q> ClaimsQuery<'q> {
 
     /// The elements the option discloses, each once, in claim order; a claim naming a member the
     /// transaction writes is answered by the proof instead.
+    ///
+    /// # Errors
+    ///
+    /// [`DiscloseError`]: a pointer that selects nothing, or another query's option or item.
     pub fn disclosed<'v>(
         &self,
         format: &impl ClaimsFormat,
         option: OptionIndex,
-        view: &'v Node<'v>,
+        view: &'v ClaimsView<'v>,
         provided: &[Member],
-    ) -> Result<Vec<(ConcretePath<'v>, &'v Node<'v>)>, PathError> {
-        let values = view.get("values").unwrap_or(&NULL);
-        let items = self
-            .claims
-            .options()
-            .get(option)
-            .map_or(&[][..], |option| option.items());
+    ) -> Result<Vec<(ConcretePath<'v>, &'v Node<'v>)>, DiscloseError> {
+        let values = &view.values;
         let mut out: Vec<(ConcretePath<'v>, &'v Node<'v>)> = Vec::new();
-        for claim in items.iter().filter_map(|item| self.claims.claim(*item)) {
+        for item in self.claims.items(option)? {
+            let claim = self.claims.claim(*item)?;
             if format.written(claim, provided) {
                 continue;
             }
@@ -491,8 +472,6 @@ impl<'q> ClaimsQuery<'q> {
         Ok(out)
     }
 }
-
-static NULL: Node<'static> = Node::Null;
 
 /// The format's rule on the Verifier's `vp_formats_supported` value: an object whose
 /// `*_alg_values` members are non-empty arrays of the format's algorithm identifiers.
@@ -526,28 +505,71 @@ pub fn vp_formats_refusal(
         })
 }
 
-/// Whether the view's member `name` is absent, or an array of objects each with a `path` array and
-/// what `holds` asks of it.
-fn located(view: &Node<'_>, name: &str, holds: impl Fn(&Node<'_>) -> bool) -> bool {
-    view.get(name).is_none_or(|entries| {
-        entries.as_array().is_some_and(|entries| {
-            entries
-                .iter()
-                .all(|entry| entry.get("path").and_then(Node::as_array).is_some() && holds(entry))
-        })
-    })
-}
-
 /// A credential with its view as a claims format reads it: a JSON object with a string `type`,
-/// a `metadata` object whose `display` and `claims`, when present, are arrays, the credential's
-/// `values`, an `issuer` that is absent, null or a string, an `issuer_display`, when present, an
-/// array, `byte_strings`, when present, an array of objects with a `path` array and a natural
-/// number `length`, and `dates`, when present, an array of objects with a `path` array and a `date`
-/// that is a `full-date` or a `tdate`.
+/// a `metadata` object whose `display` and `claims`, when present, are arrays, each claim an
+/// object with a claims path pointer `path` and a `display` that, when present, is an array, the credential's `values`, an `issuer` that
+/// is absent, null or a string, an `issuer_display`, when present, an array, `byte_strings`, when
+/// present, an array of objects with a `path` array and a natural number `length`, and `dates`,
+/// when present, an array of objects with a `path` array and a `date` that is a `full-date` or a
+/// `tdate`. The view holds the members the kit reads apart from the others.
 #[derive(Debug, Clone)]
 pub struct ClaimsView<'v> {
     credential: &'v Credential<'v>,
     json: Node<'v>,
+    values: Node<'v>,
+    metadata: Node<'v>,
+    display: Vec<Node<'v>>,
+    claims: Vec<ClaimEntry<'v>>,
+    issuer_display: Vec<Node<'v>>,
+    byte_strings: Vec<Located<'v, Count>>,
+    dates: Vec<Located<'v, ClaimText>>,
+}
+
+/// An entry of the metadata's `claims`: its claims path pointer, its other members, and its
+/// `display` held apart.
+#[derive(Debug, Clone)]
+pub(crate) struct ClaimEntry<'v> {
+    pub(crate) path: ClaimPath<'v>,
+    pub(crate) entry: Node<'v>,
+    pub(crate) display: Vec<Node<'v>>,
+}
+
+impl<'v> ClaimEntry<'v> {
+    /// The entry an element of the metadata's `claims` writes: an object with a claims path
+    /// pointer `path` and a `display` that, when present, is an array.
+    fn read(entry: Node<'v>) -> Option<Self> {
+        let Node::Object(mut entry) = entry else {
+            return None;
+        };
+        let path = entry.get("path").and_then(ClaimPath::parse)?;
+        let display = listed(entry.take("display"))?;
+        Some(Self {
+            path,
+            entry: Node::Object(entry),
+            display,
+        })
+    }
+}
+
+/// The elements of an array member: none when absent; `None` for another value.
+fn listed(member: Option<Node<'_>>) -> Option<Vec<Node<'_>>> {
+    match member {
+        None => Some(Vec::new()),
+        Some(Node::Array(items)) => Some(items),
+        Some(_) => None,
+    }
+}
+
+/// The entries of the view's member `byte_strings` or `dates`, each read by `held`: none when
+/// absent; `None` for another shape.
+fn located<'v, T>(
+    member: Option<Node<'v>>,
+    held: impl Fn(&Node<'v>) -> Option<T>,
+) -> Option<Vec<Located<'v, T>>> {
+    listed(member)?
+        .into_iter()
+        .map(|entry| Located::read(entry, &held))
+        .collect()
 }
 
 impl<'v> ClaimsView<'v> {
@@ -556,37 +578,59 @@ impl<'v> ClaimsView<'v> {
         let what = || detail!("{id}: view", id = credential.id.to_string());
         let text = std::str::from_utf8(credential.view).map_err(|e| caused(what(), e))?;
         let json = Node::parse(text).map_err(|e| caused(what(), e))?;
-        let metadata = json.get("metadata").and_then(Node::as_object);
-        let listed = |name: &str| {
-            metadata
-                .and_then(|metadata| metadata.get(name))
-                .is_none_or(|value| value.as_array().is_some())
-        };
-        let shaped = json.get("type").and_then(Node::as_str).is_some()
-            && metadata.is_some()
-            && listed("display")
-            && listed("claims")
-            && json.get("values").is_some()
-            && json
-                .get("issuer")
-                .is_none_or(|issuer| matches!(issuer, Node::Null | Node::String(_)))
-            && json
-                .get(merge::ISSUER_DISPLAY)
-                .is_none_or(|display| display.as_array().is_some())
-            && located(&json, "byte_strings", |string| {
-                matches!(
-                    string.get("length"),
-                    Some(Node::Number(length)) if Count::parse(length.text()).is_ok()
-                )
-            })
-            && located(&json, "dates", |date| date_of(date).is_some());
-        if !shaped {
-            return Err(fault(detail!(
-                "{id}: a view without a string type, a metadata object or values",
+        Self::shaped(credential, json).ok_or_else(|| {
+            fault(detail!(
+                "{id}: a view without a string type, a metadata object or values, or with a member of another shape",
                 id = credential.id.to_string()
-            )));
-        }
-        Ok(Self { credential, json })
+            ))
+        })
+    }
+
+    /// The view of `json`; `None` for a view of another shape.
+    fn shaped(credential: &'v Credential<'v>, json: Node<'v>) -> Option<Self> {
+        let Node::Object(mut object) = json else {
+            return None;
+        };
+        let values = object.take("values")?;
+        let Some(Node::Object(mut metadata)) = object.take("metadata") else {
+            return None;
+        };
+        let display = listed(metadata.take("display"))?;
+        let claims = listed(metadata.take("claims"))?
+            .into_iter()
+            .map(ClaimEntry::read)
+            .collect::<Option<Vec<_>>>()?;
+        let issuer_display = listed(object.take(merge::ISSUER_DISPLAY))?;
+        let byte_strings = located(object.take("byte_strings"), length_of)?;
+        let dates = located(object.take("dates"), date_of)?;
+        let typed = object.get("type").and_then(Node::as_str).is_some();
+        let issuer = object
+            .get("issuer")
+            .is_none_or(|issuer| matches!(issuer, Node::Null | Node::String(_)));
+        (typed && issuer).then_some(Self {
+            credential,
+            json: Node::Object(object),
+            values,
+            metadata: Node::Object(metadata),
+            display,
+            claims,
+            issuer_display,
+            byte_strings,
+            dates,
+        })
+    }
+
+    /// Reads each text of the view's `metadata` and `issuer_display` through [`metadata_texts`].
+    fn metadata_texts(&self, format: &impl ClaimsFormat) -> Result<(), TextError> {
+        let claims = self
+            .claims
+            .iter()
+            .flat_map(|claim| std::iter::once(&claim.entry).chain(&claim.display));
+        std::iter::once(&self.metadata)
+            .chain(&self.display)
+            .chain(claims)
+            .chain(&self.issuer_display)
+            .try_for_each(|node| metadata_texts(format, node))
     }
 
     /// The credential.
@@ -595,7 +639,7 @@ impl<'v> ClaimsView<'v> {
         self.credential
     }
 
-    /// The view.
+    /// The view's members the kit does not hold apart: `type`, `issuer` and the format's own.
     #[must_use]
     pub fn json(&self) -> &Node<'v> {
         &self.json

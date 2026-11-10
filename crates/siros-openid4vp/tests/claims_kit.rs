@@ -10,8 +10,8 @@ use std::num::NonZeroU32;
 
 use siros_i18n::{Bidi, Context};
 use siros_openid4vp::claims::kit::{
-    CardError, ClaimsQuery, Constraint, DrawError, IssuedMetadata, IssuedShape, MergeError,
-    VpFormatsMember, format_entry, merge_metadata, vp_formats_refusal,
+    CardError, ClaimsQuery, ClaimsView, Constraint, DrawError, IssuedMetadata, IssuedShape,
+    MergeError, VpFormatsMember, format_entry, merge_metadata, vp_formats_refusal,
 };
 use siros_openid4vp::claims::{ArrayIndex, ClaimPath, Claims, ClaimsError, Step};
 use siros_openid4vp::ids::{LocaleTag, QueryId};
@@ -24,7 +24,7 @@ use siros_openid4vp::rows::{
 use siros_openid4vp::text::TextError;
 use siros_testkit::render::Language;
 
-use common::{ClaimsTest, parameters, request_of, unsigned};
+use common::{ClaimsTest, parameters, request_of, unsigned, viewed};
 
 const MDOC: ClaimsTest = ClaimsTest {
     member: "doctype_value",
@@ -72,7 +72,8 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
     let view = format!(
         r#"{{"type": "org.iso.18013.5.1.mDL", "metadata": {display}, "values": {{"org.iso.18013.5.1": {{"given_name": "Erika", "family_name": "Mustermann", "birth_date": "1971-09-01"}}, "org.iso.18013.5.1.aamva": {{"organ_donor": true}}}}}}"#
     );
-    let view = Node::parse(&view).expect("view");
+    let credential = viewed(&view);
+    let view = ClaimsView::read(&credential).expect("view");
     let claims = r#"[{"path": ["org.iso.18013.5.1.aamva", "organ_donor"]}, {"path": ["org.iso.18013.5.1", "birth_date"]},
                      {"path": ["org.iso.18013.5.1", "family_name"]}, {"path": ["org.iso.18013.5.1", "given_name"]}]"#;
     let text = query_text(claims, "doctype_value", r#""org.iso.18013.5.1.mDL""#);
@@ -245,9 +246,10 @@ fn values_match_by_equal_json_of_one_type() {
             label: "label",
         };
         let query = ClaimsQuery::parse(&format, &request.queries()[0], None).expect("query");
-        let view = format!(r#"{{"type": "t", "values": {{"c": {held}}}}}"#);
+        let view = format!(r#"{{"type": "t", "metadata": {{}}, "values": {{"c": {held}}}}}"#);
+        let credential = viewed(&view);
         let answered = !query
-            .answerable(&format, &Node::parse(&view).expect("view"), &[])
+            .answerable(&format, &ClaimsView::read(&credential).expect("view"), &[])
             .expect("the view's types")
             .is_empty();
         assert_eq!(answered, want, "values {values} against {held}");
@@ -316,10 +318,10 @@ fn an_option_discloses_its_elements_once_in_claim_order() {
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
     let query = ClaimsQuery::parse(&MDOC, &request.queries()[0], None).expect("query");
-    let view = Node::parse(
-        r#"{"type": "t", "values": {"ns": {"a": 1, "b": 2, "list": [4, 5]}, "tx": {"w": 3}}}"#,
-    )
-    .expect("view");
+    let credential = viewed(
+        r#"{"type": "t", "metadata": {}, "values": {"ns": {"a": 1, "b": 2, "list": [4, 5]}, "tx": {"w": 3}}}"#,
+    );
+    let view = ClaimsView::read(&credential).expect("view");
     let written = [Member::element("tx", "w")];
     let at = |position: usize| {
         let (option, _) = query
@@ -354,10 +356,12 @@ fn an_option_discloses_its_elements_once_in_claim_order() {
 
 #[test]
 fn claims_path_pointers_follow_section_7() {
-    let view =
-        Node::parse(r#"{"type": "t", "values": {"a": {"b": [10, 20, {"c": 30}]}, "s": "x"}}"#)
-            .expect("view");
-    let values = view.get("values").expect("values");
+    let text =
+        r#"{"type": "t", "metadata": {}, "values": {"a": {"b": [10, 20, {"c": 30}]}, "s": "x"}}"#;
+    let node = Node::parse(text).expect("view");
+    let values = node.get("values").expect("values");
+    let credential = viewed(text);
+    let view = ClaimsView::read(&credential).expect("view");
     // The selection, else the component at which it fails and whether the claim is found.
     let select = |path: &str| -> Result<Vec<String>, String> {
         let text = query_text(
@@ -455,15 +459,15 @@ fn claim_metadata_labels_the_elements_its_path_selects() {
     // labels it; a member name selects no array element, null every one. An array of values
     // gives the elements no claim labels the array's label. A claim the metadata describes
     // comes first (B.2), the others in the request's order.
-    let view = Node::parse(
+    let credential = viewed(
         r#"{"type": "t", "metadata": {"claims": [
             {"path": ["list", "x"], "display": [{"locale": "en", "label": "A member"}]},
             {"path": ["list", 1], "display": [{"locale": "en", "label": "Second"}]},
             {"path": ["list", null], "display": [{"locale": "en", "label": "Any item"}]},
             {"path": ["tags"], "display": [{"locale": "en", "label": "Tags"}]}]},
            "values": {"list": ["x", "y"], "tags": ["a", "b"], "other": "z"}}"#,
-    )
-    .expect("view");
+    );
+    let view = ClaimsView::read(&credential).expect("view");
     let format = ClaimsTest {
         member: "vct_values",
         label: "label",
@@ -612,8 +616,9 @@ fn a_json_number_shows_as_the_value_it_writes() {
         let received = unsigned(&text).expect("received");
         let request = request_of(&received).expect("request");
         let query = ClaimsQuery::parse(&format, &request.queries()[0], None).expect("query");
-        let view = format!(r#"{{"type": "t", "values": {{"n": {written}}}}}"#);
-        let view = Node::parse(&view).expect("view");
+        let view = format!(r#"{{"type": "t", "metadata": {{}}, "values": {{"n": {written}}}}}"#);
+        let credential = viewed(&view);
+        let view = ClaimsView::read(&credential).expect("view");
         let items = [Item::new(0).expect("item")];
         let shown = Shown {
             everyone: &items,
@@ -646,7 +651,8 @@ fn a_card_the_context_words_none_of_fails_with_its_cause() {
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
     let query = ClaimsQuery::parse(&format, &request.queries()[0], None).expect("query");
-    let view = Node::parse(r#"{"type": "t", "values": {"a": "x"}}"#).expect("view");
+    let credential = viewed(r#"{"type": "t", "metadata": {}, "values": {"a": "x"}}"#);
+    let view = ClaimsView::read(&credential).expect("view");
     let items = [Item::new(0).expect("item")];
     let shown = Shown {
         everyone: &items,
@@ -719,7 +725,8 @@ fn what_could_be_shown_reads_through_the_rule_of_display_text() {
         ),
     ];
     let read = |view: &str| {
-        let view = Node::parse(view).expect("view");
+        let credential = viewed(view);
+        let view = ClaimsView::read(&credential).expect("view");
         let options: Vec<OptionIndex> = query
             .claims()
             .options()
@@ -763,7 +770,8 @@ fn what_could_be_shown_reads_through_the_rule_of_display_text() {
         ),
     ] {
         assert!(read(view).is_ok(), "{case}");
-        let view = Node::parse(view).expect("view");
+        let credential = viewed(view);
+        let view = ClaimsView::read(&credential).expect("view");
         let card = query
             .card(&format, &view, shown, &env, english())
             .expect(case);

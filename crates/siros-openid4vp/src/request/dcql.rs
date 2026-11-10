@@ -5,7 +5,7 @@
 use serde_json::value::RawValue;
 
 use super::rules::DcqlRule;
-use super::sets::{MAX_POSITIONS, QueryIndex};
+use super::sets::QueryIndex;
 use crate::ids::{AuthorityType, AuthorityValue, FormatId, QueryId};
 use crate::json::{self, RawObject};
 use crate::refusal::Refusal;
@@ -49,6 +49,7 @@ pub enum SetNeed {
 /// JSON with unique member names; [`Query::read_all`] makes those of a `dcql_query` alone.
 #[derive(Debug, Clone)]
 pub struct Query<'a> {
+    index: QueryIndex,
     id: QueryId<'a>,
     format: FormatId<'a>,
     multiple: Multiplicity,
@@ -100,18 +101,19 @@ impl<'a> Dcql<'a> {
         credentials: Vec<&'a RawValue>,
         sets: Option<Vec<&'a RawValue>>,
     ) -> Result<Self, Refusal> {
-        if credentials.len() > MAX_POSITIONS {
-            return Err(refuse(DcqlRule::TooMany));
-        }
         let queries = credentials
             .into_iter()
-            .map(Query::parse)
+            .enumerate()
+            .map(|(k, raw)| {
+                let index = QueryIndex::new(k).ok_or_else(|| refuse(DcqlRule::TooMany))?;
+                Query::parse(index, raw)
+            })
             .collect::<Result<Vec<_>, _>>()?;
-        if let Some(twice) = queries.iter().enumerate().find_map(|(k, q)| {
-            queries
-                .get(..k)
-                .and_then(|before| before.iter().find(|earlier| earlier.id == q.id))
-        }) {
+        if let Some(twice) = queries
+            .iter()
+            .enumerate()
+            .find_map(|(k, q)| queries.iter().take(k).find(|earlier| earlier.id == q.id))
+        {
             return Err(refuse(DcqlRule::IdTwice {
                 id: twice.id.to_string(),
             }));
@@ -158,6 +160,12 @@ impl<'a> Query<'a> {
         &self.trusted_authorities
     }
 
+    /// The query's position in `credentials`.
+    #[must_use]
+    pub const fn index(&self) -> QueryIndex {
+        self.index
+    }
+
     /// The whole query object, for its format.
     #[must_use]
     pub const fn object(&self) -> &'a RawValue {
@@ -174,7 +182,7 @@ impl<'a> Query<'a> {
         Dcql::parse(dcql_query).map(|dcql| dcql.queries)
     }
 
-    fn parse(raw: &'a RawValue) -> Result<Self, Refusal> {
+    fn parse(index: QueryIndex, raw: &'a RawValue) -> Result<Self, Refusal> {
         let object =
             RawObject::parse(raw.get()).map_err(|e| refuse(DcqlRule::QueryNotObject(e)))?;
         let text = |name: &str| object.get(name).and_then(|value| json::string(value).ok());
@@ -216,6 +224,7 @@ impl<'a> Query<'a> {
             })?,
         };
         Ok(Self {
+            index,
             id,
             format,
             multiple,

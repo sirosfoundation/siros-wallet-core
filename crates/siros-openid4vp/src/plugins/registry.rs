@@ -677,9 +677,7 @@ pub struct Registry<H: Build = NoHost> {
         not(feature = "match"),
         expect(dead_code, reason = "matching and phase 2 read the profiles")
     )]
-    profiles: Vec<Box<<H as Plugins>::Profile>>,
-    exact: Vec<(TransactionType<'static>, ProfileHandle)>,
-    prefixes: Vec<(TypePrefix<'static>, ProfileHandle)>,
+    profiles: Vec<Typed<<H as Plugins>::Profile>>,
     #[cfg(feature = "signed")]
     clients: Vec<RegisteredPrefix<H>>,
     #[cfg(feature = "signed")]
@@ -690,6 +688,32 @@ pub struct Registry<H: Build = NoHost> {
     contributions: Vec<Box<dyn HostedPostContribution<H>>>,
     #[cfg(feature = "uri")]
     readers: Vec<Box<dyn AnswerReader>>,
+}
+
+/// A profile with the exact type identifiers and the type prefixes registered for it.
+struct Typed<P: ?Sized> {
+    profile: Box<P>,
+    exact: Vec<TransactionType<'static>>,
+    prefixes: Vec<TypePrefix<'static>>,
+}
+
+impl<P: ?Sized> Typed<P> {
+    const fn untyped(profile: Box<P>) -> Self {
+        Self {
+            profile,
+            exact: Vec::new(),
+            prefixes: Vec::new(),
+        }
+    }
+
+    /// Each registration's name: the type, else `the prefix` and the prefix.
+    fn registrations(&self) -> impl Iterator<Item = String> + '_ {
+        self.exact.iter().map(ToString::to_string).chain(
+            self.prefixes
+                .iter()
+                .map(|prefix| format!("the prefix {prefix}")),
+        )
+    }
 }
 
 impl<H: Build> fmt::Debug for Registry<H> {
@@ -703,8 +727,14 @@ impl<H: Build> fmt::Debug for Registry<H> {
                     .map(|registered| registered.format.id().to_string())
                     .collect::<Vec<_>>(),
             )
-            .field("exact", &self.exact)
-            .field("prefixes", &self.prefixes)
+            .field(
+                "profiles",
+                &self
+                    .profiles
+                    .iter()
+                    .map(|typed| (&typed.exact, &typed.prefixes))
+                    .collect::<Vec<_>>(),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -945,8 +975,9 @@ impl<H: Build> RegistryBuilder<H> {
         #[cfg(feature = "transaction-data")]
         for (k, algorithm) in hashes.iter().enumerate() {
             if hashes
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.name() == algorithm.name()))
+                .iter()
+                .take(k)
+                .any(|other| other.name() == algorithm.name())
             {
                 return Err(RegistryError::HashTwice {
                     algorithm: algorithm.name(),
@@ -959,8 +990,9 @@ impl<H: Build> RegistryBuilder<H> {
         let scopes = Vec::new();
         for (k, kind) in response_types.iter().enumerate() {
             if response_types
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.name() == kind.name()))
+                .iter()
+                .take(k)
+                .any(|other| other.name() == kind.name())
             {
                 return Err(RegistryError::ResponseTypeTwice {
                     response_type: kind.name(),
@@ -974,13 +1006,11 @@ impl<H: Build> RegistryBuilder<H> {
             if errors && channel == ChannelKind::DcApi {
                 return Err(RegistryError::ErrorModeChannel { mode: name });
             }
-            if modes.get(..k).is_some_and(|before| {
-                before.iter().any(|other| {
-                    other.registered.mode().name() == name
-                        && other.registered.mode().channel() == channel
-                        && (other.registered.carries_errors() == errors
-                            || other.kind != registration.kind)
-                })
+            if modes.iter().take(k).any(|other| {
+                other.registered.mode().name() == name
+                    && other.registered.mode().channel() == channel
+                    && (other.registered.carries_errors() == errors
+                        || other.kind != registration.kind)
             }) {
                 return Err(RegistryError::ModeTwice { name, channel });
             }
@@ -1030,8 +1060,9 @@ impl<H: Build> RegistryBuilder<H> {
         if let Some(twice) = clients.iter().enumerate().find_map(|(k, registered)| {
             let name = registered.prefix.name();
             clients
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.prefix.name() == name))
+                .iter()
+                .take(k)
+                .any(|other| other.prefix.name() == name)
                 .then(|| name.to_string())
         }) {
             return Err(RegistryError::PrefixTwice { prefix: twice });
@@ -1042,8 +1073,9 @@ impl<H: Build> RegistryBuilder<H> {
         let post = Post::of(&posts)?;
         for (k, format) in formats.iter().enumerate() {
             if formats
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.id() == format.id()))
+                .iter()
+                .take(k)
+                .any(|other| other.id() == format.id())
             {
                 return Err(RegistryError::FormatTwice {
                     format: format.id().to_string(),
@@ -1057,29 +1089,41 @@ impl<H: Build> RegistryBuilder<H> {
                 format,
             })
             .collect();
-        let registrations: Vec<(String, ProfileHandle)> = exact
+        let mut profiles: Vec<Typed<_>> = profiles.into_iter().map(Typed::untyped).collect();
+        #[cfg(feature = "transaction-data")]
+        let transacting = !exact.is_empty() || !prefixes.is_empty();
+        for (kind, handle) in exact {
+            profiles
+                .get_mut(handle.0)
+                .ok_or_else(|| RegistryError::UnknownProfile {
+                    registration: kind.to_string(),
+                })?
+                .exact
+                .push(kind);
+        }
+        for (prefix, handle) in prefixes {
+            profiles
+                .get_mut(handle.0)
+                .ok_or_else(|| RegistryError::UnknownProfile {
+                    registration: format!("the prefix {prefix}"),
+                })?
+                .prefixes
+                .push(prefix);
+        }
+        let registrations: Vec<(String, &<H as Plugins>::Profile)> = profiles
             .iter()
-            .map(|(kind, handle)| (kind.to_string(), *handle))
-            .chain(
-                prefixes
-                    .iter()
-                    .map(|(prefix, handle)| (format!("the prefix {prefix}"), *handle)),
-            )
+            .flat_map(|typed| {
+                typed
+                    .registrations()
+                    .map(|name| (name, typed.profile.as_ref()))
+            })
             .collect();
-        for (k, (name, handle)) in registrations.iter().enumerate() {
-            if registrations
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|(other, _)| other == name))
-            {
+        for (k, (name, profile)) in registrations.iter().enumerate() {
+            if registrations.iter().take(k).any(|(other, _)| other == name) {
                 return Err(RegistryError::TypeTwice {
                     registration: name.clone(),
                 });
             }
-            let profile = profiles
-                .get(handle.0)
-                .ok_or_else(|| RegistryError::UnknownProfile {
-                    registration: name.clone(),
-                })?;
             for RegisteredFormat { format, placement } in &formats {
                 let Some((placement, members)) = placement.and_then(|placement| {
                     profile
@@ -1122,8 +1166,6 @@ impl<H: Build> RegistryBuilder<H> {
             }
         }
         #[cfg(feature = "transaction-data")]
-        let transacting = !exact.is_empty() || !prefixes.is_empty();
-        #[cfg(feature = "transaction-data")]
         if transacting
             && !hashes
                 .iter()
@@ -1140,8 +1182,6 @@ impl<H: Build> RegistryBuilder<H> {
             modes,
             formats,
             profiles,
-            exact,
-            prefixes,
             #[cfg(feature = "signed")]
             clients,
             #[cfg(feature = "signed")]
@@ -1257,22 +1297,35 @@ impl<H: Build> Registry<H> {
     /// prefix.
     #[must_use]
     pub fn profile(&self, kind: &TransactionType<'_>) -> Option<ProfileHandle> {
-        self.exact
-            .iter()
-            .find(|(exact, _)| exact == kind)
-            .map(|(_, handle)| *handle)
-            .or_else(|| {
-                self.prefixes
-                    .iter()
-                    .filter(|(prefix, _)| kind.has_prefix(prefix))
-                    .max_by_key(|(prefix, _)| prefix.as_str().len())
-                    .map(|(_, handle)| *handle)
-            })
+        self.typed(kind).map(|(handle, _)| handle)
     }
 
-    #[cfg(feature = "match")]
-    pub(crate) fn profile_ref(&self, handle: ProfileHandle) -> Option<&dyn ErasedProfile> {
-        self.profiles.get(handle.0).map(|profile| profile.upcast())
+    /// The profile registered for the exact type identifier, else for its longest registered
+    /// prefix, with its handle.
+    fn typed(
+        &self,
+        kind: &TransactionType<'_>,
+    ) -> Option<(ProfileHandle, &Typed<<H as Plugins>::Profile>)> {
+        let handled = || {
+            self.profiles
+                .iter()
+                .enumerate()
+                .map(|(k, typed)| (ProfileHandle(k), typed))
+        };
+        handled()
+            .find(|(_, typed)| typed.exact.iter().any(|exact| exact == kind))
+            .or_else(|| {
+                handled()
+                    .flat_map(|(handle, typed)| {
+                        typed
+                            .prefixes
+                            .iter()
+                            .map(move |prefix| (prefix, handle, typed))
+                    })
+                    .filter(|(prefix, _, _)| kind.has_prefix(prefix))
+                    .max_by_key(|(prefix, _, _)| prefix.as_str().len())
+                    .map(|(_, handle, typed)| (handle, typed))
+            })
     }
 }
 
@@ -1325,7 +1378,9 @@ impl<H: Has<dyn Platform>> Registry<H> {
 
     #[cfg(feature = "resolve")]
     pub(crate) fn profile_host(&self, handle: ProfileHandle) -> Option<&dyn DynProfile<H>> {
-        self.profiles.get(handle.0).map(AsRef::as_ref)
+        self.profiles
+            .get(handle.0)
+            .map(|typed| typed.profile.as_ref())
     }
 
     /// The registry with each profile informed of its findings, for the request's re-run of
@@ -1335,7 +1390,7 @@ impl<H: Has<dyn Platform>> Registry<H> {
         let mut found: Vec<(&dyn DynProfile<H>, Vec<&dyn FindingData>)> = self
             .profiles
             .iter()
-            .map(|profile| (profile.as_ref(), Vec::new()))
+            .map(|typed| (typed.profile.as_ref(), Vec::new()))
             .collect();
         for finding in findings {
             let (_, own) = found.get_mut(finding.profile.0).ok_or(InformError)?;
@@ -1353,9 +1408,15 @@ impl<H: Has<dyn Platform>> Registry<H> {
             parameters: self.parameters.clone(),
             modes: self.modes.clone(),
             formats: self.formats.clone(),
-            profiles: read.into_iter().map(|informed| informed()).collect(),
-            exact: self.exact.clone(),
-            prefixes: self.prefixes.clone(),
+            profiles: read
+                .into_iter()
+                .zip(&self.profiles)
+                .map(|(informed, typed)| Typed {
+                    profile: informed(),
+                    exact: typed.exact.clone(),
+                    prefixes: typed.prefixes.clone(),
+                })
+                .collect(),
             #[cfg(feature = "signed")]
             clients: self.clients.clone(),
             #[cfg(feature = "signed")]
@@ -1662,7 +1723,7 @@ fn names<H: Build>(
             if reserved.contains(name) {
                 return Err(RegistryError::NameReserved { place, name: *name });
             }
-            if names.get(..k).is_some_and(|before| before.contains(name)) {
+            if names.iter().take(k).any(|before| before == name) {
                 return Err(RegistryError::NameTwice { place, name: *name });
             }
         }
@@ -1699,8 +1760,8 @@ fn read_scopes(queries: &[Box<dyn ScopeQuery>]) -> Result<Vec<ScopeEntry>, Regis
 #[cfg(feature = "match")]
 pub(crate) trait Catalog {
     fn placed(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn Format>>;
-    fn profile(&self, kind: &TransactionType<'_>) -> Option<ProfileHandle>;
-    fn profile_ref(&self, handle: ProfileHandle) -> Option<&dyn ErasedProfile>;
+    /// The profile registered for the type, with its handle.
+    fn profiled(&self, kind: &TransactionType<'_>) -> Option<(ProfileHandle, &dyn ErasedProfile)>;
     /// The profiles that reserve the credential.
     fn reserving(
         &self,
@@ -1715,12 +1776,9 @@ impl<H: Build> Catalog for Registry<H> {
         Self::placed(self, id)
     }
 
-    fn profile(&self, kind: &TransactionType<'_>) -> Option<ProfileHandle> {
-        Self::profile(self, kind)
-    }
-
-    fn profile_ref(&self, handle: ProfileHandle) -> Option<&dyn ErasedProfile> {
-        Self::profile_ref(self, handle)
+    fn profiled(&self, kind: &TransactionType<'_>) -> Option<(ProfileHandle, &dyn ErasedProfile)> {
+        self.typed(kind)
+            .map(|(handle, typed)| (handle, typed.profile.upcast()))
     }
 
     fn reserving(
@@ -1729,8 +1787,8 @@ impl<H: Build> Catalog for Registry<H> {
         additions: &dyn ViewAdditions,
     ) -> Result<Vec<ProfileHandle>, super::Fault> {
         let mut reserving = Vec::new();
-        for (position, profile) in self.profiles.iter().enumerate() {
-            let profile: &dyn ErasedProfile = profile.upcast();
+        for (position, typed) in self.profiles.iter().enumerate() {
+            let profile: &dyn ErasedProfile = typed.profile.upcast();
             if profile.reserves(credential, additions)? {
                 reserving.push(ProfileHandle(position));
             }

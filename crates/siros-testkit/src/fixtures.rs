@@ -119,6 +119,10 @@ pub enum FixtureError {
     #[error("the view")]
     #[explain(id = "fixture.view")]
     View(#[from] JsonError),
+    /// The parameters of a signed request are no JSON object text.
+    #[error("the parameters are no JSON object text")]
+    #[explain(id = "fixture.parameters")]
+    Parameters,
     /// The view cannot be issued.
     #[error("the issued IssuerSigned")]
     #[explain(id = "fixture.issue")]
@@ -212,15 +216,23 @@ pub fn unsigned(parameters: &str) -> Result<Received<'_>, FixtureError> {
 
 /// The parameters with the test Verifier's `client_id` as their first member: a signed request's
 /// payload.
-#[must_use]
-pub fn signed_parameters(parameters: &str) -> String {
-    let rest = parameters.strip_prefix('{').unwrap_or(parameters);
+///
+/// # Errors
+///
+/// [`FixtureError::Parameters`]: the parameters do not open with `{`.
+pub fn signed_parameters(parameters: &str) -> Result<String, FixtureError> {
+    let rest = parameters
+        .strip_prefix('{')
+        .ok_or(FixtureError::Parameters)?;
     let separator = if rest.trim_start().starts_with('}') {
         ""
     } else {
         ","
     };
-    format!(r#"{{"client_id":{}{separator}{rest}"#, quote(CLIENT_ID))
+    Ok(format!(
+        r#"{{"client_id":{}{separator}{rest}"#,
+        quote(CLIENT_ID)
+    ))
 }
 
 /// The `data` of a signed DC API request (A.3.2.1): `request`, a compact JWS the test Verifier
@@ -228,12 +240,13 @@ pub fn signed_parameters(parameters: &str) -> String {
 ///
 /// # Errors
 ///
-/// The test Verifier's key is no P-256 scalar, a bug of the kit.
-pub fn signed_data(parameters: &str) -> Result<String, Fault> {
+/// The parameters do not open with `{`, or the test Verifier's key is no P-256 scalar, a bug of
+/// the kit.
+pub fn signed_data(parameters: &str) -> Result<String, FixtureError> {
     let jws = crate::jose::compact_jws(
         &crate::jose::VERIFIER_SECRET,
         REQUEST_OBJECT_HEADER,
-        &signed_parameters(parameters),
+        &signed_parameters(parameters)?,
     )?;
     Ok(format!(r#"{{"request":{}}}"#, quote(&jws)))
 }
@@ -417,15 +430,16 @@ pub fn lookup_ranges(range: &str) -> Vec<String> {
 pub fn with_generic_forms(tags: &[LocaleTag]) -> Vec<LocaleTag> {
     let mut out: Vec<LocaleTag> = Vec::with_capacity(tags.len() * 2);
     for tag in tags {
-        let mut subtags = tag.as_str().split('-');
-        let language = subtags.next().unwrap_or_default();
-        let generic = match subtags.next() {
-            Some(script)
-                if script.len() == 4 && script.bytes().all(|b| b.is_ascii_alphabetic()) =>
-            {
-                format!("{language}-{script}")
+        let generic = match tag.as_str().split_once('-') {
+            Some((language, rest)) => {
+                let second = rest.split_once('-').map_or(rest, |(second, _)| second);
+                if second.len() == 4 && second.bytes().all(|b| b.is_ascii_alphabetic()) {
+                    format!("{language}-{second}")
+                } else {
+                    language.to_owned()
+                }
             }
-            _ => language.to_owned(),
+            None => tag.as_str().to_owned(),
         };
         for candidate in [Some(tag.clone()), LocaleTag::parse(&generic).ok()]
             .into_iter()

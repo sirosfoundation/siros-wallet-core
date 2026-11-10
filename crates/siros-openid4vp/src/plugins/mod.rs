@@ -45,6 +45,7 @@ pub use registry::{
 #[cfg(feature = "resolve")]
 pub use registry::{FindingData, InformError, ProfileFinding};
 
+use crate::claims::Foreign;
 use crate::consent::{Card, Header, Overlay};
 use crate::ids::{CredentialType, FormatId};
 use crate::json::Node;
@@ -315,6 +316,15 @@ impl Options {
     pub fn get(&self, option: OptionIndex) -> Option<&OptionItems> {
         self.0.get(option.0)
     }
+
+    /// The option at an index.
+    ///
+    /// # Errors
+    ///
+    /// [`Foreign::Option`]: the index is of a longer query's options.
+    pub fn option(&self, option: OptionIndex) -> Result<&OptionItems, Foreign> {
+        self.get(option).ok_or(Foreign::Option { option: option.0 })
+    }
 }
 
 /// An option by its position in a query's options. Only [`Options::indexed`] makes one.
@@ -558,12 +568,11 @@ impl Attested {
     /// The pairs, each name once.
     pub fn new(pairs: Vec<(AttestedName, AttestedText)>) -> Result<Self, AttestedTwice> {
         if let Some((name, _)) = pairs.iter().enumerate().find_map(|(k, (name, text))| {
-            pairs.get(..k).and_then(|before| {
-                before
-                    .iter()
-                    .any(|(n, _)| n == name)
-                    .then_some((name, text))
-            })
+            pairs
+                .iter()
+                .take(k)
+                .any(|(n, _)| n == name)
+                .then_some((name, text))
         }) {
             return Err(AttestedTwice {
                 name: name.as_str().to_owned(),
