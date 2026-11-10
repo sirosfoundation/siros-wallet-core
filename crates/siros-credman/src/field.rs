@@ -4,7 +4,8 @@
 use siros_explain::Explain;
 use siros_openid4vp::rows::{Row, Value};
 use siros_openid4vp::text::DisplayText;
-use unicode_segmentation::UnicodeSegmentation;
+
+use crate::cluster::Clusters;
 
 /// The most characters of a field's label or value the matcher writes: a picker row holds one short
 /// line. The bound is siros-credman's own; Credential Manager's ABI states no length for a field
@@ -53,9 +54,10 @@ impl FieldText {
     ///
     /// A longer text keeps its longest prefix that ends at an extended grapheme cluster boundary
     /// (UAX #29) and fits [`FIELD_MAX`] characters with a closer for each directional initiator it
-    /// leaves open and an ellipsis after them. The closers match UAX #9 (X6a, X7, X8) and close the
-    /// innermost initiator first: PDI an isolate, PDF an embedding or an override. The ellipsis
-    /// starts a cluster of its own.
+    /// leaves open and an ellipsis after them. Next to a mark, after a Prepend character and after
+    /// a ZWJ, the prefix may end at an earlier boundary. The closers match UAX #9 (X6a, X7, X8) and
+    /// close the innermost initiator first: PDI an isolate, PDF an embedding or an override. The
+    /// ellipsis starts a cluster of its own.
     #[must_use]
     pub fn fit(text: &str) -> Self {
         if text.chars().count() <= FIELD_MAX {
@@ -65,7 +67,7 @@ impl FieldText {
             };
         }
         let cut = Cut::of(text);
-        let mut clipped: String = text.graphemes(true).take(cut.clusters).collect();
+        let mut clipped: String = text.chars().take(cut.chars).collect();
         clipped.extend(cut.open.closers());
         clipped.push_str(ELLIPSIS);
         Self {
@@ -169,11 +171,9 @@ impl Field {
     }
 }
 
-/// A prefix of a text that ends at an extended grapheme cluster boundary.
+/// A prefix of a text that ends where [`Clusters`] allows a cut.
 #[derive(Debug, Clone, Default)]
 struct Cut {
-    /// The clusters it holds.
-    clusters: usize,
     /// The characters it holds.
     chars: usize,
     /// The directional initiators it leaves open.
@@ -182,35 +182,24 @@ struct Cut {
 
 impl Cut {
     /// The longest cut of `text` that fits [`FIELD_MAX`] characters with its closers and the
-    /// ellipsis, the ellipsis starting a cluster.
+    /// ellipsis. A closer is a control, which starts a cluster (UAX #29 GB5).
     fn of(text: &str) -> Self {
         let mut read = Self::default();
         let mut cut = Self::default();
-        for cluster in text.graphemes(true) {
-            read.clusters += 1;
-            for c in cluster.chars() {
-                read.chars += 1;
-                read.open.read(c);
-            }
+        let mut clusters = Clusters::default();
+        for c in text.chars() {
             if read.chars >= FIELD_MAX {
                 break;
             }
-            // A closer is a control, which starts a cluster (GB5). The ellipsis right after the
-            // kept text joins a last Prepend character (GB9b).
-            let apart = !read.open.is_empty() || ends_apart(cluster);
-            if apart && read.chars + read.open.len() < FIELD_MAX {
+            let boundary = clusters.cut_before(c);
+            if boundary && read.chars + read.open.len() < FIELD_MAX {
                 cut = read.clone();
             }
+            read.chars += 1;
+            read.open.read(c);
         }
         cut
     }
-}
-
-/// Whether an ellipsis after `cluster` starts a cluster.
-fn ends_apart(cluster: &str) -> bool {
-    let mut ended = cluster.to_owned();
-    ended.push_str(ELLIPSIS);
-    ended.graphemes(true).next_back() == Some(ELLIPSIS)
 }
 
 /// A directional initiator (UAX #9 X2–X5c).
@@ -266,10 +255,6 @@ impl Open {
 
     fn len(&self) -> usize {
         self.0.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 
     /// The closers, innermost first.

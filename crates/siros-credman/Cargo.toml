@@ -17,16 +17,18 @@ register = []
 [dependencies]
 siros-openid4vp = { workspace = true, features = ["match"] }
 siros-explain = { workspace = true }
+# General_Category, which a field's cut reads; siros-openid4vp links the same data.
+icu_properties = { workspace = true }
 # The matcher's context. The build that links the matcher picks the format functions.
 siros-i18n = { workspace = true }
 siros-syntax = { workspace = true }
 thiserror = { workspace = true }
-# The extended grapheme clusters a field's cut keeps whole.
-unicode-segmentation = { workspace = true }
 
 [dev-dependencies]
 siros-credman = { path = ".", features = ["register"] }
 siros-testkit = { workspace = true }
+# The segmentation a field's cuts are checked against.
+unicode-segmentation = { workspace = true }
 
 [lints]
 workspace = true

@@ -109,7 +109,7 @@ impl<'d> Display<'d> {
 
     /// A display metadata text as written, read through
     /// [`DisplayText`](crate::text::DisplayText): the statement [`ClaimText::Label`]; `None` for
-    /// white space alone.
+    /// a text without a visible character.
     pub(crate) fn label(written: &str) -> Result<Option<Said>, TextError> {
         Ok(label_text(written)?.map(|label| Said::Claim(ClaimText::Label { label })))
     }
@@ -367,9 +367,9 @@ impl<'q> ClaimsQuery<'q> {
 
     /// The credential's card, its texts resolved by `context`: the display entry's name, else
     /// [`WalletText::Credential`]; as subtitle the name of the Credential Issuer's display entry,
-    /// else the `issuer`, white space alone showing none; the logo resolved at issuance, else the
-    /// wallet's default icon; the rows of the items shown. A display entry's name, a claim's label
-    /// and the subtitle show as written, through [`ClaimText::Label`].
+    /// else the `issuer`, a text without a visible character showing none; the logo resolved at
+    /// issuance, else the wallet's default icon; the rows of the items shown. A display entry's
+    /// name, a claim's label and the subtitle show as written, through [`ClaimText::Label`].
     ///
     /// # Errors
     ///

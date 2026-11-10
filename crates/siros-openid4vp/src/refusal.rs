@@ -2,7 +2,7 @@
 //! when the wallet reports it (OpenID4VP 1.0 §8.5, RFC 6749 §4.1.2.1).
 //!
 //! A refusal's text quotes request strings and lists the way the reference model writes them
-//! ([`Quoted`], [`QuotedList`], [`ReprList::repr`]), so the texts compare with the model's.
+//! ([`Quoted`], [`QuotedList`], [`ReprList::repr_text`]), so the texts compare with the model's.
 
 use std::error::Error;
 use std::fmt;

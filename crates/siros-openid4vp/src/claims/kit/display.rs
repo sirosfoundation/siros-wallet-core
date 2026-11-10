@@ -220,8 +220,8 @@ fn label_of(
         .map_or(Ok(None), Display::label)
 }
 
-/// A label as written, read through [`DisplayText`]; `None` for white space alone, which the
-/// wallet's word or a member name then stands for.
+/// A label as written, read through [`DisplayText`]; `None` for a text without a visible
+/// character ([`DisplayText::visible`]), which the wallet's word or a member name then stands for.
 pub(super) fn label_text(text: &str) -> Result<Option<String>, TextError> {
     match DisplayText::label(text) {
         Ok(label) => Ok(Some(label.into_string())),
@@ -251,7 +251,7 @@ pub(super) fn metadata_texts(format: &impl ClaimsFormat, node: &Node<'_>) -> Res
 }
 
 /// The label of a claim without one in the metadata: its last member name, or the wallet's word
-/// for a claim when its path names no member or that name is white space alone.
+/// for a claim when its path names no member or that name holds no visible character.
 fn fallback_label(path: &[Concrete<'_>]) -> Result<Said, TextError> {
     let name = path.iter().rev().find_map(|step| match step {
         Concrete::Key(key) => Some(key),
