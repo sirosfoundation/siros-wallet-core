@@ -62,7 +62,9 @@ The [README's build section](README.md#build-and-test) lists what CI checks.
 [AGENTS.md](AGENTS.md)'s [Tests](AGENTS.md#tests), [Types](AGENTS.md#types)
 and [Wording](AGENTS.md#wording) sections bind every change: tests live in each
 crate's `tests/` and enforce a source of truth outside the code they test,
-types parse once at construction, and the crates ship no End-User text.
+types parse once at construction, and the crates ship no End-User text: each
+declares its errors and statements as an id and named arguments, and
+siros-testkit's `locales/` word every one in English and German for the tests.
 `cargo xtask layout` checks the layout these rules give.
 
 `proving/` is a second workspace: the proof backends and the browser presenter,
@@ -76,10 +78,10 @@ owns it and say why there.
 
 A build compiles what it registers. `cargo xtask builds` checks each build of
 `xtask/builds.json`, the design's section 4.11, against the crates it must not
-compile, the features siros-i18n compiles with in the wallet's build and in the
-matcher's, and the count of crates it stays below; `cargo xtask alone` checks each crate alone and the workspace
-crates it names. A change that adds a feature or a dependency edge updates the table
-in the same pull request.
+compile, the siros-i18n features it compiles, and the count of crates it stays
+below; `cargo xtask alone` checks each crate alone and the workspace crates it
+names. A change that adds a feature or a dependency edge updates the table in
+the same pull request.
 
 Nothing panics outside the tests: a type makes the impossible state
 unrepresentable, or the caller receives an error. CI holds each crate to it with

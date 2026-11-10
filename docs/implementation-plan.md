@@ -59,15 +59,23 @@ siros-wallet-engine/
 ├── .github/workflows/         # ci.yml; docker-build-push + sbom via org reusable workflows
 └── crates/
     ├── siros-openid4vp/       # the presentation core, docs/wallet-core-design.md its contract:
-    ├── siros-x509/            #   the core, its plug-ins, i18n, the message contract, the doubles
-    ├── siros-mdoc/
+    ├── siros-x509/            #   the core, its plug-ins, the error contract, the utility types,
+    ├── siros-mdoc/            #   the wallet's texts, the doubles
     ├── siros-sdjwt/
     ├── siros-paso/
     ├── siros-qes/
+    ├── siros-ts12/
+    ├── siros-webuild/
+    ├── siros-credman/
     ├── siros-trust/
     ├── siros-wallet-state/
     ├── siros-i18n/
+    ├── siros-i18n-derive/
+    ├── siros-cldr/
+    ├── siros-syntax/
     ├── siros-explain/
+    ├── siros-explain-derive/
+    ├── siros-derive-internals/
     ├── siros-testkit/
     ├── siros-integration/
     ├── siros-zkp-req/
@@ -77,6 +85,7 @@ siros-wallet-engine/
     ├── engine-core/
     ├── engine-adapter-sdk/
     ├── engine-adapter-server/
+    ├── engine-adapter-wasm/
     └── engine-conformance/
 ```
 
