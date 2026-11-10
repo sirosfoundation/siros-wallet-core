@@ -263,10 +263,13 @@ async function startRequest(requestUrl) {
   const sessionId = session.wmp.session_id;
   const flowId = 'flow-' + crypto.randomUUID();
   // The request form: a JWT arrives by value (the Digital Credentials
-  // API carries the request object itself, OpenID4VP 1.0 §8.4); a URL
+  // API carries the request object itself, OpenID4VP 1.0 §8.4) — a
+  // compact JWS or the multisigned general JWS's JSON text; a URL
   // passes as the raw string — the engine extracts its request_uri
   // and the §5 validations compare the request object against it.
-  const looksLikeJwt = (requestUrl.split('.').length === 3 && !requestUrl.includes('://'));
+  const isJsonObject = requestUrl.trim().startsWith('{');
+  const looksLikeJwt =
+    isJsonObject || (requestUrl.split('.').length === 3 && !requestUrl.includes('://'));
   // The Digital Credentials API caller's origin (OpenID4VP 1.0 §8.4):
   // rides the params beside the by-value request — the binding the
   // §8.4 check and the KB-JWT's aud name. Absent on the URL channel.
@@ -285,12 +288,42 @@ async function startRequest(requestUrl) {
   return result;
 }
 
+// The Digital Credentials API's unsigned request (the
+// openid4vp-v1-unsigned protocol): the request object itself is the
+// API payload's data — plain JSON, no signature, no client_id (the
+// caller's origin IS the client, the web-origin form). It arrives as
+// base64url JSON with the origin beside it.
+async function startUnsignedRequest(encoded) {
+  const session = await wmp('wmp.session.create', {
+    wmp: { version: '0.1', sender: 'mini-wallet' },
+    capabilities_offered: { flows: { max_concurrent: 16 } },
+    security: { mode: 'tls' },
+  });
+  const sessionId = session.wmp.session_id;
+  const flowId = 'flow-' + crypto.randomUUID();
+  const decoded = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
+  const data = JSON.parse(decoded);
+  const origin = query('origin') || '';
+  const params = { ...data, origin };
+  const result = await wmp('wmp.flow.start', {
+    wmp: { session_id: sessionId, version: '0.1' },
+    flow_id: flowId,
+    flow_type: 'oid4vp',
+    params,
+  });
+  window.__last_result = result;
+  document.body.setAttribute('data-flow-state', 'presented');
+  return result;
+}
+
 window.addEventListener('load', async () => {
   try {
     if (query('code')) {
       await resumeAuthorizationCode();
     } else if (query('offer')) {
       await startOffer(query('offer'));
+    } else if (query('dcreq')) {
+      await startUnsignedRequest(query('dcreq'));
     } else if (query('request')) {
       await startRequest(query('request'));
     }
