@@ -20,7 +20,9 @@ use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::recourse::{Failure, Rejected};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::uri::{Fetch, FetchAnswer};
+use siros_i18n::{Bidi, Context};
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
+use siros_testkit::render::Language;
 use siros_testkit::x509::{Leaf, certificate, header, point, x5c, x509_hash};
 use siros_testkit::{TestFormat, TestHost, TestTrust};
 use siros_x509::{LeafHash, SanDnsName, X509Hash, X509Refusal, X509SanDns};
@@ -35,6 +37,10 @@ fn registry() -> Registry<TestHost> {
     builder.client_prefix(X509Hash);
     builder.client_prefix(X509SanDns);
     builder.build().expect("registry")
+}
+
+fn english() -> &'static Context {
+    Language::English.shared().expect("the English context")
 }
 
 fn config() -> TrustConfig {
@@ -66,17 +72,20 @@ fn data(header: &str, payload: &str) -> String {
     format!(r#"{{"request":"{jws}"}}"#)
 }
 
-/// The outcome of authenticating a signed DC API request.
+/// The outcome of authenticating a signed DC API request under the trust service's decisions,
+/// worded by `context`.
 fn outcome<'e>(
     envelope: &'e Envelope<'e>,
     registry: &'e Registry<TestHost>,
+    trust: &TestTrust,
+    context: &Context,
 ) -> Result<Authenticated<'e>, Box<Rejected<'e>>> {
-    let trust = TestTrust::default();
     envelope
         .questions(registry, &config(), &TestHost::default())?
         .authenticate(
             |evaluation| trust.decide(evaluation),
             &config(),
+            context,
             &TestHost::default(),
         )
 }
@@ -93,7 +102,7 @@ fn refusal(header: &str, client_id: &str) -> X509Refusal {
     )
     .expect("an envelope");
     let registry = registry();
-    let rejected = outcome(&envelope, &registry)
+    let rejected = outcome(&envelope, &registry, &TestTrust::default(), english())
         .map(drop)
         .expect_err(client_id);
     let Failure::Unauthenticated(Unauthenticated::Prefix(refusal)) = rejected.failure() else {
@@ -116,27 +125,33 @@ fn each_x509_rule_refuses_its_claim() {
     let hash = x509_hash(&good);
     assert_eq!(
         refusal(&header(&x5c(&good)), "x509_hash:abc"),
-        X509Refusal::HashSyntax("abc".to_owned())
+        X509Refusal::HashSyntax {
+            original: "abc".to_owned()
+        }
     );
     // The tamper case: another leaf than the identifier's.
     let other = x509_hash(&leaf(&["other.example.com"]));
     assert_eq!(
         refusal(&header(&x5c(&good)), &other),
-        X509Refusal::Hash(
-            LeafHash::parse(other.trim_start_matches("x509_hash:"))
+        X509Refusal::Hash {
+            original: LeafHash::parse(other.trim_start_matches("x509_hash:"))
                 .expect("a hash")
                 .text()
-        )
+        }
     );
     assert_eq!(
         refusal(&header(&x5c(&good)), "x509_san_dns:rp_example"),
-        X509Refusal::SanSyntax("rp_example".to_owned())
+        X509Refusal::SanSyntax {
+            original: "rp_example".to_owned()
+        }
     );
     // The tamper case: the leaf names another DNS name.
     let elsewhere = leaf(&["elsewhere.example.com"]);
     assert_eq!(
         refusal(&header(&x5c(&elsewhere)), san),
-        X509Refusal::San(SanDnsName::parse("rp.example.com").expect("a name"))
+        X509Refusal::San {
+            original: SanDnsName::parse("rp.example.com").expect("a name")
+        }
     );
     // Both: x5c absent; no array; empty; an item no base64; no DER certificate; a trailing byte,
     // which hashes differently and parses the same under a reader that stops at RFC 5280's
@@ -156,7 +171,7 @@ fn each_x509_rule_refuses_its_claim() {
         assert_eq!(refusal(&header(&[]), client_id), X509Refusal::X5cEmpty);
         assert!(matches!(
             refusal(&header(&["*".to_owned()]), client_id),
-            X509Refusal::Base64(item) if item.get() == 0
+            X509Refusal::Base64 { item } if item.get() == 0
         ));
         assert!(matches!(
             refusal(
@@ -214,9 +229,23 @@ fn a_dc_api_request_authenticates_under_either_prefix() {
     let request = Request::parse(&envelope).expect("a request");
     assert_eq!(request.expected_origins().len(), 2);
     let registry = registry();
-    let done = outcome(&envelope, &registry).expect("authenticated");
+    // The decision's name shows as written: a text statement carrying it, under a wording that
+    // names the statement.
+    let marked = Context::new()
+        .bidi(Bidi::None)
+        .module("@locale en\n---\n[openid4vp.wallet]\ntext = text {$value}\n")
+        .expect("the test's wording");
+    let naming = TestTrust {
+        name: Some("Example Verifier".to_owned()),
+        ..TestTrust::default()
+    };
+    let done = outcome(&envelope, &registry, &naming, &marked).expect("authenticated");
     assert!(matches!(done.verifier().id(), VerifierId::Client(id) if id.as_str() == san));
     assert_eq!(done.verifier().endpoint(), &BoundEndpoint::DcApi);
+    assert_eq!(
+        done.verifier().name().map(ToString::to_string).as_deref(),
+        Some("text Example Verifier")
+    );
     // x509_hash over the same leaf.
     let hash = x509_hash(&good);
     let data =
@@ -231,7 +260,7 @@ fn a_dc_api_request_authenticates_under_either_prefix() {
         siros_testkit::fixtures::routing().expect("the routing registry"),
     )
     .expect("an envelope");
-    assert!(outcome(&envelope, &registry).is_ok());
+    assert!(outcome(&envelope, &registry, &TestTrust::default(), english()).is_ok());
 }
 
 /// A12 or A6, with what the refusal names.
@@ -270,18 +299,18 @@ fn a_uri_request_binds_its_endpoint_as_the_prefix_says() {
         let config = config();
         let outcome = envelope
             .questions(&registry, &config, &host)
-            .and_then(|pending| pending.authenticate(decide, &config, &host));
+            .and_then(|pending| pending.authenticate(decide, &config, english(), &host));
         match outcome {
             Ok(done) => match done.verifier().endpoint() {
                 BoundEndpoint::ResponseUri { basis, .. } => Ok(*basis),
                 BoundEndpoint::DcApi => panic!("a URI request bound to the DC API"),
             },
             Err(rejected) => match rejected.failure() {
-                Failure::Unauthenticated(Unauthenticated::Endpoint(at)) => {
-                    Err(Refused::Endpoint(at.clone()))
+                Failure::Unauthenticated(Unauthenticated::Endpoint { response_uri }) => {
+                    Err(Refused::Endpoint(response_uri.clone()))
                 }
-                Failure::Unauthenticated(Unauthenticated::Untrusted(id)) => {
-                    Err(Refused::Untrusted(id.clone()))
+                Failure::Unauthenticated(Unauthenticated::Untrusted { client_id }) => {
+                    Err(Refused::Untrusted(client_id.clone()))
                 }
                 other => panic!("{other:?}"),
             },

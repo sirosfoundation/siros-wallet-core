@@ -40,7 +40,7 @@ mod chain;
 mod claim;
 mod names;
 
-use siros_explain::{Explain, Explained, Message, Messages};
+use siros_explain::Explain;
 use siros_openid4vp::authenticate::{
     ClientClaim, ClientPrefix, PrefixClaim, PrefixHost, PrefixName,
 };
@@ -51,66 +51,84 @@ pub use names::{HashText, LeafHash, SanDnsName};
 
 use claim::{Rule, X509Claim};
 
-const X509_HASH: PrefixName = siros_explain::checked!(PrefixName, "x509_hash");
-const X509_SAN_DNS: PrefixName = siros_explain::checked!(PrefixName, "x509_san_dns");
+siros_explain::scope!("x509");
+
+const X509_HASH: PrefixName = siros_syntax::checked!(PrefixName, "x509_hash");
+const X509_SAN_DNS: PrefixName = siros_syntax::checked!(PrefixName, "x509_san_dns");
 
 /// Why a claim breaks an X.509 prefix's rule (A5).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "x509")]
 pub enum X509Refusal {
     /// The protected header holds no `x5c`.
     #[error("x5c is absent")]
+    #[explain(id = "x5c_absent")]
     X5cAbsent,
     /// `x5c` is no array of strings.
     #[error("x5c is no array of strings")]
+    #[explain(id = "x5c_not_array")]
     X5cNotArray,
     /// `x5c` is empty.
     #[error("x5c is empty")]
+    #[explain(id = "x5c_empty")]
     X5cEmpty,
     /// An item is no base64 (RFC 7515 §4.1.6: base64, not base64url).
-    #[error("x5c item {0} is no base64")]
-    Base64(#[explain(name = "item")] X5cItem),
+    #[error("x5c item {item} is no base64")]
+    #[explain(id = "base64")]
+    Base64 {
+        /// The item.
+        item: X5cItem,
+    },
     /// An item is no DER certificate: x509-cert refuses it, a trailing byte or a non-minimal
     /// length included.
     #[error("x5c item {item} is no DER certificate: {cause}")]
+    #[explain(id = "certificate")]
     Certificate {
         /// The item.
         item: X5cItem,
-        /// der's reason, for the log.
-        #[explain(skip)]
+        /// der's reason.
+        #[source]
         cause: der::Error,
     },
     /// The leaf's key is none [`SpkiKey::key`] reads: an uncompressed point under
     /// id-ecPublicKey and secp256r1, secp384r1 or secp521r1 (RFC 5480 §2.1.1, §2.2), or an
     /// id-Ed25519 or id-Ed448 key (RFC 8410 §3).
     #[error("the leaf's key is no EC or EdDSA public key the wallet reads")]
+    #[explain(id = "key")]
     Key,
     /// The original Client Identifier is no base64url without padding of 32 octets.
-    #[error("x509_hash {0:?} is no base64url SHA-256 hash")]
-    HashSyntax(#[explain(name = "original")] String),
+    #[error("x509_hash {original:?} is no base64url SHA-256 hash")]
+    #[explain(id = "hash_syntax")]
+    HashSyntax {
+        /// The original Client Identifier.
+        original: String,
+    },
     /// The leaf's SHA-256 is another hash than the identifier.
-    #[error("x509_hash {:?} is not the leaf certificate's hash", .0.as_str())]
-    Hash(#[explain(name = "original")] HashText),
+    #[error("x509_hash {:?} is not the leaf certificate's hash", .original.as_str())]
+    #[explain(id = "hash")]
+    Hash {
+        /// The original Client Identifier.
+        original: HashText,
+    },
     /// The original Client Identifier is no DNS name in preferred name syntax (RFC 1034 §3.5).
-    #[error("x509_san_dns {0:?} is no DNS name")]
-    SanSyntax(#[explain(name = "original")] String),
+    #[error("x509_san_dns {original:?} is no DNS name")]
+    #[explain(id = "san_syntax")]
+    SanSyntax {
+        /// The original Client Identifier.
+        original: String,
+    },
     /// No dNSName entry of the leaf's subjectAltName names the DNS name (RFC 5280 §4.2.1.6,
     /// §7.2).
-    #[error("x509_san_dns {:?} is named by no dNSName of the leaf", .0.as_str())]
-    San(#[explain(name = "original")] SanDnsName),
+    #[error("x509_san_dns {:?} is named by no dNSName of the leaf", .original.as_str())]
+    #[explain(id = "san")]
+    San {
+        /// The original Client Identifier.
+        original: SanDnsName,
+    },
     /// The leaf's subjectAltName extension is no DER SubjectAltName, or appears twice (RFC 5280
     /// §4.2).
     #[error("the leaf's subjectAltName is unreadable: {0}")]
-    SubjectAltName(#[explain(skip)] der::Error),
-}
-
-/// The crate's messages: its refusals'.
-pub struct CrateMessages;
-
-impl Messages for CrateMessages {
-    fn messages() -> Vec<Message> {
-        X509Refusal::messages()
-    }
+    #[explain(id = "subject_alt_name")]
+    SubjectAltName(#[source] der::Error),
 }
 
 /// The `x509_hash` prefix: the original Client Identifier is the base64url SHA-256 of the leaf
@@ -125,7 +143,7 @@ pub struct X509Hash;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct X509SanDns;
 
-fn refused(rule: X509Refusal) -> Box<dyn Explained> {
+fn refused(rule: X509Refusal) -> Box<dyn Explain> {
     Box::new(rule)
 }
 
@@ -140,11 +158,13 @@ impl<H> PrefixHost<H> for X509Hash {
         &'c self,
         claim: ClientClaim<'c>,
         _host: &H,
-    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>> {
+    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explain>> {
         let chain = X5c::of(claim.signed().header()).map_err(refused)?;
         let hash = LeafHash::parse(claim.original()).map_err(refused)?;
         if hash != chain.leaf().hash() {
-            return Err(refused(X509Refusal::Hash(hash.text())));
+            return Err(refused(X509Refusal::Hash {
+                original: hash.text(),
+            }));
         }
         let key = chain.leaf().key().map_err(refused)?;
         Ok(Box::new(X509Claim::new(claim, chain, key, Rule::Hash)))
@@ -162,11 +182,11 @@ impl<H> PrefixHost<H> for X509SanDns {
         &'c self,
         claim: ClientClaim<'c>,
         _host: &H,
-    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>> {
+    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explain>> {
         let chain = X5c::of(claim.signed().header()).map_err(refused)?;
         let name = SanDnsName::parse(claim.original()).map_err(refused)?;
         if !name.names(chain.leaf()).map_err(refused)? {
-            return Err(refused(X509Refusal::San(name)));
+            return Err(refused(X509Refusal::San { original: name }));
         }
         let key = chain.leaf().key().map_err(refused)?;
         Ok(Box::new(X509Claim::new(claim, chain, key, Rule::San(name))))

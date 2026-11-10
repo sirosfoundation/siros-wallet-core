@@ -3,7 +3,7 @@
 
 use std::borrow::Cow;
 
-use siros_explain::Text;
+use siros_i18n::Context;
 use siros_openid4vp::authenticate::{
     ClientBinding, ClientClaim, EndpointBasis, PrefixClaim, Unbound,
 };
@@ -13,14 +13,15 @@ use siros_openid4vp::effects::{
 use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::jose::{Skew, VerificationKey};
 use siros_openid4vp::json::{Node, Object};
+use siros_openid4vp::rows::ClaimText;
 use siros_openid4vp::uri::ResponseUri;
 
 use crate::chain::X5c;
 use crate::names::SanDnsName;
 
-const CLIENT_ID: EntityType = siros_explain::checked!(EntityType, "client_id");
-const X5C: EntityType = siros_explain::checked!(EntityType, "x5c");
-const VERIFIER: ActionName = siros_explain::checked!(ActionName, "credential-verifier");
+const CLIENT_ID: EntityType = siros_syntax::checked!(EntityType, "client_id");
+const X5C: EntityType = siros_syntax::checked!(EntityType, "x5c");
+const VERIFIER: ActionName = siros_syntax::checked!(ActionName, "credential-verifier");
 
 /// What vouches for the `response_uri` without `endpoints` in the decision.
 pub(crate) enum Rule {
@@ -126,13 +127,14 @@ impl PrefixClaim for X509Claim<'_> {
         }]
     }
 
-    /// `Permit` binds the leaf's key, the decision's `name` and `facts`; `Deny`, and a context
-    /// outside the vocabulary, bind nothing (A6).
+    /// `Permit` binds the leaf's key, the decision's `name` as written (`ClaimText::Text`) and
+    /// its `facts`; `Deny`, and a context outside the vocabulary, bind nothing (A6).
     fn bind(
         &self,
         decided: Decided<'_>,
         _now: Timestamp,
         _skew: Skew,
+        context: &Context,
     ) -> Result<ClientBinding, Unbound> {
         let permitted = !decided.replies().is_empty()
             && decided
@@ -145,7 +147,14 @@ impl PrefixClaim for X509Claim<'_> {
         let vocabulary = Vocabulary::read(&decided)?;
         Ok(ClientBinding {
             key: self.key.clone(),
-            name: vocabulary.name.map(|name| Text::Raw(name.to_owned())),
+            name: vocabulary
+                .name
+                .map(|name| {
+                    context.resolve(&ClaimText::Text {
+                        value: name.to_owned(),
+                    })
+                })
+                .transpose()?,
             facts: vocabulary.facts.cloned(),
         })
     }

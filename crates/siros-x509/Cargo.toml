@@ -12,6 +12,8 @@ publish = false
 [dependencies]
 siros-openid4vp = { workspace = true, features = ["signed"] }
 siros-explain = { workspace = true }
+siros-syntax = { workspace = true }
+siros-i18n = { workspace = true }
 thiserror = { workspace = true }
 x509-cert = { workspace = true }
 der = { workspace = true }

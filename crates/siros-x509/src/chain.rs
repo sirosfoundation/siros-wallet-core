@@ -9,7 +9,6 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use der::Decode;
 use der::asn1::ObjectIdentifier;
 use sha2::{Digest, Sha256};
-use siros_explain::{Count, IntoArg, kind};
 use siros_openid4vp::jose::{ProtectedHeader, PublicJwk, VerificationKey};
 use siros_openid4vp::json::Node;
 use spki::SubjectPublicKeyInfoOwned;
@@ -32,14 +31,6 @@ impl X5cItem {
     #[must_use]
     pub const fn get(self) -> usize {
         self.0
-    }
-}
-
-impl IntoArg for X5cItem {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.0.arg()
     }
 }
 
@@ -169,7 +160,7 @@ impl ChainCertificate {
         let text = value.as_str().ok_or(X509Refusal::X5cNotArray)?;
         let der = STANDARD
             .decode(text)
-            .map_err(|_| X509Refusal::Base64(item))?;
+            .map_err(|_| X509Refusal::Base64 { item })?;
         let certificate = Certificate::from_der(&der)
             .map_err(|cause| X509Refusal::Certificate { item, cause })?;
         Ok(Self {
