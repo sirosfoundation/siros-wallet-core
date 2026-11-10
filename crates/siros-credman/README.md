@@ -58,7 +58,9 @@ to [`emit`].
 
 | Feature | Default | Enables |
 |---|---|---|
-| `register` | off | `register::write` and `register::RegisterError`, the wallet's writer |
+| `register` | off | `register::write` and `register::RegisterError`, the wallet's writer, and siros-i18n's `nfc` |
+
+The reader and [`emit`] work with siros-i18n built without `nfc`, the matcher's build.
 
 ## Format
 
@@ -151,7 +153,11 @@ names, and no other entry, and loads each into a clone of that context, ascendin
 
 ### Writing
 
-`register::write` writes a [`Base`], whose sources load. It loads each transaction source into a
-clone of the base's context, alone and after the sources of the types before it, and refuses the
-first that does not load (`RegisterError::Transaction`). Every request's context then loads from
-what it writes. A reader checks every rule of a blob it opens, whoever wrote it.
+`register::write` writes a [`Base`], whose sources load. It loads the base's sources again in
+their order, then each transaction source into a clone of that context, alone and after the
+sources of the types before it, each through siros-i18n's `Context::module_in_nfc`. It refuses the
+first base source that holds a name, a variant key or a selector literal outside Unicode
+Normalization Form C (`RegisterError::Source`), then the first transaction source that does not
+load or holds one (`RegisterError::Transaction`). Every request's context then loads from what it
+writes, and a matcher built without siros-i18n's `nfc` resolves it to the texts the wallet
+resolves. A reader checks every rule of a blob it opens, whoever wrote it.
