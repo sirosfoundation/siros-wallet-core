@@ -409,7 +409,14 @@ impl<'e, H: CoreHost> Pending<'e, H> {
     /// The authenticated request. `decide` answers every evaluation of `questions`, once, in
     /// order, and each claim reads the decisions on its own evaluations. Then the first claim, in
     /// the signatures' order, whose binding holds (A6), whose endpoint holds by URI (A12: no
-    /// `response_uri`, or [`PrefixClaim::endpoint`] refusing it), whose signature verifies under
+    #[cfg_attr(
+        feature = "signed",
+        doc = "`response_uri`, or [`PrefixClaim::endpoint`] refusing it), whose signature verifies under"
+    )]
+    #[cfg_attr(
+        not(feature = "signed"),
+        doc = "`response_uri`, or `PrefixClaim::endpoint` refusing it), whose signature verifies under"
+    )]
     /// the bound key (A8), with the Request Object inside its validity (A9) and its `aud` absent
     /// or `https://self-issued.me/v2` (A10). A11 lists each signature's reason when none does. A
     /// refusal carries the route [`Rejected`] describes. The bound claim words the framework's

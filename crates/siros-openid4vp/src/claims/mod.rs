@@ -1,5 +1,12 @@
 //! DCQL claims for the formats that use them: OpenID4VP 1.0 §7 claims path pointers, and the
-//! §6.3-6.4 `claims` and `claim_sets` of a Credential Query. [`kit`] holds what those formats
+#![cfg_attr(
+    feature = "claims",
+    doc = "§6.3-6.4 `claims` and `claim_sets` of a Credential Query. [`kit`] holds what those formats"
+)]
+#![cfg_attr(
+    not(feature = "claims"),
+    doc = "§6.3-6.4 `claims` and `claim_sets` of a Credential Query. `kit`, with the feature `claims`, holds what those formats"
+)]
 //! share beyond matching: the Verifier's algorithms, the card and the rows of a credential, the
 //! elements an option discloses.
 

@@ -178,7 +178,14 @@ dyn_clone::clone_trait_object!(ResponseType);
 /// `names` is a constant: the registry refuses a name another registered part declares
 /// (`RegistryError::NameTwice`) and the names the core writes, `vp_token`, `state`, `error`,
 /// `error_description` and `error_uri` (`RegistryError::NameReserved`). The phase-2 half
-/// [`ResponseParametersHost`] writes members of declared names alone, each name once, for the
+#[cfg_attr(
+    feature = "resolve",
+    doc = "[`ResponseParametersHost`] writes members of declared names alone, each name once, for the"
+)]
+#[cfg_attr(
+    not(feature = "resolve"),
+    doc = "`ResponseParametersHost`, with the feature `resolve`, writes members of declared names alone, each name once, for the"
+)]
 /// response type the request names, each value JSON; the core refuses another name and a name
 /// written twice with a `Fault` caused by `resolve::ParameterBreach`, and writes the members
 /// after `vp_token` and `state`. `siros-testkit`'s `TestResponseParameters` is the double.
@@ -731,7 +738,8 @@ impl EntryNaming {
 /// What a format's request rules read beyond the query (the zkp_req proposal's M4): the request,
 /// its mode, whether transaction data names the query, and the Verifier's `vp_formats_supported`
 /// value for the format. Only `Accepted::new` makes one, from the request's routing, and phase 2
-/// inside an [`AnsweredContext`].
+#[cfg_attr(feature = "resolve", doc = "inside an [`AnsweredContext`].")]
+#[cfg_attr(not(feature = "resolve"), doc = "inside an `AnsweredContext`.")]
 #[derive(Debug, Clone)]
 pub struct QueryContext<'q> {
     request: &'q Request<'q>,

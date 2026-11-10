@@ -284,9 +284,18 @@ pub struct NoHost;
 
 /// A registry's host, which fixes what the registry takes of each plug-in: [`NoHost`] takes
 /// phase 1's [`Format`], [`Profile`] and [`Mode`] in every build; under `resolve`, a host holding
-/// a [`Platform`](crate::host::Platform) takes a plug-in whose phase 2 runs over it
-/// ([`FormatHost`](crate::host::FormatHost), [`ProfileHost`](crate::host::ProfileHost),
-/// [`ModeHost`](crate::routing::ModeHost), [`ErrorModeHost`](crate::routing::ErrorModeHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "a [`Platform`](crate::host::Platform) takes a plug-in whose phase 2 runs over it \
+           ([`FormatHost`](crate::host::FormatHost), [`ProfileHost`](crate::host::ProfileHost), \
+           [`ModeHost`](crate::routing::ModeHost), \
+           [`ErrorModeHost`](crate::routing::ErrorModeHost))."
+)]
+#[cfg_attr(
+    not(feature = "resolve"),
+    doc = "a `Platform` takes a plug-in whose phase 2 runs over it (`FormatHost`, `ProfileHost`, \
+           `ModeHost`, `ErrorModeHost`)."
+)]
 /// The core implements it for those hosts alone.
 pub trait Build: Plugins {}
 
@@ -400,7 +409,14 @@ impl<H: Has<dyn Platform>> Plugins for H {
 }
 
 /// A format the registry of the host `H` takes: a [`Format`] for [`NoHost`]; under `resolve`, a
-/// format whose phase 2 runs over `H` ([`FormatHost`](crate::host::FormatHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "format whose phase 2 runs over `H` ([`FormatHost`](crate::host::FormatHost))."
+)]
+#[cfg_attr(
+    not(feature = "resolve"),
+    doc = "format whose phase 2 runs over `H` (`FormatHost`)."
+)]
 pub trait HostedFormat<H: Build>: 'static {
     /// The format as the registry stores it.
     #[doc(hidden)]
@@ -421,7 +437,14 @@ impl<H: Has<dyn Platform>, F: FormatHost<H> + 'static> HostedFormat<H> for F {
 }
 
 /// A profile the registry of the host `H` takes: a [`Profile`] for [`NoHost`]; under `resolve`,
-/// a profile whose phase 2 runs over `H` ([`ProfileHost`](crate::host::ProfileHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "a profile whose phase 2 runs over `H` ([`ProfileHost`](crate::host::ProfileHost))."
+)]
+#[cfg_attr(
+    not(feature = "resolve"),
+    doc = "a profile whose phase 2 runs over `H` (`ProfileHost`)."
+)]
 pub trait HostedProfile<H: Build>: 'static {
     /// The profile as the registry stores it.
     #[doc(hidden)]
@@ -442,7 +465,14 @@ impl<H: Has<dyn Platform>, P: ProfileHost<H>> HostedProfile<H> for P {
 }
 
 /// A response mode the registry of the host `H` takes: a [`Mode`] for [`NoHost`]; under
-/// `resolve`, a mode whose phase 2 runs over `H` ([`ModeHost`](crate::routing::ModeHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "`resolve`, a mode whose phase 2 runs over `H` ([`ModeHost`](crate::routing::ModeHost))."
+)]
+#[cfg_attr(
+    not(feature = "resolve"),
+    doc = "`resolve`, a mode whose phase 2 runs over `H` (`ModeHost`)."
+)]
 pub trait HostedMode<H: Build>: 'static {
     /// The mode as the registry stores it.
     #[doc(hidden)]
@@ -464,7 +494,11 @@ impl<H: Has<dyn Platform>, M: ModeHost<H> + 'static> HostedMode<H> for M {
 
 /// A response mode the registry of the host `H` takes for a URI route's errors: a [`Mode`] for
 /// [`NoHost`]; under `resolve`, a mode whose error responses run over `H`
-/// ([`ErrorModeHost`](crate::routing::ErrorModeHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "([`ErrorModeHost`](crate::routing::ErrorModeHost))."
+)]
+#[cfg_attr(not(feature = "resolve"), doc = "(`ErrorModeHost`).")]
 pub trait HostedErrorMode<H: Build>: 'static {
     /// The mode as the registry stores it.
     #[doc(hidden)]
@@ -486,7 +520,11 @@ impl<H: Has<dyn Platform>, M: ErrorModeHost<H> + 'static> HostedErrorMode<H> for
 
 /// Parameters of the Authorization Response the registry of the host `H` takes: a
 /// [`ResponseParameters`] for [`NoHost`]; under `resolve`, parameters whose members are written
-/// over `H` ([`ResponseParametersHost`](crate::routing::ResponseParametersHost)).
+#[cfg_attr(
+    feature = "resolve",
+    doc = "over `H` ([`ResponseParametersHost`](crate::routing::ResponseParametersHost))."
+)]
+#[cfg_attr(not(feature = "resolve"), doc = "over `H` (`ResponseParametersHost`).")]
 pub trait HostedResponseParameters<H: Build>: 'static {
     /// The parameters as the registry stores them.
     #[doc(hidden)]

@@ -11,7 +11,14 @@
 //! it revalidates and the response members each format carries.
 //!
 //! The core calls them through these traits only, and in phase 2 through their host
-//! implementations ([`crate::host::FormatHost`], [`crate::host::ProfileHost`]).
+#![cfg_attr(
+    feature = "resolve",
+    doc = "implementations ([`crate::host::FormatHost`], [`crate::host::ProfileHost`])."
+)]
+#![cfg_attr(
+    not(feature = "resolve"),
+    doc = "implementations (`host::FormatHost`, `host::ProfileHost`, with the feature `resolve`)."
+)]
 
 #[cfg(feature = "resolve")]
 mod answered;

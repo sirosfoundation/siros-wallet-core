@@ -2,7 +2,14 @@
 //! `transaction_data_hashes_alg` and the response's `transaction_data_hashes`, one hash per entry
 //! the presentation authorizes, with the algorithm used. The IANA "Named Information Hash
 //! Algorithm Registry" B.3.3.1 names is open, so an algorithm is a plug-in the registry takes
-//! ([`HashAlgorithm`]): phase 1 reads its name, phase 2 its digest. The core's SHA-2
+#![cfg_attr(
+    feature = "transaction-data",
+    doc = "([`HashAlgorithm`]): phase 1 reads its name, phase 2 its digest. The core's SHA-2"
+)]
+#![cfg_attr(
+    not(feature = "transaction-data"),
+    doc = "(`HashAlgorithm`): phase 1 reads its name, phase 2 its digest. The core's SHA-2"
+)]
 //! algorithms (`Sha2`) are peers of any extension's, beside SHA-3, BLAKE2 and KangarooTwelve,
 //! each behind the feature that links its crate (`sha3`, `blake2`, `k12`). [`HashName`] compiles
 //! in every build: the registry's refusals carry it.
