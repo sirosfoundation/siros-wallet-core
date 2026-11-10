@@ -1,7 +1,9 @@
 //! A credential's card from its display metadata: the display entry for the wallet's locales and
 //! the rows of its claims.
 
-use siros_syntax::{Count, Date, DateTime, Decimal, Fraction, Malformed, Offset, Second, Time};
+use siros_syntax::{
+    Count, Date, DateTime, Decimal, Digits, Fraction, Malformed, Offset, Second, Time,
+};
 
 use super::super::{ArrayIndex, Concrete};
 use super::{CardError, ClaimEntry, ClaimsFormat, Display};
@@ -361,7 +363,7 @@ pub(super) fn value_rows(
 ///
 /// # Errors
 ///
-/// [`Malformed`]: a natural number's digits are no count literal, which no JSON number writes.
+/// [`Malformed`]: a natural number's text is no run of ASCII digits, which no JSON number writes.
 fn number_value(text: &str) -> Result<Option<ExactNumber>, Malformed> {
     let Some(Exact {
         negative,
@@ -372,11 +374,7 @@ fn number_value(text: &str) -> Result<Option<ExactNumber>, Malformed> {
         return Ok(None);
     };
     if !negative && scale == 0 {
-        let natural = match digits.trim_start_matches('0') {
-            "" => "0",
-            natural => natural,
-        };
-        return Count::parse(natural).map(|count| Some(ExactNumber::Count(count)));
+        return Digits::parse(&digits).map(|digits| Some(ExactNumber::Count(Count::from(&digits))));
     }
     let Ok(units) = digits.parse::<i128>() else {
         return Ok(None);
