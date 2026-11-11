@@ -127,7 +127,12 @@ fn url_to_params(text: &str) -> Result<serde_json::Value, RequestError> {
             if !matches!(scheme, "openid4vp" | "haip" | "haip-vp" | "mdoc-openid4vp") {
                 return Err(RequestError::NotRecognized);
             }
-            rest.strip_prefix('?').unwrap_or(rest)
+            // The host may precede the query (`openid4vp://cb?request_uri=…`):
+            // the query is everything after the first `?`. The old leading-`?`
+            // strip kept the host inside the first param's NAME
+            // (`cb?request_uri`), so a host'd link parsed as no request_uri
+            // at all - only the host-less `?`-leading form ever worked.
+            rest.split_once('?').map(|(_, query)| query).unwrap_or(rest)
         }
         None => text.strip_prefix('?').unwrap_or(text),
     };
@@ -144,6 +149,16 @@ fn url_to_params(text: &str) -> Result<serde_json::Value, RequestError> {
             );
         }
         return Ok(serde_json::Value::Object(object));
+    }
+    // A scheme form with no query carries neither a request object nor a
+    // request_uri - NOT a bare reference. Falling through to the reference
+    // case sent the engine off to FETCH its own deep-link URI
+    // (`openid4vp://cb`, found on-device: the HTTP port has no typed error
+    // channel, so the scheme refusal surfaced as an internal crash).
+    if text.split_once("://").is_some_and(|(scheme, _)| {
+        matches!(scheme, "openid4vp" | "haip" | "haip-vp" | "mdoc-openid4vp")
+    }) {
+        return Err(RequestError::NotRecognized);
     }
     // A bare reference: the request_uri itself.
     Ok(serde_json::json!({ "request_uri": text }))
@@ -188,6 +203,15 @@ async fn fetch_request_object(
     http: &dyn HttpClient,
     uri: &str,
 ) -> Result<AuthorizationRequest, RequestError> {
+    // The adapter's HTTP port has no typed error channel: any failure on
+    // its side surfaces as an internal error, which is a crash-shaped way
+    // to learn the link was malformed (found on-device: an
+    // `openid4vp://cb` link - no query - reached the bare-reference
+    // fallback below and the engine tried to FETCH the openid4vp:// URI
+    // itself). Refuse here, with the reason, before the port ever sees it.
+    if !uri.starts_with("https://") && !uri.starts_with("http://") {
+        return Err(RequestError::NotRecognized);
+    }
     let response = http
         .send(HttpRequest {
             method: "GET".to_owned(),
@@ -295,7 +319,7 @@ fn parse_general_jws(general: &serde_json::Value) -> Result<AuthorizationRequest
             .and_then(|v| v.as_array())
             .and_then(|chain| chain.first())
             .and_then(|v| v.as_str())
-            .and_then(|cert| decode_base64(cert))
+            .and_then(decode_base64)
             .map(|der| {
                 let jwk = jose_rs::jwk::cert::public_jwk_from_certificate_der(&der)
                     .map_err(|_| RequestError::RequestObjectSignature)?;
@@ -353,17 +377,15 @@ fn parse_general_jws(general: &serde_json::Value) -> Result<AuthorizationRequest
     if value.get("client_id").is_none() {
         if let Some(header_client_id) = verified_client_id {
             if let Some(object) = value.as_object_mut() {
-                object.insert("client_id".to_owned(), serde_json::Value::String(header_client_id));
+                object.insert(
+                    "client_id".to_owned(),
+                    serde_json::Value::String(header_client_id),
+                );
             }
         }
     }
     parse_request_value(&value, true).and_then(|mut request| {
-        validate_scheme_requirements(
-            &request,
-            first_leaf.clone(),
-            attestation_jwt.clone(),
-            "",
-        )?;
+        validate_scheme_requirements(&request, first_leaf.clone(), attestation_jwt.clone(), "")?;
         request.request_jwt = Some(serde_json::to_string(general).unwrap_or_default());
         request.x5c = first_x5c.clone();
         request.attestation_jwt = attestation_jwt.clone();
@@ -379,7 +401,11 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
     // first signature's certificate carries the scheme binding.
     if text.starts_with('{') {
         if let Ok(general) = serde_json::from_str::<serde_json::Value>(text) {
-            if general.get("signatures").and_then(|v| v.as_array()).is_some() {
+            if general
+                .get("signatures")
+                .and_then(|v| v.as_array())
+                .is_some()
+            {
                 return parse_general_jws(&general);
             }
             // A plain-JSON request object (not the general JWS): the
@@ -852,4 +878,60 @@ fn decode_base64url(encoded: &str) -> Option<Vec<u8>> {
         }
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod url_form_tests {
+    use super::url_to_params;
+
+    /// A scheme form with no query carries neither a request object nor a
+    /// request_uri: NOT a bare reference (found on-device - the fallback
+    /// sent the engine to fetch its own `openid4vp://cb` deep link, and the
+    /// HTTP port's untyped scheme refusal crashed the flow).
+    #[test]
+    fn a_query_less_scheme_link_refuses_instead_of_fetching_itself() {
+        assert!(url_to_params("openid4vp://cb").is_err());
+        assert!(url_to_params("haip://").is_err());
+        assert!(url_to_params("mdoc-openid4vp://cb").is_err());
+    }
+
+    #[test]
+    fn a_schemed_link_with_a_query_is_its_params() {
+        let params = url_to_params("openid4vp://cb?request_uri=https%3A%2F%2Fverifier.example%2Fr")
+            .expect("the query form parses");
+        assert_eq!(
+            params.get("request_uri").and_then(|v| v.as_str()),
+            Some("https://verifier.example/r"),
+        );
+    }
+
+    #[test]
+    fn a_bare_urn_reference_stays_the_request_uri() {
+        // The bare-reference arm is the URN form (a direct https URL is
+        // refused by the scheme check above - the pre-existing contract).
+        let params = url_to_params("urn:ietf:params:oauth:request_uri:6fld8j2f")
+            .expect("the bare reference form parses");
+        assert_eq!(
+            params.get("request_uri").and_then(|v| v.as_str()),
+            Some("urn:ietf:params:oauth:request_uri:6fld8j2f"),
+        );
+    }
+
+    #[test]
+    fn a_direct_https_url_refuses_here_not_the_bare_reference() {
+        // The doc comment's "direct https URL" never reached this arm: the
+        // scheme check refuses it. Pinning the pre-existing behavior the
+        // new guard must not disturb.
+        assert!(url_to_params("https://verifier.example/request-object").is_err());
+    }
+
+    #[test]
+    fn a_raw_query_string_is_its_params() {
+        let params = url_to_params("request_uri=https%3A%2F%2Fv%2Fr&client_id=verifier")
+            .expect("the raw query form parses");
+        assert_eq!(
+            params.get("client_id").and_then(|v| v.as_str()),
+            Some("verifier"),
+        );
+    }
 }
