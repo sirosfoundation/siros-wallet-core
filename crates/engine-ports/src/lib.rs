@@ -762,6 +762,16 @@ pub struct EvaluationResponse {
     pub trusted: bool,
     /// The PDP's decision text, when there is one.
     pub decision: Option<String>,
+    /// The PDP's response `context` object, verbatim as JSON, when it
+    /// carried one (go-trust's `EvaluationResponseContext`: trust_metadata,
+    /// verifier_ids, …). Absent otherwise - NOT a default, so a PDP that
+    /// never sends one needs no change. The recognised member today is
+    /// `display_name` (a registry's own human-facing name for the
+    /// subject - see sirosfoundation/go-trust#N and trust.rs's consumer):
+    /// it overrides the verifier's display name. Uninterpreted
+    /// everywhere else - the SDK reads what it needs.
+    #[serde(default)]
+    pub context: Option<serde_json::Value>,
 }
 
 /// The resolve request (the `/v1/resolve` shape).

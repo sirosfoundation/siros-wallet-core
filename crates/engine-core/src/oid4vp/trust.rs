@@ -265,6 +265,23 @@ pub async fn evaluate_verifier_trust(
     verifier.trusted = response.trusted;
     verifier.reason = response.decision.clone().unwrap_or_default();
 
+    // A registry's own human-facing name for the subject (go-trust's
+    // response `context.display_name`, when a registry carries one - most
+    // do not, which is why the member is optional): it overrides the
+    // verifier's display name, the label a consent UI renders. Rides
+    // VerifierInfo.name to the wallet's match ask - the SDK's label chain
+    // (client_name → domain → client_id) prefers whatever arrives here
+    // when the metadata carried no client_name.
+    if let Some(display_name) = response
+        .context
+        .as_ref()
+        .and_then(|c| c.get("display_name"))
+        .and_then(|v| v.as_str())
+        .filter(|n| !n.is_empty())
+    {
+        verifier.name = display_name.to_owned();
+    }
+
     if !response.trusted {
         let reason = if verifier.reason.is_empty() {
             "verifier not trusted".to_owned()

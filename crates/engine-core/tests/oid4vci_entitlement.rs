@@ -220,6 +220,7 @@ impl Pdp for ScriptedPdp {
         Ok(engine_ports::EvaluationResponse {
             trusted: true,
             decision: None,
+                context: None,
         })
     }
 
@@ -415,6 +416,7 @@ async fn the_trust_refusal_wins_over_the_entitlement_refusal() {
             Ok(engine_ports::EvaluationResponse {
                 trusted: false,
                 decision: None,
+                context: None,
             })
         }
         async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {

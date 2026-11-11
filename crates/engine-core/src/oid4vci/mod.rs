@@ -1443,6 +1443,7 @@ mod auth_code_flow_tests {
             Ok(EvaluationResponse {
                 trusted: true,
                 decision: None,
+                context: None,
             })
         }
         async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {
@@ -1842,6 +1843,7 @@ mod renewal_flow_tests {
             Ok(EvaluationResponse {
                 trusted: true,
                 decision: None,
+                context: None,
             })
         }
         async fn resolve(&self, _r: ResolveRequest) -> Result<ResolveResponse, PdpError> {

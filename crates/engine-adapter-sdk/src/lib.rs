@@ -918,6 +918,12 @@ pub struct EvaluationResponse {
     pub trusted: bool,
     /// The decision text, when there is one.
     pub decision: Option<String>,
+    /// The PDP's response context, verbatim JSON text when it carried one
+    /// (go-trust's `EvaluationResponseContext` - `display_name`, …). The
+    /// recognised member today is `display_name` (a registry's own
+    /// human-facing name for the subject), consumed by the wallet's consent
+    /// surfaces; uninterpreted elsewhere.
+    pub context: Option<String>,
 }
 
 impl From<EvaluationResponse> for engine_ports::EvaluationResponse {
@@ -925,6 +931,9 @@ impl From<EvaluationResponse> for engine_ports::EvaluationResponse {
         Self {
             trusted: r.trusted,
             decision: r.decision,
+            context: r
+                .context
+                .and_then(|text| serde_json::from_str(&text).ok()),
         }
     }
 }

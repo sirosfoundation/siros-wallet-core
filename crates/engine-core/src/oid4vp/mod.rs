@@ -214,6 +214,7 @@ impl FlowHandler for Oid4vpFlow {
                     }),
                 )
                 .await;
+            let mut error_redirect: Option<String> = None;
             if !unsatisfied.is_empty() || auth_req.dcql_query.is_some() {
                 // The Digital Credentials API channel: the error
                 // returns through the browser like the success answer —
@@ -236,20 +237,33 @@ impl FlowHandler for Oid4vpFlow {
                         flow_type: params.flow_type.clone(),
                     });
                 }
-                let _ = response::submit_error_response(
+                // The error answer, captured: the direct modes POST it (the
+                // Go engine's verifierRefusedDescription - the verifier
+                // must not tell a refusal from an empty wallet apart);
+                // the redirect modes BUILD the return URL instead, and that
+                // URL rides the completion as `redirect_uri` - the wallet
+                // UI's back-to-verifier link (found on-device: the no-match
+                // refusal left the user stranded in the wallet while the
+                // verifier showed "wallet declined"). Absent on direct_post
+                // errors - the POST's 200 answer carries any redirect the
+                // wallet would need separately, and a verifier that wants
+                // no return-link simply omits it.
+                let submitted = response::submit_error_response(
                     ctx.http().as_ref(),
                     &auth_req,
                     "access_denied",
-                    // The same description as the decline: the verifier
-                    // must not tell a refusal from an empty wallet apart
-                    // (the Go engine's verifierRefusedDescription).
                     "The wallet did not fulfil the request",
                     ctx.clock().now_unix(),
                 )
                 .await;
+                error_redirect = submitted.ok().filter(|r| r.starts_with("http"));
             }
             let _ = ctx
-                .complete(&serde_json::json!({ "matched": false, "refused": true }))
+                .complete(&serde_json::json!({
+                    "matched": false,
+                    "refused": true,
+                    "redirect_uri": error_redirect,
+                }))
                 .await;
             return Ok(FlowStartResult {
                 wmp: wmp_core::types::Metadata::default(),
