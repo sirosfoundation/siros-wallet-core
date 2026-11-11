@@ -28,12 +28,13 @@ impl HttpClient for OneShotHttp {
 #[tokio::test]
 async fn the_gdc_flow_core_link_parses() {
     let object =
-        std::fs::read_to_string("/tmp/opencode/reqobj").expect("the fetched request object");
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gdc-repro/reqobj"))
+        .expect("the fetched request object");
     let http = OneShotHttp {
         body: object,
         hits: Mutex::new(0),
     };
-    let link = std::fs::read_to_string("/tmp/opencode/link.txt")
+    let link = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gdc-repro/link.txt"))
         .expect("the link")
         .trim()
         .to_owned();
