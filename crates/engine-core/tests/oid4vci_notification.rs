@@ -153,7 +153,7 @@ impl Pdp for TrustedPdp {
         Ok(EvaluationResponse {
             trusted: true,
             decision: None,
-                context: None,
+            context: None,
         })
     }
     async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {

@@ -220,7 +220,7 @@ impl Pdp for ScriptedPdp {
         Ok(engine_ports::EvaluationResponse {
             trusted: true,
             decision: None,
-                context: None,
+            context: None,
         })
     }
 

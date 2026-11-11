@@ -37,7 +37,7 @@ impl Pdp for RecordingPdp {
         Ok(EvaluationResponse {
             trusted: true,
             decision: Some("in the registry".to_owned()),
-                context: None,
+            context: None,
         })
     }
 

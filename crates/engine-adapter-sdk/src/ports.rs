@@ -323,7 +323,9 @@ impl engine_ports::Pdp for PdpBridge {
                 decision: answer.decision,
                 // The FFI record carries the context as JSON text (the
                 // UniFFI convention): parse it into the ports' Value here.
-                context: answer.context.and_then(|text| serde_json::from_str(&text).ok()),
+                context: answer
+                    .context
+                    .and_then(|text| serde_json::from_str(&text).ok()),
             })
             .map_err(pdp_error)
     }

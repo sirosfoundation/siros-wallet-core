@@ -931,9 +931,7 @@ impl From<EvaluationResponse> for engine_ports::EvaluationResponse {
         Self {
             trusted: r.trusted,
             decision: r.decision,
-            context: r
-                .context
-                .and_then(|text| serde_json::from_str(&text).ok()),
+            context: r.context.and_then(|text| serde_json::from_str(&text).ok()),
         }
     }
 }
