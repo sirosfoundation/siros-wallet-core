@@ -64,6 +64,31 @@ re-rank freely; the tiers are proposals.
    The wire plumbing (wallet-core's `EvaluationResponse.context` → both SDKs)
    is done; the source is a small go-trust change. **[2026-11-12] In flight.**
    https://github.com/sirosfoundation/go-trust/issues/249
+   **[2026-11-12, late] The implementation (go-trust#255, closing #249) will
+   ALSO add `display_name_l10n` — a map of language-tag → string — alongside
+   `display_name`. The consumption plan, mapped to the code:**
+   - **The arrival needs no engine change**: the PDP client relays go-trust's
+     `context` verbatim (`engine-adapter-server/src/ports.rs:513`), so the map
+     rides `EvaluationResponse.context` automatically once go-trust sends it.
+   - **But the pick point drops it today**:
+     `engine-core/src/oid4vp/trust.rs:275` collapses `context.display_name`
+     into the single-string `verifier.name` (`VerifierInfo.name`, the match
+     ask's label) — the map is lost right there, and the engine cannot pick a
+     locale entry anyway because it never learns the wallet's device locale.
+   - **Engine change (wallet-core, next release)**: `VerifierInfo` gains an
+     optional `display_name_l10n` map member, populated in `trust.rs` from
+     `context.display_name_l10n` verbatim; `display_name` → `name` stays the
+     default so old wallets see today's behaviour unchanged.
+   - **Kotlin SDK**: the match-ask verifier parsing (`handleWmpMatchRequest`
+     → the `TrustResult(entityName = label)` construction) prefers the
+     locale-matching entry: exact `Locale.getDefault().toLanguageTag()` →
+     language-only → case-insensitive tag → `display_name` → today's label
+     chain.
+   - **Swift SDK**: the twin, `Locale.current.identifier`, in the match
+     handler's TrustResult construction.
+   - Not in scope: the legacy wallet-backend PDP's own context (`entity_name`
+     keys — `TrustResolution`/`MdocTrust`/`DCAPI` read those) is a different
+     wire shape from a different source.
 4. **The #549 protocol decision — the one gate on the multi-credential epic.**
    **[2026-11-12] DECIDED and recorded on #549:** the flow-start subset
    (`credential_configuration_ids`, absent = all) + the `credentials[]`
