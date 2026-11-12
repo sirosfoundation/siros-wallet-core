@@ -90,10 +90,29 @@ re-rank freely; the tiers are proposals.
    the nym_auth credential before the doctype check runs — `format=zkp_req
    vct=null doctype=eu.europa.ec.eudi.nym_auth.1 → 0 matches`. The legacy
    engine path works because its own matcher passes the `CircuitZkSupport`.
-   The fix is one parameter (the WMP path's match call gains the
-   `circuitZk` support), plus the Swift twin; then the consent/signing
-   legs of the zkp_req WMP flow need the same audit (the DC API path's
-   pattern at SirosWallet.kt:10598 is the template).
+   **[2026-11-12, night] The match half is FIXED and on-device** (`fix/wmp-session-recovery`
+   @ 44ba225f): `handleWmpMatchRequest` now passes the `circuitZk` support and the
+   payload's `client_metadata` to `matchDcql` (the same wiring every other call
+   site had). On-device verified: the nym_auth presentation now matches, the
+   consent ask appears, and the flow reaches the sign step.
+
+   **The remaining two halves, with a precise on-device signature:**
+   the flow now fails at sign with `vp ask: disclosedClaims=[] → vp sign:
+   consentedClaims=null → DisclosureRefusedException` —
+   1. The consent ask carries `claims=[]` (a zkp_req match result has
+      `requestedClaims = emptyList()`), so the UI words nothing — it needs
+      the circuit's proof description (what the verifier learns), which the
+      DC API path renders through `answerCircuitZkQueries`'
+      `PresentationConsentHandler`.
+   2. The sign step's `consentedClaims=null` means "disclose everything",
+      which the ZK wrapper refuses — a zkp_req presentation must disclose
+      exactly the circuit's declared inputs. The sign step needs the
+      ZK-wrapped presentation (`zkPresentation.present`, the DC API path's
+      shape), not the plain DeviceResponse.
+   The template for both: the DC API path's `answerCircuitZkQueries`
+   pipeline (SirosWallet.kt:5449) — prepared plans, verifier-id resolution,
+   the CircuitZkPresenter, per-query consent — adapted to the WMP
+   transport's shapes. The Swift twin follows.
 6. **Consent-set hardening** — the shared-query-in-unselected-option and the
    multi-element-option misattribution edges, against the consent UX that
    just shipped.
