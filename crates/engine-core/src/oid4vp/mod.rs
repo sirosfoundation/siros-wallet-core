@@ -417,6 +417,34 @@ impl FlowHandler for Oid4vpFlow {
                 // OpenID4x 3.2.3.1): the answer's correlation rides
                 // back so the transport's ask matches its answer.
                 selection_handle: match_result.handle.clone(),
+                // The request as the engine verified it: the wallet's ZK
+                // policy gate (signed + encrypted response), the JARM aud
+                // (the certificate's client_id, never the audience), the
+                // response mode. Absent for a request the engine did not
+                // verify — the wallet's policy then refuses, which is the
+                // correct answer for an unauthenticated request.
+                verified_request: if !auth_req.client_id.is_empty() {
+                    Some(engine_ports::VpVerifiedRequest {
+                        client_id: auth_req.client_id.clone(),
+                        client_id_scheme: auth_req.client_id_scheme.name().to_owned(),
+                        response_mode: auth_req.response_mode.as_str().to_owned(),
+                        response_uri: auth_req.response_uri.clone(),
+                        signed: auth_req.request_jwt.is_some() && auth_req.x5c.is_some(),
+                        request_jwt: auth_req.request_jwt.clone(),
+                    })
+                } else {
+                    None
+                },
+                // The response encryption parameters: the verifier's JWK
+                // when the response mode is direct_post.jwt (the wallet's
+                // JARM), absent for the plain modes.
+                response_encryption: auth_req.verifier_jwk.clone().map(|jwk| {
+                    engine_ports::VpResponseEncryption {
+                        jwk,
+                        alg: "RSA-OAEP".to_owned(),
+                        enc: "A256GCM".to_owned(),
+                    }
+                }),
             })
             .await
         {
