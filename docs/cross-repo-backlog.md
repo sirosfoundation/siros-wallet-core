@@ -29,8 +29,8 @@ re-rank freely; the tiers are proposals.
    Nothing stored while the UI reports success; silent data loss the moment the
    engine emits batches (i.e. the moment multi-credential issuance lands).
    The Kotlin twin is fixed in code (`SirosWallet.kt`'s entry-by-entry batch
-   store) — the fix is a mirror. Kotlin's issue **#398 is fixed-but-unclosed**
-   and should be closed with it.
+   store) — the fix is a mirror. **[2026-11-12] Kotlin #398 closed as
+   fixed-in-code; the Swift mirror is siros-sdk-swift#282, in CI.**
    https://github.com/sirosfoundation/siros-sdk-swift/issues/276
 2. **The GDC remote validation round.** The re-pinned released engine + the
    0.25.2 backend have not been exercised from a device since the re-pin, and
@@ -42,7 +42,7 @@ re-rank freely; the tiers are proposals.
    verifier-label chain shipped in the consent surfaces consumes it as its
    first link; until it exists, every consent ask shows the client_name.
    The wire plumbing (wallet-core's `EvaluationResponse.context` → both SDKs)
-   is done; the source is a small go-trust change.
+   is done; the source is a small go-trust change. **[2026-11-12] In flight.**
    https://github.com/sirosfoundation/go-trust/issues/249
 4. **The #549 spec edit — the one decision gating four repos.** The multi-
    credential wire contract (subset-at-flow-start `credential_configuration_ids`
