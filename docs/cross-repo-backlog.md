@@ -45,11 +45,14 @@ re-rank freely; the tiers are proposals.
    The wire plumbing (wallet-core's `EvaluationResponse.context` → both SDKs)
    is done; the source is a small go-trust change. **[2026-11-12] In flight.**
    https://github.com/sirosfoundation/go-trust/issues/249
-4. **The #549 spec edit — the one decision gating four repos.** The multi-
-   credential wire contract (subset-at-flow-start `credential_configuration_ids`
-   + the `credentials[]` completion) is decided in conversation; it needs to be
-   decided in `websocket-protocol-spec.md`. Everything on
-   Platform-Epics#63 waits on it.
+4. **The #549 protocol decision — the one gate on the multi-credential epic.**
+   **[2026-11-12] DECIDED and recorded on #549:** the flow-start subset
+   (`credential_configuration_ids`, absent = all) + the `credentials[]`
+   completion are the WMP wire mechanism; select-vs-issue-all is an
+   engine/SDK-level configuration defaulting to issue-all; and the
+   go-wallet-backend engine module (the legacy WebSocket protocol) is
+   **explicitly out of scope** — #549 is the decision record, the
+   implementation is wallet-core#28 (WMP), with the SDK legs unblocked.
    https://github.com/sirosfoundation/go-wallet-backend/issues/549
 
 ## P1 — next two weeks
