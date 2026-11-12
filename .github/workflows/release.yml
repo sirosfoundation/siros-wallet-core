@@ -123,6 +123,27 @@ jobs:
             -DpomFile="$POM" \
             -Dfile="$AAR" \
             -Dpackaging=aar
+      # Central alongside GitHub Packages: the consumer-facing registry,
+      # readable without a token (GitHub Packages authenticates every
+      # read, even on public packages). The central-publish action is
+      # siros-sdk-kotlin's - the same one the SDK's native crates
+      # (siros-dc-matcher, zk-cred-*, ...) publish through.
+      - name: Publish AAR to Maven Central
+        uses: sirosfoundation/siros-sdk-kotlin/.github/actions/central-publish@734063a7d874bb1cb79ebca7e7f642143694ee40
+        with:
+          artifact-id: siros-wallet-core
+          version: ${{ env.PKG_VERSION }}
+          file: target/siros-wallet-core-${{ env.PKG_VERSION }}.aar
+          pom: target/siros-wallet-core-${{ env.PKG_VERSION }}.pom
+          sources-dir: .
+          name: siros-wallet-core
+          description: The SIROS wallet engine - UniFFI bindings and the native library for Android
+          url: https://github.com/sirosfoundation/siros-wallet-core
+          central-username: ${{ secrets.CENTRAL_USERNAME }}
+          central-password: ${{ secrets.CENTRAL_PASSWORD }}
+          signing-key: ${{ secrets.SIGNING_KEY }}
+          signing-password: ${{ secrets.SIGNING_PASSWORD }}
+
       - uses: actions/upload-artifact@v7
         with:
           name: aar
