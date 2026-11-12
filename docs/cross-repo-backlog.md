@@ -33,12 +33,31 @@ re-rank freely; the tiers are proposals.
    fixed-in-code; the Swift mirror merged as siros-sdk-swift#282 (both batch
    tests green, 1766-test suite green) and #276 closed with it.**
    https://github.com/sirosfoundation/siros-sdk-swift/issues/276
-2. **The GDC remote validation round.** The re-pinned released engine + the
-   0.25.2 backend have not been exercised from a device since the re-pin, and
-   0.25.2 just unblocked the tenant-mint/remote-failover flow that 401'd
-   before it. One hour with a device closes the release train with evidence:
-   tenant mint, a consent ask (expect `client_name` — see go-trust#249), a
-   no-match presentation (the redirect), cross-device.
+2. **The GDC remote validation round.** **[2026-11-12] DONE — and it found
+   four real bugs that only a live device round could surface:**
+   - The SDK's remote engine bearer took the legacy HMAC app token instead
+     of the AS's pseudonymous tenant token (the engine's asymmetric-only
+     gate refused it before even fetching the JWKS — fixed: a tenant-mode
+     engine always mints the tenant kind, siros-sdk-kotlin `fix/wmp-session-recovery`)
+   - The engine's principal read the AS's `tenant` claim, but the AS stamps
+     `tenant_id` — every real AS token produced an empty tenant, and a
+     tenant-mode principal with no tenant has an empty ownership key
+     (fixed: wallet-core#32, released as v0.2.3, re-pinned)
+   - The wallet's resume loop exhausted on "Session not found" (the TTL
+     lapsed) and left the wallet stranded on a dead session — every later
+     flow start landed on it and the engine answered "Capability not
+     supported" (fixed: the resume exhaustion falls back to a fresh
+     session create, siros-sdk-kotlin `fix/wmp-session-recovery`)
+   - The wallet-proxy's nginx spoke HTTP/1.0 to the engine's SSE — the
+     first event arrived, every subsequent one was lost in the encoding
+     mismatch (fixed: `proxy_http_version 1.1` + `Connection ''`, sirosid-dev)
+   After all four: the tenant mint works (0.25.2 proven), the session
+   connects (v0.2.3 proven), the cross-device presentation works for both
+   the matching case (consent popup → noun-phrase claims → signed share →
+   completion clears the UI) and the no-match case (decline reaches the
+   verifier, the wallet shows the denial, the UI clears). The consent
+   surfaces show `client_name` (go-trust#249's `display_name` is still
+   in flight).
 3. **go-trust#249 — the registry `display_name` is never emitted.** The
    verifier-label chain shipped in the consent surfaces consumes it as its
    first link; until it exists, every consent ask shows the client_name.
