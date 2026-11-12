@@ -81,6 +81,19 @@ re-rank freely; the tiers are proposals.
    local disconnect + attestation ask, Kotlin's WMP match UX.
    Kotlin https://github.com/sirosfoundation/siros-sdk-kotlin/issues/399 ·
    Swift https://github.com/sirosfoundation/siros-sdk-swift/issues/277
+
+   **[2026-11-12, evening] P0-2 follow-up — the zkp_req match gap is now
+   root-caused on-device** (the GDC round's nym_auth test): the WMP
+   `handleWmpMatchRequest` path calls `CredentialMatcher.match` WITHOUT
+   the `circuitZk` support, so every `zkp_req` query falls through to
+   `matchSingleQuery`, whose format filter (`format == "mso_mdoc"`) rejects
+   the nym_auth credential before the doctype check runs — `format=zkp_req
+   vct=null doctype=eu.europa.ec.eudi.nym_auth.1 → 0 matches`. The legacy
+   engine path works because its own matcher passes the `CircuitZkSupport`.
+   The fix is one parameter (the WMP path's match call gains the
+   `circuitZk` support), plus the Swift twin; then the consent/signing
+   legs of the zkp_req WMP flow need the same audit (the DC API path's
+   pattern at SirosWallet.kt:10598 is the template).
 6. **Consent-set hardening** — the shared-query-in-unselected-option and the
    multi-element-option misattribution edges, against the consent UX that
    just shipped.
