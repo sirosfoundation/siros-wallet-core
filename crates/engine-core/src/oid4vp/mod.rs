@@ -439,11 +439,24 @@ impl FlowHandler for Oid4vpFlow {
                 // when the response mode is direct_post.jwt (the wallet's
                 // JARM), absent for the plain modes.
                 response_encryption: auth_req.verifier_jwk.clone().map(|jwk| {
-                    engine_ports::VpResponseEncryption {
-                        jwk,
-                        alg: "RSA-OAEP".to_owned(),
-                        enc: "A256GCM".to_owned(),
-                    }
+                    // The verifier's jwk object itself may carry the JARM
+                    // parameters; the OID4VP spec puts them in the
+                    // client_metadata's jwks, but the jwk member is the
+                    // wallet's actual input. Fall back to the spec's
+                    // defaults rather than guessing from key type (the
+                    // wallet's BlindPresentation checks these against its
+                    // own capabilities anyway).
+                    let alg = jwk
+                        .get("alg")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("RSA-OAEP")
+                        .to_owned();
+                    let enc = jwk
+                        .get("enc")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("A256GCM")
+                        .to_owned();
+                    engine_ports::VpResponseEncryption { jwk, alg, enc }
                 }),
             })
             .await
