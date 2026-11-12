@@ -109,10 +109,27 @@ re-rank freely; the tiers are proposals.
       exactly the circuit's declared inputs. The sign step needs the
       ZK-wrapped presentation (`zkPresentation.present`, the DC API path's
       shape), not the plain DeviceResponse.
-   The template for both: the DC API path's `answerCircuitZkQueries`
-   pipeline (SirosWallet.kt:5449) — prepared plans, verifier-id resolution,
-   the CircuitZkPresenter, per-query consent — adapted to the WMP
-   transport's shapes. The Swift twin follows.
+   **[2026-11-12, night] The WMP zkp sign pipeline is IMPLEMENTED and on-device**
+   (`fix/wmp-session-recovery`): the WMP `sign_presentation` arm routes
+   `zkp_req` queries through `answerWmpCircuitZkPresentation` — a port of the
+   legacy transport's `handleCircuitZkEngineSignPresentation` that runs the
+   shared `answerCircuitZkQueries` pipeline (the plan's consent wording,
+   verifier-id resolution, the CircuitZkPresenter). The on-device trace:
+   match succeeds ✓ → consent ask fires ✓ → the ZK sign pipeline runs ✓ →
+   **refuses at `ZkpReqPolicy.refusalStep` with `step=unsigned-request`**.
+
+   **The remaining gap is ENGINE-SIDE**: `VpParams` (the Rust engine's
+   `request_vp` host port) doesn't carry `verified_request` (the engine's
+   verified, signed request object) or `response_encryption` (the verifier's
+   response encryption key) — both of which the wallet's ZK policy gate
+   requires ("the engine verified the request's signature AND the response
+   channel is encrypted"). The legacy Go engine relays both on its
+   sign_presentation; the Rust engine's `VpParams` struct
+   (engine-ports/src/lib.rs:413) has neither. The fix: add both to
+   `VpParams`, populate them from the OID4VP request parsing in the engine's
+   oid4vp flow, thread them through the host bridge — then a wallet-core
+   release → engine re-deploy → the SDK picks them up from the WMP sign
+   sub-flow's params. The Swift twin follows.
 6. **Consent-set hardening** — the shared-query-in-unselected-option and the
    multi-element-option misattribution edges, against the consent UX that
    just shipped.
