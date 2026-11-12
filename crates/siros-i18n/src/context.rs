@@ -145,7 +145,7 @@ impl Context {
         self.locale.as_ref()
     }
 
-    /// The message's id worded by the context's modules, over the arguments the wording reads:
+    /// The message's id worded by the context's modules, over the arguments the wording names:
     /// each argument's text is its value's `Display`, its key asked for as the wording spells it,
     /// in NFC with `nfc`.
     ///
@@ -165,13 +165,14 @@ impl Context {
     }
 
     /// The wallet's completeness test: every error and statement the binary links has a
-    /// wording that reads only its arguments. It reads the rows the derives register under
+    /// wording that names only its arguments, in its `.input` declarations and in each variable
+    /// no declaration binds. It reads the rows the derives register under
     /// `check` (siros-explain's for errors, this crate's for statements).
     ///
     /// # Errors
     ///
     /// The first of [`CheckError::Repeated`] for two rows of one id, [`CheckError::Unworded`]
-    /// for a row no module words, and [`CheckError::Unknown`] for a wording that reads an
+    /// for a row no module words, and [`CheckError::Unknown`] for a wording that names an
     /// argument its row lacks, each over the rows in the order of their ids.
     #[cfg(feature = "check")]
     pub fn check(&self) -> Result<(), CheckError> {
@@ -195,11 +196,7 @@ impl Context {
             worded.push((id, keys, found));
         }
         for (id, keys, found) in worded {
-            if let Some(key) = found
-                .reads()
-                .into_iter()
-                .find(|key| !keys.iter().any(|k| k == key))
-            {
+            if let Some(key) = found.arguments().find(|key| !keys.iter().any(|k| k == key)) {
                 return Err(CheckError::Unknown {
                     id: (*id).to_owned(),
                     key: key.to_owned(),

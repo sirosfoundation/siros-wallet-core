@@ -358,16 +358,6 @@ impl<'m> Chain<'m> {
         self.inner.last().map_or(self.outer, |call| call).function
     }
 
-    /// The variables that give the calls' options a value at resolution.
-    pub(crate) fn variables(&self) -> impl Iterator<Item = &'m str> {
-        self.calls()
-            .flat_map(|call| &call.options)
-            .filter_map(|option| match &option.value {
-                Value::Variable(name) => Some(&**name),
-                Value::Literal(_) | Value::Bound(_) => None,
-            })
-    }
-
     /// The calls' resolved options, each option's text by `text`: `u:dir` parsed, `u:id`
     /// dropped. `misnamed` is the error of a `u:dir` that names no direction.
     fn texts_by<'s, E>(

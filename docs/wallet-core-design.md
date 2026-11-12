@@ -4230,7 +4230,7 @@ sources and equal arguments give equal digests (I31). PaSO's `display_locale` an
 makes each derive register a row, its id and its argument keys, through inventory: errors in
 siros-explain's collection, statements in siros-i18n's. `Context::check()` returns the first of
 `CheckError::Repeated { id }`, two rows of one id (two crates chose one scope); `Unworded { id }`,
-a row no module words; `Unknown { id, key }`, a pattern that reads a variable its row lacks. The
+a row no module words; `Unknown { id, key }`, a message that names an argument its row lacks. The
 wallet's one test loads its sources for each locale it ships and calls `check`. Shipping builds
 leave `check` off, so the table exists in test builds alone. The rows survive into a rustc-linked
 test binary, whose synthetic object keeps `#[used]` statics.
@@ -4392,7 +4392,7 @@ The fixes that close a guarantee hole:
   name twice, or one the core writes, when it builds.
 - **Names of arguments.** A message could name an argument twice, and a pattern could read an
   argument no message gives, each found when a text was shown. An argument is a named field, which
-  Rust keeps distinct, and `Context::check` refuses a pattern that reads an argument its row lacks.
+  Rust keeps distinct, and `Context::check` refuses a message that names an argument its row lacks.
 
 The 8 boundaries:
 

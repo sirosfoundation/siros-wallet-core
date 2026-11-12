@@ -24,12 +24,14 @@ use crate::scope::Scope;
 use crate::text::{Style, Text, Writer};
 
 /// A message, compiled: its module's direction, its declared calls, the variables of those its
-/// options read, each after those its own value reads, and its body.
+/// options read, each after those its own value reads, the keys of the arguments it names, and
+/// its body.
 #[derive(Debug, Clone)]
 pub(crate) struct Compiled {
     direction: Direction,
     declared: Declared,
     read: Vec<Box<str>>,
+    arguments: Box<[Box<str>]>,
     body: Body,
 }
 
@@ -112,8 +114,8 @@ enum Bound<'a> {
 }
 
 /// The compilation of one message: the context's formats, how the load holds selector literals,
-/// what each declared variable stands for, the declared calls, and the variables of those
-/// options read.
+/// what each declared variable stands for, the declared calls, the variables of those options
+/// read, and the keys of the arguments the message names.
 struct Compiler<'c, 'a> {
     formats: &'c Formats,
     hold: Hold,
@@ -121,6 +123,7 @@ struct Compiler<'c, 'a> {
     declared: Declared,
     reading: FxHashSet<&'a str>,
     read: Vec<Box<str>>,
+    arguments: Vec<Box<str>>,
 }
 
 /// Compiles a message of a module whose direction is `direction`, each literal a selector
@@ -152,6 +155,7 @@ pub(crate) fn compile<'a>(
         declared: Declared::with_capacity(calls),
         reading: FxHashSet::default(),
         read: Vec::new(),
+        arguments: Vec::new(),
     };
     for declaration in declarations {
         compiler.declare(declaration)?;
@@ -168,15 +172,24 @@ pub(crate) fn compile<'a>(
         direction,
         declared: compiler.declared,
         read: compiler.read,
+        arguments: compiler.arguments.into(),
         body,
     })
 }
 
 impl<'a> Compiler<'_, 'a> {
+    /// Holds `key` as an argument the message names.
+    fn argument(&mut self, key: &str) {
+        if self.arguments.iter().all(|held| **held != *key) {
+            self.arguments.push(key.into());
+        }
+    }
+
     /// Holds what a declaration's variable stands for, and its call.
     fn declare(&mut self, declaration: &'a ast::Declaration<'_>) -> Result<(), Fault> {
         let (name, bound) = match declaration {
             ast::Declaration::Input { name, function } => {
+                self.argument(name);
                 if let Some(function) = function {
                     let link = Link {
                         operand: Operand::Argument(name.as_ref().into()),
@@ -210,20 +223,22 @@ impl<'a> Compiler<'_, 'a> {
     }
 
     /// What an operand stands for: a literal; what its variable's declaration binds; or its
-    /// variable, which no declaration binds.
-    fn bound(&self, operand: &'a ast::Operand<'_>) -> Bound<'a> {
+    /// variable, which no declaration binds: an argument the message names.
+    fn bound(&mut self, operand: &'a ast::Operand<'_>) -> Bound<'a> {
         match operand {
             ast::Operand::Literal(text) => Bound::Literal(text),
-            ast::Operand::Variable(name) => self
-                .bound
-                .get(name.as_ref())
-                .copied()
-                .unwrap_or(Bound::Variable(name)),
+            ast::Operand::Variable(name) => match self.bound.get(name.as_ref()).copied() {
+                Some(bound) => bound,
+                None => {
+                    self.argument(name);
+                    Bound::Variable(name)
+                }
+            },
         }
     }
 
     /// What an expression's call applies to.
-    fn operand(&self, expression: &'a ast::Expression<'_>) -> Operand {
+    fn operand(&mut self, expression: &'a ast::Expression<'_>) -> Operand {
         match expression {
             ast::Expression::Function(_) => Operand::None,
             ast::Expression::Operand { operand, .. } => match self.bound(operand) {
@@ -499,55 +514,9 @@ impl Compiled {
         Ok(writer.finish())
     }
 
-    /// The keys of the arguments the message's placeholders and selectors read, through their
-    /// operands and their options' variables.
-    pub(crate) fn arguments(&self) -> FxHashSet<&str> {
-        fn placeholders(pattern: &Pattern) -> impl Iterator<Item = &Site> {
-            pattern.iter().filter_map(|part| match part {
-                Part::Placeholder(site) => Some(site),
-                Part::Text(_) | Part::Open(_) | Part::Close(_) => None,
-            })
-        }
-        let mut pending: Vec<crate::chain::Chain<'_>> = match &self.body {
-            Body::Pattern(pattern) => placeholders(pattern)
-                .map(|site| self.declared.site(site))
-                .collect(),
-            Body::Select(select) => select
-                .selectors
-                .iter()
-                .map(|selector| self.declared.variable(&selector.variable))
-                .chain(
-                    select
-                        .variants
-                        .iter()
-                        .flat_map(|variant| placeholders(&variant.pattern))
-                        .chain(placeholders(&select.fallback))
-                        .map(|site| self.declared.site(site)),
-                )
-                .collect(),
-        };
-        let mut followed: FxHashSet<&str> = FxHashSet::default();
-        let mut reads: FxHashSet<&str> = FxHashSet::default();
-        while let Some(chain) = pending.pop() {
-            if let crate::chain::Root::Argument(key) = chain.root {
-                reads.extend([key]);
-            }
-            for name in chain.variables() {
-                match self.declared.call(name) {
-                    Some(link) if followed.insert(name) => pending.push(self.declared.chain(link)),
-                    Some(_) => {}
-                    None => reads.extend([name]),
-                }
-            }
-        }
-        reads
-    }
-
-    /// [`Self::arguments`], sorted.
-    #[cfg(feature = "check")]
-    pub(crate) fn reads(&self) -> Vec<&str> {
-        let mut reads: Vec<&str> = self.arguments().into_iter().collect();
-        reads.sort_unstable();
-        reads
+    /// The keys of the arguments the message names: each `.input` declaration's, and each
+    /// variable no declaration binds.
+    pub(crate) fn arguments(&self) -> impl Iterator<Item = &str> {
+        self.arguments.iter().map(|key| &**key)
     }
 }

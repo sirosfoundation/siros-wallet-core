@@ -127,7 +127,7 @@ All notable changes to this workspace. The format follows
   to a given text, and `Context::bidi` takes the app's bidi strategy.
 - siros-i18n's `check` feature is the wallet's one completeness test: each
   derive registers its id and argument names, and `Context::check` refuses an
-  id two crates share, an id no source words and a pattern that reads an
+  id two crates share, an id no source words and a message that names an
   argument its row lacks.
 - `siros-i18n-derive`: `#[derive(Message)]` on a statement, its id under the crate's scope and
   its named fields as arguments. A repeated id fails the build; under `check` each id registers a

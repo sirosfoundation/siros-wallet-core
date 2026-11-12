@@ -428,8 +428,8 @@ pub enum CheckError {
         /// The id.
         id: String,
     },
-    /// A message's wording reads an argument its row lacks.
-    #[error("the wording of {id} reads {key}, which its row lacks")]
+    /// A message's wording names an argument its row lacks.
+    #[error("the wording of {id} names {key}, which its row lacks")]
     #[explain(id = "check.unknown")]
     Unknown {
         /// The id.
