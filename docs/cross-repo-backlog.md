@@ -29,8 +29,9 @@ re-rank freely; the tiers are proposals.
    Nothing stored while the UI reports success; silent data loss the moment the
    engine emits batches (i.e. the moment multi-credential issuance lands).
    The Kotlin twin is fixed in code (`SirosWallet.kt`'s entry-by-entry batch
-   store) — the fix is a mirror. **[2026-11-12] Kotlin #398 closed as
-   fixed-in-code; the Swift mirror is siros-sdk-swift#282, in CI.**
+   store) — the fix is a mirror. **[2026-11-12] DONE: Kotlin #398 closed as
+   fixed-in-code; the Swift mirror merged as siros-sdk-swift#282 (both batch
+   tests green, 1766-test suite green) and #276 closed with it.**
    https://github.com/sirosfoundation/siros-sdk-swift/issues/276
 2. **The GDC remote validation round.** The re-pinned released engine + the
    0.25.2 backend have not been exercised from a device since the re-pin, and
