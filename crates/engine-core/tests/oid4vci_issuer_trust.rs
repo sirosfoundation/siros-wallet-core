@@ -55,6 +55,7 @@ impl Pdp for CapturingPdp {
         Ok(EvaluationResponse {
             trusted: true,
             decision: Some("test".to_owned()),
+            context: None,
         })
     }
 

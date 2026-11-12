@@ -495,7 +495,7 @@ impl Pdp for BackendProxyPdp {
             )));
         }
         // The AuthZEN response: {decision, context} — the engine's
-        // EvaluationResponse {trusted, decision}.
+        // EvaluationResponse {trusted, decision, context}.
         let answer: serde_json::Value = response
             .json()
             .await
@@ -510,6 +510,9 @@ impl Pdp for BackendProxyPdp {
                 .or_else(|| answer.pointer("/context/reason/message"))
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned),
+            // The PDP's context, verbatim — display_name (the registry's own
+            // name for the subject) rides it to the verifier info.
+            context: answer.get("context").cloned(),
         })
     }
 

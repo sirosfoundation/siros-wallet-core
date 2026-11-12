@@ -36,6 +36,7 @@ impl Pdp for FakePdp {
         Ok(engine_ports::EvaluationResponse {
             trusted: self.trusted,
             decision: self.reason.clone(),
+            context: None,
         })
     }
 

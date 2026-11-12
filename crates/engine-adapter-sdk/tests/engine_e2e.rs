@@ -159,6 +159,7 @@ impl Pdp for TrustingPdp {
         Ok(EvaluationResponse {
             trusted: true,
             decision: Some("the dev PDP trusts everything".to_owned()),
+            context: None,
         })
     }
 
