@@ -56,23 +56,23 @@ pub trait Derive {
     /// its own id comes from [`id`] and [`identified`].
     fn shape(path: Tokens, name: &Ident, attrs: &[Attribute], fields: &Fields) -> Result<Shape>;
 
-    /// The where-predicates the impl takes before its arguments' `Display` bounds.
+    /// The where-predicates the impl takes before its arguments' `Arg` bounds.
     fn bounds(_input: &DeriveInput) -> Vec<WherePredicate> {
         Vec::new()
     }
 
-    /// The impl's items, given the body of `id` and the body of `args`. `args` reads its callback
-    /// as `__arg`.
-    fn methods(id: &Tokens, args: &Tokens) -> Tokens;
+    /// The impl's items, given the body of `id` and the body of `arg`. `arg` reads its key as
+    /// `__key`.
+    fn methods(id: &Tokens, arg: &Tokens) -> Tokens;
 }
 
-/// One struct or variant: its arm of `id`, its arm of `args`, the bounds its fields need, and the
+/// One struct or variant: its arm of `id`, its arm of `arg`, the bounds its fields need, and the
 /// items its id adds.
 pub struct Shape {
     /// The arm of the `id` match.
     pub id: Tokens,
-    /// The arm of the `args` match.
-    pub args: Tokens,
+    /// The arm of the `arg` match.
+    pub arg: Tokens,
     /// The where-predicates its fields need.
     pub bounds: Vec<WherePredicate>,
     /// The items beside the impl: the marker macro and the row.
@@ -112,17 +112,17 @@ pub fn expand<D: Derive>(input: &DeriveInput) -> Result<Tokens> {
     predicates.extend(D::bounds(input));
     predicates.extend(shapes.iter().flat_map(|shape| shape.bounds.iter().cloned()));
     let (impl_generics, _, where_clause) = generics.split_for_impl();
-    let (id, args) = if shapes.is_empty() {
+    let (id, arg) = if shapes.is_empty() {
         (quote!(match *self {}), quote!(match *self {}))
     } else {
         let ids = shapes.iter().map(|shape| &shape.id);
-        let args = shapes.iter().map(|shape| &shape.args);
+        let args = shapes.iter().map(|shape| &shape.arg);
         (
             quote!(match self { #(#ids,)* }),
             quote!(match self { #(#args,)* }),
         )
     };
-    let methods = D::methods(&id, &args);
+    let methods = D::methods(&id, &arg);
     let krate = Ident::new(D::CRATE, Span::call_site());
     let implemented = Ident::new(D::TRAIT, Span::call_site());
     let items = shapes.iter().map(|shape| &shape.items);
@@ -187,13 +187,14 @@ pub fn id<D: Derive>(attrs: &[Attribute]) -> Result<Option<LitStr>> {
 
 /// The struct or variant at `path` with its own `id`, whose named fields are its arguments.
 ///
-/// Its `id` arm is `crate::__siros_scope!(<D::SCOPE> "<id>")`. Each argument gives its `Display`
-/// under its name; an `Option<T>` field gives `""` for `None`. Its items are the id's marker macro,
-/// which a second use of the id in the crate collides with (E0428), and its row through
-/// `::<D::CRATE>::__row!`.
+/// Its `id` arm is `crate::__siros_scope!(<D::SCOPE> "<id>")`. Its `arg` arm gives the field a
+/// key names; an `Option<T>` field gives its value, and `""` for `None`. Its items are the id's
+/// marker macro, which a second use of the id in the crate collides with (E0428), and its row
+/// through `::<D::CRATE>::__row!`.
 pub fn identified<D: Derive>(path: &Tokens, id: &LitStr, fields: &Fields) -> Result<Shape> {
+    let krate = Ident::new(D::CRATE, Span::call_site());
     let mut bindings = Vec::new();
-    let mut statements = Vec::new();
+    let mut arms = Vec::new();
     let mut bounds = Vec::new();
     let mut keys = Vec::new();
     for (index, (member, field)) in fields.members().zip(fields).enumerate() {
@@ -201,19 +202,19 @@ pub fn identified<D: Derive>(path: &Tokens, id: &LitStr, fields: &Fields) -> Res
             continue;
         };
         let local = format_ident!("__field{}", index);
-        statements.push(match option(&field.ty) {
+        arms.push(match option(&field.ty) {
             Some(held) => {
-                bounds.push(display(held));
+                bounds.push(arg::<D>(held));
                 quote! {
-                    match #local {
-                        ::core::option::Option::Some(__value) => __arg(#key, __value),
-                        ::core::option::Option::None => __arg(#key, &""),
-                    }
+                    #key => ::core::option::Option::Some(match #local {
+                        ::core::option::Option::Some(__value) => __value as &dyn ::#krate::Arg,
+                        ::core::option::Option::None => &"" as &dyn ::#krate::Arg,
+                    })
                 }
             }
             None => {
-                bounds.push(display(&field.ty));
-                quote!(__arg(#key, #local))
+                bounds.push(arg::<D>(&field.ty));
+                quote!(#key => ::core::option::Option::Some(#local as &dyn ::#krate::Arg))
             }
         });
         bindings.push(quote!(#member: #local));
@@ -222,10 +223,19 @@ pub fn identified<D: Derive>(path: &Tokens, id: &LitStr, fields: &Fields) -> Res
     let scope = Ident::new(D::SCOPE, Span::call_site());
     let scoped = quote!(crate::__siros_scope!(#scope #id));
     let marker = marker::<D>(id);
-    let krate = Ident::new(D::CRATE, Span::call_site());
+    let arg = if arms.is_empty() {
+        quote!(#path { .. } => ::core::option::Option::None)
+    } else {
+        quote! {
+            #path { #(#bindings,)* .. } => match __key {
+                #(#arms,)*
+                _ => ::core::option::Option::None,
+            }
+        }
+    };
     Ok(Shape {
         id: quote!(#path { .. } => #scoped),
-        args: quote!(#path { #(#bindings,)* .. } => { #(#statements;)* }),
+        arg,
         bounds,
         items: quote! {
             #marker
@@ -292,9 +302,11 @@ fn option(ty: &Type) -> Option<&Type> {
     }
 }
 
-/// `ty: Display`, spanned at `ty`, so an argument without `Display` is refused there (E0277).
-fn display(ty: &Type) -> WherePredicate {
-    parse_quote_spanned!(ty.span()=> #ty: ::core::fmt::Display)
+/// `ty: <D::CRATE>::Arg`, spanned at `ty`, so an argument without `Display` is refused there
+/// (E0277).
+fn arg<D: Derive>(ty: &Type) -> WherePredicate {
+    let krate = Ident::new(D::CRATE, Span::call_site());
+    parse_quote_spanned!(ty.span()=> #ty: ::#krate::Arg)
 }
 
 /// The macro a second use of `id` in the crate collides with (E0428): `D::MARKER` and the id's

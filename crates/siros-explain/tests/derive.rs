@@ -1,8 +1,9 @@
 //! What `#[derive(Explain)]` gives, by the rules siros-explain states: the scoped id, each named
-//! field's `Display` under its name, `""` for `None`, no causes or skipped fields, a transparent
-//! error's field's id and arguments, and a boxed error's. A `#[backtrace]` field has no fixture:
+//! field under its name, `""` for `None`, no causes or skipped fields, a transparent error's
+//! field's id and arguments, and a boxed error's. A `#[backtrace]` field has no fixture:
 //! thiserror implements `Error::provide` for it, which the stable toolchain refuses (E0658).
 
+use std::any::Any;
 use std::error::Error;
 use std::fmt::Debug;
 
@@ -60,6 +61,13 @@ struct Beyond<T: Debug> {
     limit: Option<T>,
 }
 
+/// Every field name of the fixtures, as a key: an error gives an argument under those of its
+/// arguments alone.
+const NAMES: [&str; 12] = [
+    "mode", "type", "r#type", "at", "secret", "cause", "source", "length", "refused", "value",
+    "limit", "0",
+];
+
 /// An error, the id it gives, and the arguments it gives, each a key and a value's `Display`.
 type Row<'e> = (
     &'e dyn Explain,
@@ -111,23 +119,30 @@ fn a_derived_error_gives_its_id_and_its_arguments() {
             &[("value", "12"), ("limit", "10")],
         ),
     ];
+    let given = |error: &dyn Explain| -> Vec<(&'static str, String)> {
+        NAMES
+            .into_iter()
+            .filter_map(|name| Some((name, error.arg(name)?.to_string())))
+            .collect()
+    };
     for (error, id, args) in rows {
-        let mut given = Vec::new();
-        error.args(&mut |key, value| given.push((key, value.to_string())));
         let args: Vec<_> = args
             .iter()
             .map(|&(key, value)| (key, value.to_owned()))
             .collect();
-        assert_eq!((error.id(), given), (id, args), "{error:?}");
+        assert_eq!((error.id(), given(error)), (id, args), "{error:?}");
     }
 
     let unbounded = Beyond::<u8> {
         value: 3,
         limit: None,
     };
-    let mut given = Vec::new();
-    unbounded.args(&mut |key, value| given.push((key, value.to_string())));
-    assert_eq!(given, [("value", "3".to_owned()), ("limit", String::new())]);
+    assert_eq!(
+        given(&unbounded),
+        [("value", "3".to_owned()), ("limit", String::new())]
+    );
+    let value: &dyn Any = unbounded.arg("value").expect("the field `value`");
+    assert!(value.is::<u8>(), "an argument's value is its field");
 
     let boxed: Box<dyn Explain> = Box::new(bytes());
     assert_eq!(
