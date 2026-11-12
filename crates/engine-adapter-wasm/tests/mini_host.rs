@@ -94,6 +94,8 @@ async fn the_issued_mdl_verifies_under_the_issuer_key() {
             origin: String::new(),
             // The mini host has no transport handle.
             selection_handle: None,
+            verified_request: None,
+            response_encryption: None,
         })
         .await
         .expect("the mDL presents");
