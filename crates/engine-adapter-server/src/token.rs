@@ -266,8 +266,18 @@ impl TokenValidator {
         let claims_json = claims.to_json_vec().map_err(|_| TokenError::Parse)?;
         let claims_value: serde_json::Value =
             serde_json::from_slice(&claims_json).map_err(|_| TokenError::Parse)?;
+        // The AS's own claim name is `tenant_id` (go-wallet-backend's
+        // AccessTokenClaims serialises TenantID with that tag); `tenant` is
+        // the generic spelling some issuers use, accepted as a fallback.
+        // Reading only `tenant` left the principal's tenant empty against
+        // the real AS, and a tenant-mode principal with no tenant has an
+        // empty ownership key - session create then refused EVERY token as
+        // "Not authorized" (found on-device against the GDC released
+        // engine: the mint worked, the validation passed, the session
+        // still died; the hand-minted probe with `tenant` sailed through).
         let tenant = claims_value
-            .get("tenant")
+            .get("tenant_id")
+            .or_else(|| claims_value.get("tenant"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_owned();

@@ -179,3 +179,98 @@ async fn no_as_configured_trusts_the_bearer() {
         .expect("the dev engine trusts the bearer");
     assert_eq!(validated.subject, "any-bearer-at-all");
 }
+
+/// The AS's OWN claim spelling: go-wallet-backend's AccessTokenClaims
+/// serialises its tenant as `tenant_id` (the Go struct's json tag), not
+/// `tenant`. Reading only `tenant` left the principal's tenant empty
+/// against the real AS, and a tenant-mode principal with no tenant has an
+/// empty ownership key — session create then refused every token "Not
+/// authorized" (found on-device against the GDC released engine: the mint
+/// succeeded, the validation passed, the session still died).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_as_own_tenant_claim_name_is_read() {
+    let private = jose_rs::jwk::generate::generate_ec("P-256").expect("key");
+    let jwks: &'static str = Box::leak(jwks_of(&private).into_boxed_str());
+    let base = serve_jwks(jwks).await;
+
+    let exp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() + 3600)
+        .unwrap_or_default();
+    // The AS's exact claim set: the registered claims plus `tenant_id` and
+    // `tac` under their Go json tags.
+    let claims = serde_json::json!({
+        "iss": base,
+        "sub": "p-hand-minted",
+        "aud": ["wallet-engine"],
+        "exp": exp,
+        "iat": exp - 3600,
+        "jti": "jti-1",
+        "tenant_id": "default",
+        "tac": "ri",
+        "acr": "passkey",
+    });
+    let mut header = jose_rs::header::JoseHeader::new("ES256");
+    header.typ = Some("at+jwt".to_owned());
+    header.kid = Some("key-1".to_owned());
+    let mut private_key = private.clone();
+    private_key.alg = Some("ES256".to_owned());
+    let claims: jose_rs::jwt::Claims =
+        serde_json::from_value(claims).expect("the custom claims parse as Claims");
+    let token =
+        jose_rs::jwt::encode_with_jwk(&private_key, &header, &claims).expect("the token signs");
+
+    let config = Config {
+        as_external_url: base,
+        ..Config::default()
+    };
+    let validator = TokenValidator::from_config(&config);
+    let validated = validator.validate(&token).expect("the token validates");
+    assert_eq!(
+        validated.tenant, "default",
+        "the AS's tenant_id claim is the principal's tenant"
+    );
+    assert_eq!(validated.tac, "ri");
+    assert_eq!(validated.jti, "jti-1");
+}
+
+/// The generic `tenant` spelling still works — the fallback, for issuers
+/// that spell it that way (the conformance suites' hand-minted tokens).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_generic_tenant_claim_name_still_reads() {
+    let private = jose_rs::jwk::generate::generate_ec("P-256").expect("key");
+    let jwks: &'static str = Box::leak(jwks_of(&private).into_boxed_str());
+    let base = serve_jwks(jwks).await;
+
+    let exp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() + 3600)
+        .unwrap_or_default();
+    let claims = serde_json::json!({
+        "iss": base,
+        "sub": "p-generic",
+        "aud": "wallet-engine",
+        "exp": exp,
+        "tenant": "acme",
+    });
+    let mut header = jose_rs::header::JoseHeader::new("ES256");
+    header.typ = Some("at+jwt".to_owned());
+    header.kid = Some("key-1".to_owned());
+    let mut private_key = private.clone();
+    private_key.alg = Some("ES256".to_owned());
+    let claims: jose_rs::jwt::Claims =
+        serde_json::from_value(claims).expect("the custom claims parse as Claims");
+    let token =
+        jose_rs::jwt::encode_with_jwk(&private_key, &header, &claims).expect("the token signs");
+
+    let config = Config {
+        as_external_url: base,
+        ..Config::default()
+    };
+    let validator = TokenValidator::from_config(&config);
+    let validated = validator.validate(&token).expect("the token validates");
+    assert_eq!(
+        validated.tenant, "acme",
+        "the generic spelling remains accepted"
+    );
+}
