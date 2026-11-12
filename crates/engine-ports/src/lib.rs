@@ -404,6 +404,54 @@ pub struct MatchResult {
     pub handle: Option<String>,
 }
 
+/// The OpenID4VP request as the engine VERIFIED it (the wallet's
+/// `verified_request` on a sign ask — go-wallet-backend#471's shape): the
+/// client_id the certificate authenticated, the scheme, the response
+/// mode. The wallet's ZK policy gate reads `signed` + `response_mode` to
+/// decide whether the request's identity is proven before a proof is
+/// generated, and the JARM `aud` comes from `client_id`, never the sign
+/// ask's `audience`. Absent for a request the engine did not verify.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VpVerifiedRequest {
+    /// The client_id the request object's certificate authenticated (the
+    /// first VERIFIED signature's, for a multi-signed object).
+    #[serde(default)]
+    pub client_id: String,
+    /// The client_id scheme (x509_san_dns, x509_san_uri, x509_hash,
+    /// redirect_uri, did, …) as the engine inferred it.
+    #[serde(default)]
+    pub client_id_scheme: String,
+    /// The response mode (direct_post, direct_post.jwt, …).
+    #[serde(default)]
+    pub response_mode: String,
+    /// The response URI the engine validated (the JARM POST endpoint).
+    #[serde(default)]
+    pub response_uri: String,
+    /// Whether the request object's signature was verified (an x5c chain
+    /// whose leaf's key verified the request's RFC 9052 Sig_structure).
+    #[serde(default)]
+    pub signed: bool,
+    /// The raw request JWT (the signed request object, when present).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_jwt: Option<String>,
+}
+
+/// The verifier's response encryption parameters (the wallet's
+/// `response_encryption` on a sign ask): the JWK for direct_post.jwt's
+/// JARM, the wrapping algorithm and the content encryption algorithm.
+/// Absent for a plain (unencrypted) response mode.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VpResponseEncryption {
+    /// The verifier's JWK (the `jwks` the request's metadata carried).
+    pub jwk: serde_json::Value,
+    /// The JARM key wrapping algorithm (RSA-OAEP, ECDH-ES, …).
+    #[serde(default)]
+    pub alg: String,
+    /// The content encryption algorithm (A128GCM, A256GCM, …).
+    #[serde(default)]
+    pub enc: String,
+}
+
 /// The presentation the engine asks the host to construct and sign:
 /// the VP token for the selected credentials. The wallet's
 /// presentation formats (mdoc, SD-JWT, ZK) and its key custody live in
@@ -447,6 +495,19 @@ pub struct VpParams {
     /// interpreted. Absent when the transport has no handle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selection_handle: Option<String>,
+    /// The request as the engine verified it — the wallet's ZK policy
+    /// gate and JARM `aud` need the CERTIFICATE-authenticated client_id,
+    /// the scheme, the response mode, and whether the signature was
+    /// verified. Absent for a request the engine did not verify (the
+    /// wallet's ZK policy refuses — found on-device: every zkp_req
+    /// presentation on the WMP transport died at unsigned-request).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_request: Option<VpVerifiedRequest>,
+    /// The response encryption parameters (the verifier's JWK for
+    /// direct_post.jwt). Absent for a plain response mode — the wallet
+    /// then builds an unencrypted VP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_encryption: Option<VpResponseEncryption>,
 }
 
 /// The presentation answer.

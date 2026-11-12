@@ -138,6 +138,8 @@ fn the_handle_rides_the_wire_as_an_absent_member_when_there_is_none() {
         transaction_data: Vec::new(),
         origin: String::new(),
         selection_handle: answer.handle,
+        verified_request: None,
+        response_encryption: None,
     };
     let wire: serde_json::Value = serde_json::to_value(&params).expect("the ask serialises");
     assert!(
