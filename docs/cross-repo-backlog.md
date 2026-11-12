@@ -130,6 +130,13 @@ re-rank freely; the tiers are proposals.
    oid4vp flow, thread them through the host bridge — then a wallet-core
    release → engine re-deploy → the SDK picks them up from the WMP sign
    sub-flow's params. The Swift twin follows.
+
+   **[2026-11-12, midnight] ALL THREE LAYERS MERGED AND BUILDING.**
+   - Engine: wallet-core **#33** merged, tagged **v0.2.4**, release running.
+   - Kotlin SDK: **#404** merged (all five fixes). The device runs the merged build.
+   - Swift SDK: **#283** merged (the session recovery). The Swift zkp match
+     and sign pipeline are the remaining #277 work.
+   After the v0.2.4 engine deploy: the nym_auth test should run end-to-end.
 6. **Consent-set hardening** — the shared-query-in-unselected-option and the
    multi-element-option misattribution edges, against the consent UX that
    just shipped.
