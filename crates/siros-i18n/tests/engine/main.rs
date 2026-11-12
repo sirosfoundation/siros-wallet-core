@@ -12,9 +12,7 @@ mod refusals;
 mod statements;
 mod text;
 
-use std::fmt::Display;
-
-use siros_i18n::Message;
+use siros_i18n::{Arg, Message};
 
 siros_i18n::scope!("fixture");
 
@@ -47,10 +45,11 @@ impl Message for Given {
         self.id
     }
 
-    fn args(&self, arg: &mut dyn FnMut(&str, &dyn Display)) {
-        for (key, text) in &self.args {
-            arg(key, text);
-        }
+    fn arg(&self, key: &str) -> Option<&dyn Arg> {
+        self.args
+            .iter()
+            .find(|(given, _)| *given == key)
+            .map(|(_, text)| text as &dyn Arg)
     }
 }
 

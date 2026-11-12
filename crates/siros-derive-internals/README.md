@@ -31,11 +31,11 @@ impl Derive for Note {
         identified::<Self>(&path, &id, fields)
     }
 
-    fn methods(id: &TokenStream, args: &TokenStream) -> TokenStream {
+    fn methods(id: &TokenStream, arg: &TokenStream) -> TokenStream {
         quote! {
             fn id(&self) -> &str { #id }
-            fn args(&self, __arg: &mut dyn ::core::ops::FnMut(&str, &dyn ::core::fmt::Display)) {
-                #args
+            fn arg(&self, __key: &str) -> ::core::option::Option<&dyn ::notes::Arg> {
+                #arg
             }
         }
     }
@@ -60,15 +60,16 @@ expand::<Note>(&input)?;
     `#[<ATTRIBUTE>(skip)]`, or one `Derive::left_out` names, stays out. A field `Derive::left_out`
     refuses fails the build with its error. A tuple field that is an argument is refused: "an
     argument is a named field: name it".
-  - An argument gives its `Display`; the impl bounds its type by `Display`, so a type without
-    `Display` fails there (E0277). A field spelled `Option<T>`, `std::option::Option<T>` or
-    `core::option::Option<T>` gives its value when `Some` and `""` when `None`, bounding `T`.
+  - A key gives its field as `&dyn ::<CRATE>::Arg`; the impl bounds the field's type by
+    `::<CRATE>::Arg`, so a type without `Display` fails there (E0277). A field spelled
+    `Option<T>`, `std::option::Option<T>` or `core::option::Option<T>` gives its value when
+    `Some` and `""` when `None`, bounding `T`.
   - Per id, a `#[macro_export]` marker macro named `<MARKER><text>`: the id's ASCII letters and
     digits as written, every other byte `_` and two hexadecimal digits. A second use of the id in
     the crate collides with it (E0428).
   - Per id, `::<CRATE>::__row!(<id>, [<keys>])`, the row the `check` feature registers.
 - [`expand`] writes `impl ::<CRATE>::<TRAIT>` with the type's generics and where-clause,
-  `Derive::bounds`, then each argument's bound, and `Derive::methods` given the `id` and `args`
+  `Derive::bounds`, then each argument's bound, and `Derive::methods` given the `id` and `arg`
   match bodies.
 
 The tests of siros-explain and siros-i18n, and the doc examples of the derive crates, reach every

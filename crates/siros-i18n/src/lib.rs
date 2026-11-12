@@ -120,7 +120,7 @@ pub use error::{CheckError, FormatRule, LoadError, Refusal, ResolveError, Syntax
 pub use escape::escape;
 pub use locale::{InvalidTag, LocaleTag};
 pub use message::Message;
-pub use siros_explain::scope;
+pub use siros_explain::{Arg, scope};
 #[cfg(feature = "derive")]
 pub use siros_i18n_derive::Message;
 pub use text::{Span, Style, Styles, Text};

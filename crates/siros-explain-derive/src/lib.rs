@@ -34,17 +34,17 @@ use syn::{
 /// - Each struct, and each variant of an enum, carries `#[explain(id = "…")]`, any non-empty text,
 ///   or thiserror's `#[error(transparent)]`. Its id is `err.<scope>.<text>`, the scope being the
 ///   one the crate's `siros_explain::scope!` names.
-/// - A transparent error has one field, which implements `Explain`: `id` and `args` are the
+/// - A transparent error has one field, which implements `Explain`: `id` and `arg` are the
 ///   field's.
 /// - A named field is an argument under its name (`r#` dropped). A field marked `#[source]`,
 ///   `#[from]`, `#[backtrace]` or `#[explain(skip)]`, or named `source`, is no argument. A tuple
 ///   field must be one of these. A field spelled `r#source` is refused: thiserror takes the field
 ///   spelled `source` as the error's source.
-/// - An argument's value is its `Display`. A field whose type is spelled `Option<T>` gives its
+/// - An argument's value is the field. A field whose type is spelled `Option<T>` gives its
 ///   value when `Some`, and `""` when `None`.
 /// - An id names one error of its crate: a second use fails the build (E0428).
 /// - The impl keeps the type's generics and where-clause, and adds `Self: Error + Send + Sync +
-///   'static`, `T: Display` for each argument of type `T` or `Option<T>`, and `T: Explain` for a
+///   'static`, `T: Arg` for each argument of type `T` or `Option<T>`, and `T: Explain` for a
 ///   transparent field of type `T`.
 /// - In a build with siros-explain's `check`, each id registers its row: the id and its arguments'
 ///   keys.
@@ -449,23 +449,23 @@ impl Derive for Explain {
         }]
     }
 
-    fn methods(id: &Tokens, args: &Tokens) -> Tokens {
+    fn methods(id: &Tokens, arg: &Tokens) -> Tokens {
         quote! {
             fn id(&self) -> &'static str {
                 #id
             }
 
-            fn args(
+            fn arg(
                 &self,
-                __arg: &mut dyn ::core::ops::FnMut(&'static str, &dyn ::core::fmt::Display),
-            ) {
-                #args
+                __key: &str,
+            ) -> ::core::option::Option<&dyn ::siros_explain::Arg> {
+                #arg
             }
         }
     }
 }
 
-/// A transparent error, which forwards `id` and `args` to its one field.
+/// A transparent error, which forwards `id` and `arg` to its one field.
 fn forwarded(path: &Tokens, name: &Ident, fields: &Fields) -> Result<Shape> {
     let mut members = fields.members().zip(fields);
     let (Some((member, field)), None) = (members.next(), members.next()) else {
@@ -484,7 +484,7 @@ fn forwarded(path: &Tokens, name: &Ident, fields: &Fields) -> Result<Shape> {
     let pattern = quote!(#path { #member: __field, .. });
     Ok(Shape {
         id: quote!(#pattern => ::siros_explain::Explain::id(__field)),
-        args: quote!(#pattern => ::siros_explain::Explain::args(__field, __arg)),
+        arg: quote!(#pattern => ::siros_explain::Explain::arg(__field, __key)),
         bounds: vec![parse_quote_spanned!(ty.span()=> #ty: ::siros_explain::Explain)],
         items: Tokens::new(),
     })

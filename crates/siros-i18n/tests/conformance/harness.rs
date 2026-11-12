@@ -1,10 +1,9 @@
 //! One suite test: its message loaded as the one message of a module in the test's locale, after
 //! the CLDR tool's format module of its language, and resolved over its params.
 
-use std::fmt::Display;
-
 use serde_json::Value as Json;
-use siros_i18n::{Bidi, LoadError, Message, Refusal, ResolveError, SyntaxRule};
+use siros_i18n::{Arg, Bidi, LoadError, Message, Refusal, ResolveError, SyntaxRule};
+use unicode_normalization::UnicodeNormalization as _;
 
 use crate::cldr;
 
@@ -16,7 +15,8 @@ pub enum Outcome {
 
 const ID: &str = "conformance.message";
 
-/// The test's params: each name and its value's text, a JSON number as written.
+/// The test's params: each name in NFC, as a message by hand names its keys, and its value's
+/// text, a JSON number as written.
 struct Params(Vec<(String, String)>);
 
 impl Message for Params {
@@ -24,10 +24,11 @@ impl Message for Params {
         ID
     }
 
-    fn args(&self, arg: &mut dyn FnMut(&str, &dyn Display)) {
-        for (name, text) in &self.0 {
-            arg(name, text);
-        }
+    fn arg(&self, key: &str) -> Option<&dyn Arg> {
+        self.0
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, text)| text as &dyn Arg)
     }
 }
 
@@ -38,7 +39,7 @@ fn param(json: &Json) -> Result<(String, String), String> {
         Json::Number(number) => number.to_string(),
         other => return Err(format!("a param of JSON {other}")),
     };
-    Ok((name.to_owned(), text))
+    Ok((name.nfc().collect(), text))
 }
 
 /// The resource entry of a message: every character the resource format would trim or read as

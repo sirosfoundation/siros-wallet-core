@@ -400,13 +400,13 @@ pub enum ResolveError {
         /// The option.
         option: String,
     },
-    /// The message gives the key twice, or a value whose `Display` fails.
-    #[error("{id} gives the argument {key} twice, or a value that does not display")]
+    /// The message gives a value whose `Display` fails.
+    #[error("{id} gives the argument {key} a value that does not display")]
     #[explain(id = "resolve.argument")]
     Argument {
         /// The message's id.
         id: String,
-        /// The argument's key, as the build compares it: in NFC with the feature `nfc`.
+        /// The argument's key, as the wording spells it: in NFC with the feature `nfc`.
         key: String,
     },
 }
@@ -428,8 +428,8 @@ pub enum CheckError {
         /// The id.
         id: String,
     },
-    /// A message's wording reads an argument its row lacks.
-    #[error("the wording of {id} reads {key}, which its row lacks")]
+    /// A message's wording names an argument its row lacks.
+    #[error("the wording of {id} names {key}, which its row lacks")]
     #[explain(id = "check.unknown")]
     Unknown {
         /// The id.

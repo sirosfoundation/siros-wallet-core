@@ -8,7 +8,8 @@ All notable changes to this workspace. The format follows
 ### Added
 
 - `siros-explain` is the error contract: `Explain` gives an error's stable id,
-  `err.<scope>.<id>`, and its named arguments, each its `Display`.
+  `err.<scope>.<id>`, and each named argument by its key: the field, which a
+  reader takes by its type or by its `Display`.
   `#[derive(Explain)]` (`siros-explain-derive`) sits beside thiserror's derive:
   each struct or variant carries `#[explain(id = "…")]` or
   `#[error(transparent)]`, a named field is an argument, a cause is `#[source]`
@@ -52,7 +53,7 @@ All notable changes to this workspace. The format follows
   message-format-wg test suite and ICU4X 2.4 over CLDR 49.0.0 are its oracles.
 - siros-i18n's `check` feature is the wallet's one completeness test: each
   derive registers its id and argument names, and `Context::check` refuses an
-  id two crates share, an id no source words and a pattern that reads an
+  id two crates share, an id no source words and a message that names an
   argument its row lacks.
 - `siros-i18n-derive`: `#[derive(Message)]` on a statement, its id under the
   crate's scope and its named fields as arguments. A repeated id fails the

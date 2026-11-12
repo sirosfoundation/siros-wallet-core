@@ -12,7 +12,7 @@ use crate::format::Formats;
 /// context's format sections, the declared calls, and the value of each variable an option
 /// reads.
 pub(crate) struct Scope<'m> {
-    args: &'m Args,
+    args: &'m Args<'m>,
     #[cfg_attr(
         not(any(
             feature = "number",
@@ -30,7 +30,7 @@ pub(crate) struct Scope<'m> {
 impl<'m> Scope<'m> {
     /// The resolution over `args` of a message whose declared calls are `declared`, in a
     /// context whose format sections are `formats`.
-    pub(crate) fn new(args: &'m Args, formats: &'m Formats, declared: &'m Declared) -> Self {
+    pub(crate) fn new(args: &'m Args<'m>, formats: &'m Formats, declared: &'m Declared) -> Self {
         Self {
             args,
             formats,
