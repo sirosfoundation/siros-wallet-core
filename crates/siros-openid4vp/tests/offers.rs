@@ -373,7 +373,9 @@ impl siros_i18n::Message for Own {
     fn id(&self) -> &str {
         self.0
     }
-    fn args(&self, _arg: &mut dyn FnMut(&str, &dyn std::fmt::Display)) {}
+    fn arg(&self, _key: &str) -> Option<&dyn siros_i18n::Arg> {
+        None
+    }
 }
 
 #[test]

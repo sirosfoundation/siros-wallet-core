@@ -354,9 +354,10 @@ fn a_rule_names_a_claim_path_as_json_in_its_message_and_as_repr_in_its_log() {
             matches!(refused, Unsupported::PathTwice { .. }),
             "{refused}"
         );
-        let mut args = Vec::new();
-        refused.args(&mut |key, value| args.push((key, value.to_string())));
-        assert_eq!(args, [("path", received.to_owned())]);
+        assert_eq!(
+            refused.arg("path").map(ToString::to_string),
+            Some(received.to_owned())
+        );
         assert_eq!(refused.to_string(), format!("two claims with path {repr}"));
     }
 }

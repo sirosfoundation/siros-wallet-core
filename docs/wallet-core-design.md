@@ -127,7 +127,7 @@ presentation flows, and keeps it pure and offline.
   point documents how to implement it, with an example that compiles.
 - **Errors are messages** (decision 18, decision 21, section 4.13). Every error carries a stable
   id and named arguments: siros-explain's `Explain`, derived beside thiserror's derive. An argument
-  is a named field, and its value is its `Display`. `Display` of the error keeps the English text
+  is a named field, which a reader takes by its type or by its `Display`. `Display` of the error keeps the English text
   for logs and the Verifier. A statement derives siros-i18n's `Message` the same way. Crates ship
   no wording.
 - **The wallet's context resolves every text** (decision 19, decision 21, section 4.14). A `Context`
@@ -3682,9 +3682,12 @@ Every wallet crate depends on it; a backend crate does not need it.
 pub trait Explain: std::error::Error + Send + Sync + 'static {
     /// `err.<scope>.<id>`: stable across releases; a changed meaning takes a new id.
     fn id(&self) -> &'static str;
-    /// Gives `arg` each argument: its key and its value.
-    fn args(&self, arg: &mut dyn FnMut(&'static str, &dyn core::fmt::Display));
+    /// The argument `key` names; `None` for a key the error has no argument under.
+    fn arg(&self, key: &str) -> Option<&dyn Arg>;
 }
+/// An argument's value: a reader takes it by its type, or by its `Display`.
+pub trait Arg: core::any::Any + core::fmt::Display {}
+impl<T: core::any::Any + core::fmt::Display> Arg for T {}
 impl std::error::Error for Box<dyn Explain> { /* source() forwards */ }
 /// A plug-in's error crosses the core boxed.
 impl Explain for Box<dyn Explain> { /* forwards */ }
@@ -3735,13 +3738,13 @@ pub enum RoutingRule {
   field marked `#[source]`, `#[from]`, `#[backtrace]` or `#[explain(skip)]`, and a field named
   `source`, stays out. The derive refuses a field spelled `r#source` with "write `source`": thiserror
   takes the field spelled `source` as the error's source and `r#source` as no source. A tuple field must carry one of those four marks; the derive refuses any
-  other with "an argument is a named field: name it". An argument's value is its `Display`, numbers,
-  dates and amounts in their literal form (`1234.5`, `2026-09-02`, `EUR`); a type without `Display`
-  fails to build (E0277). A secret type implements no `Display`, so the derive cannot take it as an
+  other with "an argument is a named field: name it". An argument's value is the field, an `Arg`: a `'static` type
+  whose `Display` gives numbers, dates and amounts in their literal form (`1234.5`, `2026-09-02`,
+  `EUR`); a type without `Display` fails to build (E0277). A secret type implements no `Display`, so the derive cannot take it as an
   argument (E0277). A field spelled `Option<T>` (also `std::option::Option`, `core::option::Option`)
   gives its value when `Some` and `""` when `None`.
 - **Transparent.** A `#[error(transparent)]` variant holds exactly one field, which implements
-  `Explain`; `id()` and `args()` forward to it.
+  `Explain`; `id()` and `arg()` forward to it.
 - **The derive refuses**, each with a span: an `id` on an enum; a variant with neither `id` nor
   transparent; an `id` beside transparent; a field attribute on a transparent variant; an unknown
   key; a key given twice; an empty id; a union.
@@ -3868,11 +3871,11 @@ as an error is (section 4.13).
 ```rust
 pub trait Message {
     fn id(&self) -> &str;
-    fn args(&self, arg: &mut dyn FnMut(&str, &dyn Display));
+    fn arg(&self, key: &str) -> Option<&dyn Arg>;
 }
 impl<E: siros_explain::Explain + ?Sized> Message for E { /* forwards */ }
 /// A crate with statements alone calls `siros_i18n::scope!`.
-pub use siros_explain::scope;
+pub use siros_explain::{Arg, scope};
 #[cfg(feature = "derive")] pub use siros_i18n_derive::Message;
 
 // siros-openid4vp, whose root holds `siros_explain::scope!("openid4vp")`
@@ -3887,7 +3890,7 @@ pub enum ClaimText {
 
 - **The derive.** `#[derive(Message)]` reads `#[message(id = "…")]` on each struct or variant and
   gives the id `crate::__siros_scope!(msg "…")`: `ClaimText::Bytes` is `openid4vp.wallet.bytes`.
-  Its field rules are `#[derive(Explain)]`'s for named fields, `Option` and `Display`, with
+  Its field rules are `#[derive(Explain)]`'s for named fields, `Option` and `Arg`, with
   `#[message(skip)]`. A tuple field must carry `#[message(skip)]`. The derive fails the build on an
   id used twice in a crate (`__siros_message_id_<text>`, E0428) and registers rows under `check`.
 - **A value shown alone** travels in a statement that carries its literal text, a credential's or
@@ -4480,7 +4483,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `EnvelopeApi` | `envelope` | Parses a received request into its envelope, its routing read over the registry's response types and modes | Holds: the inherent methods of `Envelope`; `parse<H: Build>`; `client_metadata` returns the metadata or C6's refusal |
 | `Scopes` | `scope` | The registered scope queries the envelope carries from its registry, in every build | Holds: a private slice of `ScopeEntry`; only the registry makes one |
 | `ScopeEntry` | `scope` | A registered scope query as the registry read it | Holds: crate-private fields; the registry builds it from a `ScopeQuery` the DCQL reader accepts |
-| `Explain` | `siros-explain` | An error's stable id and its named arguments, each its `Display` | Holds: a trait over `Error`; the derive writes it, its id through `scope!`, and refuses a tuple argument; siros-explain's derive also fails the build on an id twice in a crate (E0428) |
+| `Explain` | `siros-explain` | An error's stable id and its named arguments, each a field by its key | Holds: a trait over `Error`; the derive writes it, its id through `scope!`, and refuses a tuple argument; siros-explain's derive also fails the build on an id twice in a crate (E0428) |
 | `RequestRule` | `explain` | A request rule: its error and the one code the Verifier receives (section 4.5) | Holds: a trait over `Explain`; `code` returns an open `ErrorCode` |
 | `Refusal` | `explain` | A request rule the request breaks | Holds: private `Box<dyn RequestRule>`; `new` takes a rule |
 | `RoutingRule` | `explain` | One variant per routing rule: P1, C5 per channel (`DcApi`, `Uri`), P5, P6 | Holds: a refusal enum, one variant per rule |
@@ -4488,7 +4491,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Bidi` | `i18n` | The bidi strategy the app chooses | Holds: an enum whose every variant is a strategy |
 | `LoadError` | `i18n` | Why a context refuses a module | Holds: a refusal enum, one variant per rule |
 | `ResolveError` | `i18n` | Why a context resolves no text for a message | Holds: a refusal enum, one variant per rule |
-| `Message` | `i18n` | A statement's id and its named arguments, each its `Display` | Holds: a trait; the derive writes it, its id through `scope!`; an `Explain` is a `Message` through the blanket impl, so a type deriving both fails to build (E0119) |
+| `Message` | `i18n` | A statement's id and its named arguments, each a field by its key | Holds: a trait; the derive writes it, its id through `scope!`; an `Explain` is a `Message` through the blanket impl, so a type deriving both fails to build (E0119) |
 | `Text` | `i18n` | A message resolved in a context's locale: its spans, in order | Holds: private spans; only `Context::resolve` makes one (I28) |
 | `Malformed` | `syntax` | A text that is no literal of its type (section 4.13) | Holds: a refusal struct; `of` names the type, `at` the byte where the text leaves the form |
 | `Currency` | `syntax` | An ISO 4217 currency: its alphabetic code and its minor units | Holds: private fields, a row of the table the build script reads from ISO 4217 List One; only `parse` makes one, and refuses a code List One does not list with `Malformed` |

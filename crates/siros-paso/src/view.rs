@@ -22,11 +22,9 @@
 //! the markup's names. A matcher whose siros-i18n is built without `nfc` loads the source into the
 //! messages the wallet loads.
 
-use std::fmt;
-
 use sha2::{Digest, Sha256};
 use siros_explain::Explain;
-use siros_i18n::{Context, LoadError, LocaleTag, Message, ResolveError, escape};
+use siros_i18n::{Arg, Context, LoadError, LocaleTag, Message, ResolveError, escape};
 use siros_openid4vp::json::Node;
 
 use crate::adhoc::Carried;
@@ -275,7 +273,9 @@ impl Message for Probe<'_> {
         self.0
     }
 
-    fn args(&self, _arg: &mut dyn FnMut(&str, &dyn fmt::Display)) {}
+    fn arg(&self, _key: &str) -> Option<&dyn Arg> {
+        None
+    }
 }
 
 /// A converted source, and the id of its first message.

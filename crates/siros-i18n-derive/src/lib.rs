@@ -31,11 +31,11 @@ use syn::{Attribute, DeriveInput, Error, Fields, Ident, Result, parse_macro_inpu
 ///   Its id is `<scope>.<text>`, the scope being the one the crate's `siros_i18n::scope!` names.
 /// - A named field is an argument under its name (`r#` dropped). A field marked
 ///   `#[message(skip)]` is no argument. A tuple field must be skipped.
-/// - An argument's value is its `Display`. A field whose type is spelled `Option<T>` gives its
+/// - An argument's value is the field. A field whose type is spelled `Option<T>` gives its
 ///   value when `Some`, and `""` when `None`.
 /// - An id names one statement of its crate: a second use fails the build (E0428).
-/// - The impl keeps the type's generics and where-clause, and adds `T: Display` for each argument
-///   of type `T` or `Option<T>`.
+/// - The impl keeps the type's generics and where-clause, and adds `T: Arg` for each argument of
+///   type `T` or `Option<T>`.
 /// - In a build with siros-i18n's `check`, each id registers its row: the id and its arguments'
 ///   keys.
 ///
@@ -304,17 +304,14 @@ impl Derive for Message {
         identified::<Self>(&path, &id, fields)
     }
 
-    fn methods(id: &Tokens, args: &Tokens) -> Tokens {
+    fn methods(id: &Tokens, arg: &Tokens) -> Tokens {
         quote! {
             fn id(&self) -> &str {
                 #id
             }
 
-            fn args(
-                &self,
-                __arg: &mut dyn ::core::ops::FnMut(&str, &dyn ::core::fmt::Display),
-            ) {
-                #args
+            fn arg(&self, __key: &str) -> ::core::option::Option<&dyn ::siros_i18n::Arg> {
+                #arg
             }
         }
     }

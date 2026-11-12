@@ -1,8 +1,8 @@
 //! MF2 compares names (spec/syntax.md "Names and Identifiers"), variant keys ("Key") and the value
 //! a `:string` selector compares (spec/functions/string.md "Selection") in Unicode Normalization
-//! Form C. With feature `nfc` a context holds each in NFC, and the keys of a message's arguments
-//! with them; without it, as written. Text, a literal a placeholder formats, and an argument's
-//! value stay as written in both.
+//! Form C. With feature `nfc` a context holds each in NFC, and asks a message for an argument by
+//! the name so held; without it, as written. Text, a literal a placeholder formats, and an
+//! argument's value stay as written in both.
 //!
 //! A build without `nfc` resolves a module to the texts a build with it resolves when NFC changes
 //! none of the module's names, keys and selector literals: [`Hold::Written`] loads a module only
@@ -13,8 +13,8 @@ use std::borrow::Cow;
 #[cfg(feature = "nfc")]
 use unicode_normalization::UnicodeNormalization;
 
-/// `text` as the build holds a name, a variant key, a selector literal or an argument's key: in
-/// NFC with `nfc`, as written without it. Borrowed when held as written.
+/// `text` as the build holds a name, a variant key or a selector literal: in NFC with `nfc`, as
+/// written without it. Borrowed when held as written.
 #[cfg(feature = "nfc")]
 pub(crate) fn normal(text: &str) -> Cow<'_, str> {
     if unicode_normalization::is_nfc(text) {
@@ -24,8 +24,8 @@ pub(crate) fn normal(text: &str) -> Cow<'_, str> {
     }
 }
 
-/// `text` as the build holds a name, a variant key, a selector literal or an argument's key: in
-/// NFC with `nfc`, as written without it. Borrowed when held as written.
+/// `text` as the build holds a name, a variant key or a selector literal: in NFC with `nfc`, as
+/// written without it. Borrowed when held as written.
 #[cfg(not(feature = "nfc"))]
 pub(crate) fn normal(text: &str) -> Cow<'_, str> {
     Cow::Borrowed(text)

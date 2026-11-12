@@ -4,7 +4,8 @@
 use std::fmt::{self, Display};
 
 use siros_i18n::{
-    Bidi, Context, FormatRule, LoadError, LocaleTag, Message, Refusal, ResolveError, SyntaxRule,
+    Arg, Bidi, Context, FormatRule, LoadError, LocaleTag, Message, Refusal, ResolveError,
+    SyntaxRule,
 };
 
 use crate::{Given, cldr, english};
@@ -248,25 +249,16 @@ impl Display for Undisplayable {
     }
 }
 
-/// A message that gives its key `n` twice, or once by a value that fails to display.
-enum Broken {
-    Twice,
-    Undisplayable,
-}
+/// A message whose argument `n` fails to display.
+struct Broken;
 
 impl Message for Broken {
     fn id(&self) -> &str {
         "count"
     }
 
-    fn args(&self, arg: &mut dyn FnMut(&str, &dyn Display)) {
-        match self {
-            Self::Twice => {
-                arg("n", &"1");
-                arg("n", &"2");
-            }
-            Self::Undisplayable => arg("n", &Undisplayable),
-        }
+    fn arg(&self, key: &str) -> Option<&dyn Arg> {
+        (key == "n").then_some(&Undisplayable)
     }
 }
 
@@ -289,7 +281,7 @@ fn each_resolution_rule_refuses_its_fixture() {
         id: "dir",
         args: vec![("name", "Ann".to_owned()), ("dir", "up".to_owned())],
     };
-    let cases: [(&dyn Message, ResolveError); 8] = [
+    let cases: [(&dyn Message, ResolveError); 7] = [
         (&Given::bare("bye"), ResolveError::Unknown { id: id("bye") }),
         (
             &Given::bare("hello"),
@@ -330,14 +322,7 @@ fn each_resolution_rule_refuses_its_fixture() {
             },
         ),
         (
-            &Broken::Twice,
-            ResolveError::Argument {
-                id: id("count"),
-                key: "n".to_owned(),
-            },
-        ),
-        (
-            &Broken::Undisplayable,
+            &Broken,
             ResolveError::Argument {
                 id: id("count"),
                 key: "n".to_owned(),

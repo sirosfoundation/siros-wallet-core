@@ -96,8 +96,10 @@ fn the_rows_are_the_linked_crates_ids() {
         (&boxed, &[]),
     ];
     for (error, expected) in keys {
-        let mut given = Vec::new();
-        error.args(&mut |key, _| given.push(key));
+        let given: Vec<&str> = ["count", "limit", "secret", "cause"]
+            .into_iter()
+            .filter(|key| error.arg(key).is_some())
+            .collect();
         let row = rows()
             .find(|row| row.id == error.id())
             .expect("a row per id");

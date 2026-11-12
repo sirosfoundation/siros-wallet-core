@@ -145,22 +145,21 @@ impl Context {
         self.locale.as_ref()
     }
 
-    /// The message's id worded by the context's modules, over the message's arguments: each
-    /// argument's text is its value's `Display`, its key compared in NFC with `nfc` and as given
-    /// without it.
+    /// The message's id worded by the context's modules, over the arguments the wording reads:
+    /// each argument's text is its value's `Display`, its key asked for as the wording spells it,
+    /// in NFC with `nfc`.
     ///
     /// # Errors
     ///
-    /// [`ResolveError`] for an id no module words, an argument given twice or whose `Display`
-    /// fails, an argument the wording reads and the message lacks, and a text a function
-    /// refuses.
+    /// [`ResolveError`] for an id no module words, an argument whose `Display` fails, an
+    /// argument the wording reads and the message lacks, and a text a function refuses.
     pub fn resolve(&self, message: &dyn Message) -> Result<Text, ResolveError> {
         let id = message.id();
         let unknown = || ResolveError::Unknown { id: id.to_owned() };
         let worded = self.messages.find(id).ok_or_else(unknown)?;
-        let args = Args::of(message).map_err(|key| ResolveError::Argument {
+        let args = Args::of(message, worded.arguments()).map_err(|key| ResolveError::Argument {
             id: id.to_owned(),
-            key,
+            key: key.to_owned(),
         })?;
         worded.resolve(id, &args, &self.formats, self.bidi)
     }

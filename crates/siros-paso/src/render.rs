@@ -10,7 +10,7 @@ use std::fmt;
 use std::num::NonZeroUsize;
 
 use siros_explain::Explain;
-use siros_i18n::{Context, Message, Text};
+use siros_i18n::{Arg, Context, Message, Text};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
 use siros_openid4vp::detail;
 use siros_openid4vp::ids::LocaleTag;
@@ -714,10 +714,11 @@ impl Message for Worded {
         &self.id
     }
 
-    fn args(&self, arg: &mut dyn FnMut(&str, &dyn fmt::Display)) {
-        for (name, text) in &self.args {
-            arg(name, text);
-        }
+    fn arg(&self, key: &str) -> Option<&dyn Arg> {
+        self.args
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, text)| text as &dyn Arg)
     }
 }
 

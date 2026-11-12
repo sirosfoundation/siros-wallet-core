@@ -400,13 +400,13 @@ pub enum ResolveError {
         /// The option.
         option: String,
     },
-    /// The message gives the key twice, or a value whose `Display` fails.
-    #[error("{id} gives the argument {key} twice, or a value that does not display")]
+    /// The message gives a value whose `Display` fails.
+    #[error("{id} gives the argument {key} a value that does not display")]
     #[explain(id = "resolve.argument")]
     Argument {
         /// The message's id.
         id: String,
-        /// The argument's key, as the build compares it: in NFC with the feature `nfc`.
+        /// The argument's key, as the wording spells it: in NFC with the feature `nfc`.
         key: String,
     },
 }

@@ -1,14 +1,15 @@
-//! Errors the wallet words. [`Explain`] gives an error's stable id and its named arguments; the
-//! wallet's MessageFormat 2 wording (siros-i18n's `Context`) resolves them into the End-User's
-//! text. An error's `Display` is its English line for logs.
+//! Errors the wallet words. [`Explain`] gives an error's stable id and maps each argument's key
+//! to its value; the wallet's MessageFormat 2 wording (siros-i18n's `Context`) resolves them into
+//! the End-User's text. An error's `Display` is its English line for logs.
 //!
 //! A crate that derives `Explain` sets its scope once, at its root, with [`scope!`]: its error ids
 //! are `err.<scope>.<id>`. `#[derive(Explain)]` (feature `derive`) writes the trait beside
-//! `#[derive(thiserror::Error)]`: each named field is an argument under its name, by its
-//! `Display`, and causes and skipped fields are left out. An id given twice in one crate fails the
-//! build.
+//! `#[derive(thiserror::Error)]`: each named field is the argument its name keys, and causes and
+//! skipped fields are left out. An id given twice in one crate fails the build.
 //!
 //! ```standalone_crate
+//! use std::any::Any;
+//!
 //! use siros_explain::Explain;
 //!
 //! siros_explain::scope!("ts12");
@@ -27,10 +28,12 @@
 //!
 //! fn main() {
 //!     let refused = Refused::OverLimit { amount: 1200, currency: "EUR", cause: std::fmt::Error };
-//!     let mut args = Vec::new();
-//!     refused.args(&mut |key, value| args.push((key, value.to_string())));
 //!     assert_eq!(refused.id(), "err.ts12.over_limit");
-//!     assert_eq!(args, [("amount", "1200".to_owned()), ("currency", "EUR".to_owned())]);
+//!     let amount = refused.arg("amount").expect("the field `amount`");
+//!     assert_eq!(amount.to_string(), "1200");
+//!     assert!((amount as &dyn Any).is::<u64>());
+//!     assert_eq!(refused.arg("currency").map(ToString::to_string), Some("EUR".to_owned()));
+//!     assert!(refused.arg("cause").is_none());
 //! }
 //! ```
 //!
@@ -61,11 +64,17 @@
 #[cfg(feature = "check")]
 pub mod check;
 
+use core::any::Any;
 use core::fmt::Display;
 use std::error::Error;
 
 #[cfg(feature = "derive")]
 pub use siros_explain_derive::Explain;
+
+/// An argument's value: a reader takes it by its type, or by its `Display`.
+pub trait Arg: Any + Display {}
+
+impl<T: Any + Display> Arg for T {}
 
 /// An error with a stable identifier and named arguments, which the wallet's wording resolves into
 /// the End-User's text.
@@ -77,8 +86,8 @@ pub use siros_explain_derive::Explain;
 pub trait Explain: Error + Send + Sync + 'static {
     /// `err.<scope>.<id>`: stable across releases; a changed meaning takes a new id.
     fn id(&self) -> &'static str;
-    /// Gives `arg` each argument: its key and its value.
-    fn args(&self, arg: &mut dyn FnMut(&'static str, &dyn Display));
+    /// The argument `key` names; `None` for a key the error has no argument under.
+    fn arg(&self, key: &str) -> Option<&dyn Arg>;
 }
 
 /// A plug-in's error crosses the boundary boxed: its source is the boxed error's.
@@ -94,8 +103,8 @@ impl Explain for Box<dyn Explain> {
         (**self).id()
     }
 
-    fn args(&self, arg: &mut dyn FnMut(&'static str, &dyn Display)) {
-        (**self).args(arg);
+    fn arg(&self, key: &str) -> Option<&dyn Arg> {
+        (**self).arg(key)
     }
 }
 

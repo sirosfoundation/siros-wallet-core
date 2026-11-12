@@ -413,11 +413,13 @@ fn a_value_shown_alone_is_a_statement_of_its_literal() {
     ];
     for (kind, written, id, want) in table {
         let statement = formatted(kind, written).expect("conforms").shown();
-        let mut args = Vec::new();
-        statement.args(&mut |key, value| args.push((key.to_owned(), value.to_string())));
-        let want: Vec<(String, String)> = want
+        let args: Vec<(&str, Option<String>)> = want
             .iter()
-            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .map(|(key, _)| (*key, statement.arg(key).map(ToString::to_string)))
+            .collect();
+        let want: Vec<(&str, Option<String>)> = want
+            .iter()
+            .map(|(key, value)| (*key, Some((*value).to_owned())))
             .collect();
         assert_eq!((statement.id(), args), (id, want), "{kind:?} {written:?}");
     }

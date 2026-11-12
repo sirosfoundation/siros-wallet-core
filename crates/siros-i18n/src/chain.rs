@@ -359,7 +359,6 @@ impl<'m> Chain<'m> {
     }
 
     /// The variables that give the calls' options a value at resolution.
-    #[cfg(feature = "check")]
     pub(crate) fn variables(&self) -> impl Iterator<Item = &'m str> {
         self.calls()
             .flat_map(|call| &call.options)

@@ -19,7 +19,9 @@
 ///         "issuer.title"
 ///     }
 ///
-///     fn args(&self, _arg: &mut dyn FnMut(&str, &dyn std::fmt::Display)) {}
+///     fn arg(&self, _key: &str) -> Option<&dyn siros_i18n::Arg> {
+///         None
+///     }
 /// }
 ///
 /// let title = "{$amount :currency} {#strong}now{/strong}\n.match";

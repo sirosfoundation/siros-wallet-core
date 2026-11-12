@@ -8,7 +8,7 @@ use std::error::Error;
 use std::fmt;
 
 use icu_properties::{CodePointMapData, props::GeneralCategory};
-use siros_explain::Explain;
+use siros_explain::{Arg, Explain};
 use siros_syntax::AllOf;
 
 use crate::json::Node;
@@ -201,8 +201,8 @@ impl Explain for Refusal {
         self.0.id()
     }
 
-    fn args(&self, arg: &mut dyn FnMut(&'static str, &dyn fmt::Display)) {
-        self.0.args(arg);
+    fn arg(&self, key: &str) -> Option<&dyn Arg> {
+        self.0.arg(key)
     }
 }
 

@@ -65,9 +65,9 @@ proves its sources complete for each locale it ships.
 | `siros-i18n` | The wallet's texts: a `Context` of MessageFormat 2 sources resolves an error or a statement (`Message`) to `Text` |
 | `siros-i18n-derive` | `#[derive(Message)]` for statements |
 | `siros-syntax` | Checked texts, keyed and non-empty lists, and values in their literal forms: numbers, amounts in the currencies of ISO 4217 List One (SIX, 2026-09-17), dates and times |
-| `siros-explain` | The error contract: a stable id and named arguments, each its `Display` |
+| `siros-explain` | The error contract: a stable id and named arguments, each a typed value with its `Display` |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
-| `siros-derive-internals` | The field rules the two derives share: arguments, `Option`, `Display` bounds, the id marker, the `check` row |
+| `siros-derive-internals` | The field rules the two derives share: arguments, `Option`, `Arg` bounds, the id marker, the `check` row |
 | `siros-cldr` | Writes a language's CLDR format options as MF2 source |
 | `siros-testkit` | The core's test doubles |
 | `siros-integration` | The HAIP and WE BUILD builds end to end: every flow of the design, F1 to F13 |

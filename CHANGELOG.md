@@ -86,7 +86,8 @@ All notable changes to this workspace. The format follows
   unpublished. `siros-mdoc` and `siros-sdjwt` replace the earlier crates of
   those names.
 - `siros-explain` is the error contract: `Explain` gives an error's stable id,
-  `err.<scope>.<id>`, and its named arguments, each its `Display`.
+  `err.<scope>.<id>`, and each named argument by its key: the field, which a
+  reader takes by its type or by its `Display`.
   `#[derive(Explain)]` sits beside thiserror's derive: each struct or variant
   carries `#[explain(id = "…")]` or `#[error(transparent)]`, a named field is an
   argument, a cause is `#[source]` or `#[explain(skip)]`, a tuple argument and a

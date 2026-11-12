@@ -1,8 +1,6 @@
 //! What a context resolves: an id and its arguments.
 
-use std::fmt::Display;
-
-use siros_explain::Explain;
+use siros_explain::{Arg, Explain};
 
 /// A text the wallet words: its id, which a context's modules word, and its arguments, each a
 /// key the wording reads and a value whose `Display` is the argument's text. Numbers, dates and
@@ -20,13 +18,13 @@ use siros_explain::Explain;
 /// its value when `Some` and `""` when `None`. An id names one statement of its crate. A type
 /// that derives `Explain` is a message already, and deriving both fails to build.
 ///
-/// An implementation by hand gives each key in Unicode Normalization Form C, as a derived key
-/// is: a build without the feature `nfc` compares keys as given.
+/// An implementation by hand names each key in Unicode Normalization Form C, as a derived key
+/// is: a context asks for a key as its wording spells it, in NFC with the feature `nfc`.
 pub trait Message {
     /// The id the context's modules word.
     fn id(&self) -> &str;
-    /// Gives `arg` each argument: its key and its value.
-    fn args(&self, arg: &mut dyn FnMut(&str, &dyn Display));
+    /// The argument `key` names; `None` for a key the message has no argument under.
+    fn arg(&self, key: &str) -> Option<&dyn Arg>;
 }
 
 /// An error's id and its arguments.
@@ -35,7 +33,7 @@ impl<E: Explain + ?Sized> Message for E {
         Explain::id(self)
     }
 
-    fn args(&self, arg: &mut dyn FnMut(&str, &dyn Display)) {
-        Explain::args(self, &mut |key, value| arg(key, value));
+    fn arg(&self, key: &str) -> Option<&dyn Arg> {
+        Explain::arg(self, key)
     }
 }

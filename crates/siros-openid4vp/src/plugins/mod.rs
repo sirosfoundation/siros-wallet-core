@@ -29,7 +29,7 @@ use std::error::Error;
 use std::fmt;
 
 use dyn_clone::DynClone;
-use siros_explain::Explain;
+use siros_explain::{Arg, Explain};
 use siros_i18n::Context;
 use siros_syntax::AllOf;
 
@@ -133,8 +133,8 @@ impl Explain for Exclude {
         self.rule.id()
     }
 
-    fn args(&self, arg: &mut dyn FnMut(&'static str, &dyn fmt::Display)) {
-        self.rule.args(arg);
+    fn arg(&self, key: &str) -> Option<&dyn Arg> {
+        self.rule.arg(key)
     }
 }
 

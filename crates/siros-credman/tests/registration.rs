@@ -777,5 +777,7 @@ impl siros_i18n::Message for Bare {
         self.0
     }
 
-    fn args(&self, _: &mut dyn FnMut(&str, &dyn std::fmt::Display)) {}
+    fn arg(&self, _: &str) -> Option<&dyn siros_i18n::Arg> {
+        None
+    }
 }

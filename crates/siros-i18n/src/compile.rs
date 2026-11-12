@@ -440,7 +440,7 @@ impl Compiled {
     pub(crate) fn resolve(
         &self,
         id: &str,
-        args: &Args,
+        args: &Args<'_>,
         formats: &Formats,
         bidi: Bidi,
     ) -> Result<Text, ResolveError> {
@@ -500,9 +500,8 @@ impl Compiled {
     }
 
     /// The keys of the arguments the message's placeholders and selectors read, through their
-    /// operands and their options' variables, each once, sorted.
-    #[cfg(feature = "check")]
-    pub(crate) fn reads(&self) -> Vec<&str> {
+    /// operands and their options' variables.
+    pub(crate) fn arguments(&self) -> FxHashSet<&str> {
         fn placeholders(pattern: &Pattern) -> impl Iterator<Item = &Site> {
             pattern.iter().filter_map(|part| match part {
                 Part::Placeholder(site) => Some(site),
@@ -528,21 +527,27 @@ impl Compiled {
                 .collect(),
         };
         let mut followed: FxHashSet<&str> = FxHashSet::default();
-        let mut reads: Vec<&str> = Vec::new();
+        let mut reads: FxHashSet<&str> = FxHashSet::default();
         while let Some(chain) = pending.pop() {
             if let crate::chain::Root::Argument(key) = chain.root {
-                reads.push(key);
+                reads.extend([key]);
             }
             for name in chain.variables() {
                 match self.declared.call(name) {
                     Some(link) if followed.insert(name) => pending.push(self.declared.chain(link)),
                     Some(_) => {}
-                    None => reads.push(name),
+                    None => reads.extend([name]),
                 }
             }
         }
+        reads
+    }
+
+    /// [`Self::arguments`], sorted.
+    #[cfg(feature = "check")]
+    pub(crate) fn reads(&self) -> Vec<&str> {
+        let mut reads: Vec<&str> = self.arguments().into_iter().collect();
         reads.sort_unstable();
-        reads.dedup();
         reads
     }
 }
