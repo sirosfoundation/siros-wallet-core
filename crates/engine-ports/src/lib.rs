@@ -342,6 +342,17 @@ pub struct VerifierInfo {
     /// Why the decision was made (the PDP's reason).
     #[serde(default)]
     pub reason: String,
+    /// The PDP's response context, verbatim (go-trust's
+    /// `EvaluationResponseContext`): the trust `verifier_ids` (the
+    /// wallet's verifier-id sources read them — a `nym_auth`
+    /// pseudonym is scoped by the resolved verifier id), the
+    /// registry `display_name`, and any other member the policy
+    /// sends. Absent when the PDP answered with no context — found
+    /// on-device: without this relay the wallet refused every
+    /// zkp_req sign ask at step=verifier-id because the engine's
+    /// own evaluation was the ONLY place the context existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_context: Option<serde_json::Value>,
 }
 
 /// One credential the host selected to present, as the match answer

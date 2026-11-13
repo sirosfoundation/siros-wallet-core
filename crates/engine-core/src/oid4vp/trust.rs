@@ -196,6 +196,7 @@ pub fn build_verifier_info(
         trusted: false,
         framework: String::new(),
         reason: String::new(),
+        trust_context: None,
     };
     if let Some(metadata) = client_metadata {
         if !metadata.client_name.is_empty() {
@@ -264,6 +265,12 @@ pub async fn evaluate_verifier_trust(
 
     verifier.trusted = response.trusted;
     verifier.reason = response.decision.clone().unwrap_or_default();
+    // The PDP's context, verbatim: the wallet's own policy machinery
+    // reads it (the verifier-id sources scope a nym_auth pseudonym by
+    // `context.verifier_ids`), so the engine relays rather than
+    // interprets — the display_name pick below is the ONE member the
+    // engine itself consumes.
+    verifier.trust_context = response.context.clone();
 
     // A registry's own human-facing name for the subject (go-trust's
     // response `context.display_name`, when a registry carries one - most

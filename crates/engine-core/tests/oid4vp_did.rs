@@ -138,6 +138,7 @@ async fn run(pdp: &RecordingPdp, request: &AuthorizationRequest) -> Result<bool,
         trusted: false,
         framework: String::new(),
         reason: String::new(),
+        trust_context: None,
     };
     evaluate_verifier_trust(pdp, request, None, &mut verifier).await?;
     Ok(verifier.trusted)

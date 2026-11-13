@@ -153,6 +153,52 @@ fn the_handle_rides_the_wire_as_an_absent_member_when_there_is_none() {
     );
 }
 
+/// The PDP's context, verbatim: go-trust's `verifier_ids` (the wallet's
+/// pseudonym sources read them), `display_name`, `display_name_l10n`
+/// when the policy sends it — relayed, never interpreted. Absent when
+/// the PDP answered with no context (found on-device: without this
+/// relay every zkp_req sign ask refused at step=verifier-id).
+#[test]
+fn the_verifier_info_relays_the_pdp_context_verbatim() {
+    let with_context = engine_ports::VerifierInfo {
+        name: "verifier.example".to_owned(),
+        client_id: "x509_san_dns:verifier.example".to_owned(),
+        client_id_scheme: engine_ports::ClientIdScheme::X509SanDns,
+        domain: "verifier.example".to_owned(),
+        logo_uri: String::new(),
+        trusted: true,
+        framework: "etsi-tl".to_owned(),
+        reason: String::new(),
+        trust_context: Some(json!({
+            "verifier_ids": [
+                {"verifier_id_type": "x509_san_dns", "verifier_id": "verifier.example", "basis": "test"}
+            ],
+            "display_name": "Verifier Example"
+        })),
+    };
+    let wire: serde_json::Value =
+        serde_json::to_value(&with_context).expect("the verifier info serialises");
+    assert_eq!(
+        wire.get("trust_context")
+            .and_then(|c| c.get("verifier_ids")),
+        Some(
+            &json!([{"verifier_id_type": "x509_san_dns", "verifier_id": "verifier.example", "basis": "test"}])
+        ),
+        "the context rides verbatim — the wallet's sources read its members"
+    );
+
+    let without = engine_ports::VerifierInfo {
+        trust_context: None,
+        ..with_context
+    };
+    let wire: serde_json::Value =
+        serde_json::to_value(&without).expect("the verifier info serialises");
+    assert!(
+        wire.get("trust_context").is_none(),
+        "no context, no member — the wire an old host sees is unchanged"
+    );
+}
+
 /// The verified request and the response encryption carry the exact member
 /// set the wallets' `VerifiedRequest`/`ResponseEncryptionRequest` readers
 /// expect (go-wallet-backend#471's shape — the Kotlin transport's
