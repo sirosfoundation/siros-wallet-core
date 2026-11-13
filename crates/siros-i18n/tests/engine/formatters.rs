@@ -67,8 +67,8 @@ named = {$n :integer useGrouping=never}
 string = {$n :string}
 name = {$who}
 plural = .match $n one {{one}} * {{other}}
-untaken = {$n :percent}
-outer = .local $i = {$n :integer} {{{$i :percent}}}
+untaken = {$n :currency currency=EUR}
+outer = .local $i = {$n :integer} {{{$i :currency currency=EUR}}}
 untaken_name = {$who :number}
 day = .match $d |2026-11-13| {{that day}} * {{another}}
 key = .match $n |x| {{x}} * {{other}}";
@@ -107,7 +107,7 @@ fn an_argument_takes_its_types_formatters() {
         ("named", 1234, Ok("1234")),
         ("string", 1234, Ok("1234")),
         ("name", 1, Ok("Ada")),
-        ("outer", 1, Ok("100%")),
+        ("outer", 1, Ok("\u{20AC}1.00")),
         ("plural", 1, Ok("one")),
         ("plural", 2, Ok("other")),
     ];
@@ -120,7 +120,7 @@ fn an_argument_takes_its_types_formatters() {
             ResolveError::Unformatted {
                 id: "untaken".to_owned(),
                 key: "n".to_owned(),
-                function: "percent".to_owned(),
+                function: "currency".to_owned(),
             },
         ),
         (

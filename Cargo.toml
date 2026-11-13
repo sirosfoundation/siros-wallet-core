@@ -105,8 +105,6 @@ serde_urlencoded = "=0.7.1"
 # Unicode general categories: the characters a text may show, CommonMark's whitespace and
 # punctuation.
 icu_properties = { version = "=2.4.0", default-features = false, features = ["compiled_data"] }
-# UAX #15: MessageFormat 2 compares names and variant keys in NFC.
-unicode-normalization = { version = "0.1.26", default-features = false }
 # UAX #29 for the extended grapheme clusters PaSO counts label lengths in.
 unicode-segmentation = "1.13.3"
 # P-256's checked points and scalars: the keys a Request Object verifies under and the wallet's

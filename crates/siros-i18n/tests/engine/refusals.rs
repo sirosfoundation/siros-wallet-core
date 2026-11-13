@@ -1,5 +1,5 @@
-//! One fixture per refusal, each refused for its rule and no other. MF2's data-model rules and
-//! its error types are the conformance suite's.
+//! One fixture per refusal, each refused for its rule and no other. MF2's data-model rules are
+//! spec/errors.md's "Data Model Errors".
 
 use std::fmt::{self, Display};
 
@@ -219,6 +219,58 @@ fn each_load_rule_refuses_its_fixture() {
             },
         ),
         (
+            load("hello = .input {$x :string} .match $x a b {{A}} * {{B}}"),
+            syntax(4, SyntaxRule::VariantKeyMismatch { id: hello() }),
+        ),
+        (
+            load("hello = .input {$x :string} .match $x a {{A}}"),
+            syntax(4, SyntaxRule::MissingFallbackVariant { id: hello() }),
+        ),
+        (
+            load("hello = .local $x = {|a|} .match $x a {{A}} * {{B}}"),
+            syntax(
+                4,
+                SyntaxRule::MissingSelectorAnnotation {
+                    id: hello(),
+                    variable: "x".to_owned(),
+                },
+            ),
+        ),
+        (
+            load("hello = .input {$x} .input {$x} {{A}}"),
+            syntax(
+                4,
+                SyntaxRule::DuplicateDeclaration {
+                    id: hello(),
+                    variable: "x".to_owned(),
+                },
+            ),
+        ),
+        (
+            load("hello = {|1| :number signDisplay=always signDisplay=never}"),
+            syntax(
+                4,
+                SyntaxRule::DuplicateOptionName {
+                    id: hello(),
+                    option: "signDisplay".to_owned(),
+                },
+            ),
+        ),
+        (
+            load("hello = .input {$x :string} .match $x a {{A}} a {{B}} * {{C}}"),
+            syntax(4, SyntaxRule::DuplicateVariant { id: hello() }),
+        ),
+        (
+            load("hello = {|a| :string u:locale=fr}"),
+            LoadError::Call {
+                id: hello(),
+                function: "string".to_owned(),
+                refusal: Refusal::Option {
+                    option: "u:locale".to_owned(),
+                },
+            },
+        ),
+        (
             load("hello = {|abc| :number}"),
             LoadError::Call {
                 id: hello(),
@@ -268,7 +320,6 @@ fn each_resolution_rule_refuses_its_fixture() {
         "hello = Hello {$name}\n\
          count = {$n :number}\n\
          paid = {$amount :currency currency=$code}\n\
-         dir = {$name :string u:dir=$dir}\n\
          digits = .input {$n :integer} {{{|1| :number minimumFractionDigits=$n}}}",
     )
     .expect("the module loads");
@@ -277,11 +328,7 @@ fn each_resolution_rule_refuses_its_fixture() {
         id: "paid",
         args: vec![("amount", "5".to_owned()), ("code", "euro".to_owned())],
     };
-    let dir = Given {
-        id: "dir",
-        args: vec![("name", "Ann".to_owned()), ("dir", "up".to_owned())],
-    };
-    let cases: [(&dyn Message, ResolveError); 7] = [
+    let cases: [(&dyn Message, ResolveError); 6] = [
         (&Given::bare("bye"), ResolveError::Unknown { id: id("bye") }),
         (
             &Given::bare("hello"),
@@ -306,14 +353,6 @@ fn each_resolution_rule_refuses_its_fixture() {
             },
         ),
         (
-            &dir,
-            ResolveError::Option {
-                id: id("dir"),
-                function: "string".to_owned(),
-                option: "u:dir".to_owned(),
-            },
-        ),
-        (
             &Given::with("digits", "n", "two"),
             ResolveError::Option {
                 id: id("digits"),
@@ -332,44 +371,4 @@ fn each_resolution_rule_refuses_its_fixture() {
     for (message, expected) in cases {
         assert_eq!(context.resolve(message).expect_err("refused"), expected);
     }
-}
-
-/// `Context::module_in_nfc` refuses a name, a variant key and a selector literal that NFC
-/// changes, each naming it as written, and loads text and a literal a placeholder formats as
-/// written. U+1E0A U+0323 is outside NFC, which writes it U+1E0C U+0307 (UAX #15; the
-/// conformance suite's "NFC:" cases).
-#[cfg(feature = "nfc")]
-#[test]
-fn module_in_nfc_refuses_each_item_nfc_changes() {
-    const WRITTEN: &str = "\u{1E0A}\u{323}";
-    const NORMAL: &str = "\u{1E0C}\u{307}";
-    let unnormalized = LoadError::Unnormalized {
-        id: "hello".to_owned(),
-        text: WRITTEN.to_owned(),
-    };
-    // A variable's name, a variant key, and the literal a `:string` selector compares.
-    let refused = [
-        format!("{{${WRITTEN}}}"),
-        format!(".input {{$x :string}} .match $x {WRITTEN} {{{{a}}}} * {{{{b}}}}"),
-        format!(".local $x = {{|{WRITTEN}| :string}} .match $x {NORMAL} {{{{a}}}} * {{{{b}}}}"),
-    ];
-    for message in refused {
-        assert_eq!(
-            Context::new()
-                .module_in_nfc(&english(&format!("hello = {message}")))
-                .expect_err("refused"),
-            unnormalized,
-            "{message:?}"
-        );
-    }
-    let context = Context::new()
-        .bidi(Bidi::None)
-        .module_in_nfc(&english(&format!(
-            "hello = .local $y = {{|{WRITTEN}| :string}} {{{{{WRITTEN} {{$y}} {{|{WRITTEN}|}} {{$name}}}}}}"
-        )))
-        .expect("loads");
-    let text = context
-        .resolve(&Given::with("hello", "name", WRITTEN))
-        .expect("resolves");
-    assert_eq!(text.to_string(), [WRITTEN; 4].join(" "));
 }

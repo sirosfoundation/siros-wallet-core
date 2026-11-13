@@ -1,6 +1,5 @@
-//! The format sections of a context: `[formats.number]`, `[formats.offset]`,
-//! `[formats.currency]` and `[formats.date]`, each parsed by its family when the build compiles
-//! the family in.
+//! The format sections of a context: `[formats.number]`, `[formats.currency]` and
+//! `[formats.date]`, each parsed by its family when the build compiles the family in.
 
 use crate::error::{FormatRule, LoadError};
 use crate::format::{Direction, Function};
@@ -11,13 +10,12 @@ use crate::seen::repeated;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Section {
     Number,
-    Offset,
     Currency,
     Date,
 }
 
 impl Section {
-    const ALL: [Self; 4] = [Self::Number, Self::Offset, Self::Currency, Self::Date];
+    const ALL: [Self; 3] = [Self::Number, Self::Currency, Self::Date];
 
     fn named(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|section| section.name() == name)
@@ -26,7 +24,6 @@ impl Section {
     const fn name(self) -> &'static str {
         match self {
             Self::Number => "number",
-            Self::Offset => "offset",
             Self::Currency => "currency",
             Self::Date => "date",
         }
@@ -35,24 +32,14 @@ impl Section {
 
 /// A format section's options, each name once, each one its format takes; and the direction of
 /// the module that defines it.
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "date"
-))]
+#[cfg(any(feature = "number", feature = "currency", feature = "date"))]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Options<'s> {
     entries: &'s [&'s Entry<'s>],
     pub(crate) direction: Direction,
 }
 
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "date"
-))]
+#[cfg(any(feature = "number", feature = "currency", feature = "date"))]
 impl<'s> Options<'s> {
     /// The option `name`'s text.
     ///
@@ -89,8 +76,6 @@ pub(crate) struct Formats {
     defined: Vec<Section>,
     #[cfg(feature = "number")]
     number: Option<crate::numeric::Plain>,
-    #[cfg(feature = "offset")]
-    offset: Option<crate::numeric::Plain>,
     #[cfg(feature = "currency")]
     currency: Option<crate::numeric::currency::Parsed>,
     #[cfg(feature = "date")]
@@ -110,12 +95,7 @@ impl Formats {
         format: &str,
         options: &[&Entry<'_>],
         #[cfg_attr(
-            not(any(
-                feature = "number",
-                feature = "currency",
-                feature = "offset",
-                feature = "date"
-            )),
+            not(any(feature = "number", feature = "currency", feature = "date")),
             expect(unused_variables, reason = "a build without formats parses no section")
         )]
         direction: Direction,
@@ -137,12 +117,7 @@ impl Formats {
                 id: format!("formats.{format}.{option}"),
             });
         }
-        #[cfg(any(
-            feature = "number",
-            feature = "currency",
-            feature = "offset",
-            feature = "date"
-        ))]
+        #[cfg(any(feature = "number", feature = "currency", feature = "date"))]
         self.parse(
             named,
             Options {
@@ -161,12 +136,6 @@ impl Formats {
         self.number.as_ref()
     }
 
-    /// `[formats.offset]`, when a module defined it.
-    #[cfg(feature = "offset")]
-    pub(crate) const fn offset(&self) -> Option<&crate::numeric::Plain> {
-        self.offset.as_ref()
-    }
-
     /// `[formats.currency]`, when a module defined it.
     #[cfg(feature = "currency")]
     pub(crate) const fn currency(&self) -> Option<&crate::numeric::currency::Parsed> {
@@ -181,23 +150,13 @@ impl Formats {
 
     /// Parses a section of a format the build compiles in; a section of another format stays
     /// unparsed.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "date"
-    ))]
+    #[cfg(any(feature = "number", feature = "currency", feature = "date"))]
     fn parse(&mut self, section: Section, options: Options<'_>) -> Result<(), FormatRule> {
         match section {
             #[cfg(feature = "number")]
             Section::Number => {
                 takes(options, &crate::numeric::PLAIN)?;
                 self.number = Some(crate::numeric::Plain::parse(options)?);
-            }
-            #[cfg(feature = "offset")]
-            Section::Offset => {
-                takes(options, &crate::numeric::PLAIN)?;
-                self.offset = Some(crate::numeric::Plain::parse(options)?);
             }
             #[cfg(feature = "currency")]
             Section::Currency => {
@@ -209,12 +168,7 @@ impl Formats {
                 takes(options, &crate::date::OPTIONS)?;
                 self.date = Some(crate::date::Parsed::parse(options)?);
             }
-            #[cfg(not(all(
-                feature = "number",
-                feature = "offset",
-                feature = "currency",
-                feature = "date"
-            )))]
+            #[cfg(not(all(feature = "number", feature = "currency", feature = "date")))]
             _ => {}
         }
         Ok(())
@@ -230,12 +184,7 @@ impl Formats {
 }
 
 /// Refuses an option the format does not take.
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "date"
-))]
+#[cfg(any(feature = "number", feature = "currency", feature = "date"))]
 fn takes(options: Options<'_>, names: &[&str]) -> Result<(), FormatRule> {
     match options
         .entries

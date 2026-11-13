@@ -62,9 +62,7 @@ to [`emit`].
 
 | Feature | Default | Enables |
 |---|---|---|
-| `register` | off | `register::write` and `register::RegisterError`, the wallet's writer, and siros-i18n's `nfc` |
-
-The reader and [`emit`] work with siros-i18n built without `nfc`, the matcher's build.
+| `register` | off | `register::write` and `register::RegisterError`, the wallet's writer |
 
 ## Format
 
@@ -161,13 +159,9 @@ source.
 
 ### Writing
 
-`register::write` writes a [`Base`], whose sources load. It loads the base's sources again in
-their order, then each transaction source into a clone of that context, alone and after the
-sources of the types before it, each through siros-i18n's `Context::module_in_nfc`. A source
+`register::write` writes a [`Base`], whose sources load. It loads each transaction source into a
+clone of the base's context, alone and after the sources of the types before it. A source
 byte-equal to an earlier type's loads once, and each type keeps its directory entry. It refuses the
-first base source that holds a name, a variant key or a selector literal outside Unicode
-Normalization Form C (`RegisterError::Source`), then the first transaction source that does not
-load or holds one (`RegisterError::Transaction`). A distinct source that words an id of an earlier
-type's source is refused (`LoadError::Repeated`). Every request's context then loads from what it
-writes, and a matcher built without siros-i18n's `nfc` resolves it to the texts the wallet
-resolves. A reader checks every rule of a blob it opens, whoever wrote it.
+first transaction source that does not load (`RegisterError::Transaction`). A distinct source that
+words an id of an earlier type's source is refused (`LoadError::Repeated`). Every request's context
+then loads from what it writes. A reader checks every rule of a blob it opens, whoever wrote it.

@@ -1,6 +1,5 @@
 //! MF2's data model (spec/data-model): what the parser makes of a message, borrowed from its
-//! source. Names, identifiers and variant keys are held as the parse's
-//! [`Hold`](crate::normal::Hold) holds them; literals and text as written, their escapes
+//! source. Names, identifiers, literals, variant keys and text are held as written, their escapes
 //! resolved. Attributes are dropped: they have no effect on formatting.
 
 use std::borrow::Cow;

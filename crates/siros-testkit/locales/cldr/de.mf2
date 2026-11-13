@@ -15,18 +15,6 @@ cardinal =
 ordinal =
 pattern = #,##0.###
 
-[formats.offset]
-zero = 0
-decimal = ,
-group = .
-minus = -
-plus = +
-grouping = 1
-cardinal =
-  one: i = 1 and v = 0
-ordinal =
-pattern = #,##0.###
-
 [formats.currency]
 zero = 0
 decimal = ,
@@ -37,8 +25,6 @@ grouping = 1
 cardinal =
   one: i = 1 and v = 0
 ordinal =
-percent-sign = %
-percent-pattern = #,##0 %
 pattern = #,##0.###
 standard = #,##0.00 ¤
 standard-alpha = #,##0.00 ¤

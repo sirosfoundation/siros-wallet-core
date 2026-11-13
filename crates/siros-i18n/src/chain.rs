@@ -11,7 +11,6 @@ use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use crate::error::{Fault, Refusal, ResolveError};
 use crate::format::Function;
-use crate::normal::Unnormalized;
 use crate::scope::Scope;
 
 /// What a call applies to.
@@ -150,13 +149,7 @@ pub(crate) enum Value {
 
 impl Value {
     /// Its text when the load fixes it: a literal's, written or bound.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "date",
-        feature = "conformance"
-    ))]
+    #[cfg(any(feature = "number", feature = "currency", feature = "date"))]
     pub(crate) fn fixed(&self) -> Option<&str> {
         match self {
             Self::Literal(text) | Self::Bound(text) => Some(text),
@@ -165,30 +158,10 @@ impl Value {
     }
 }
 
-/// An option's name: `u:dir` and `u:id` (spec/u-namespace.md), which every function takes, or a
-/// function's own.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Name {
-    Dir,
-    Id,
-    Of(Box<str>),
-}
-
-impl Name {
-    /// The name as written.
-    fn as_str(&self) -> &str {
-        match self {
-            Self::Dir => "u:dir",
-            Self::Id => "u:id",
-            Self::Of(name) => name,
-        }
-    }
-}
-
 /// An option of a call.
 #[derive(Debug, Clone)]
 pub(crate) struct Opt {
-    pub(crate) name: Name,
+    pub(crate) name: Box<str>,
     pub(crate) value: Value,
 }
 
@@ -205,28 +178,16 @@ impl Call {
         Self { function, options }
     }
 
-    /// The function's own options, in the order written: each name and its value.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "date",
-        feature = "conformance"
-    ))]
+    /// Its options, in the order written: each name and its value.
+    #[cfg(any(feature = "number", feature = "currency", feature = "date"))]
     pub(crate) fn options(&self) -> impl Iterator<Item = (&str, &Value)> {
-        self.options.iter().filter_map(|option| match &option.name {
-            Name::Of(name) => Some((&**name, &option.value)),
-            Name::Dir | Name::Id => None,
-        })
+        self.options
+            .iter()
+            .map(|option| (&*option.name, &option.value))
     }
 
-    /// The value of the function's own option `name`.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "date"
-    ))]
+    /// The value of its option `name`.
+    #[cfg(any(feature = "number", feature = "currency", feature = "date"))]
     pub(crate) fn option(&self, name: &str) -> Option<&Value> {
         self.options()
             .find(|(given, _)| *given == name)
@@ -245,50 +206,19 @@ pub(crate) struct Chain<'m> {
     unwritten: bool,
 }
 
-/// An expression's `u:dir` (spec/u-namespace.md).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Dir {
-    Ltr,
-    Rtl,
-    Auto,
-    Inherit,
-}
-
-impl Dir {
-    /// The direction a `u:dir` value names; `None` for a value other than `ltr`, `rtl`, `auto`
-    /// and `inherit`.
-    pub(crate) fn named(value: &str) -> Option<Self> {
-        match value {
-            "ltr" => Some(Self::Ltr),
-            "rtl" => Some(Self::Rtl),
-            "auto" => Some(Self::Auto),
-            "inherit" => Some(Self::Inherit),
-            _ => None,
-        }
-    }
-}
-
-/// A call's resolved options: its function, its `u:dir`, and each option of the function's own
-/// with its text, in the order written. `u:id` names a part of a formatted result a text lacks.
+/// A call's resolved options: its function, and each option with its text, in the order written.
 #[derive(Debug)]
 pub(crate) struct CallTexts<'s> {
     #[cfg_attr(
-        not(any(feature = "number", feature = "currency", feature = "offset")),
+        not(any(feature = "number", feature = "currency")),
         expect(
             dead_code,
             reason = "only the numeric functions read a call's function"
         )
     )]
     pub(crate) function: Function,
-    dir: Option<Dir>,
     #[cfg_attr(
-        not(any(
-            feature = "number",
-            feature = "currency",
-            feature = "offset",
-            feature = "date",
-            feature = "conformance"
-        )),
+        not(any(feature = "number", feature = "currency", feature = "date")),
         expect(dead_code, reason = "`:string` reads no option")
     )]
     pub(crate) options: Vec<(&'s str, &'s str)>,
@@ -308,6 +238,10 @@ impl<'s> CallTexts<'s> {
 /// A chain's resolved options: those of the calls its operand's value applies, innermost first,
 /// and its own call's.
 #[derive(Debug)]
+#[cfg_attr(
+    not(any(feature = "number", feature = "currency", feature = "date")),
+    expect(dead_code, reason = "`:string` reads no option")
+)]
 pub(crate) struct Texts<'s> {
     inner: Vec<CallTexts<'s>>,
     outer: CallTexts<'s>,
@@ -315,43 +249,19 @@ pub(crate) struct Texts<'s> {
 
 impl<'s> Texts<'s> {
     /// The calls' options, innermost first.
-    #[cfg(any(feature = "date", feature = "conformance"))]
+    #[cfg(feature = "date")]
     pub(crate) fn calls(&self) -> impl DoubleEndedIterator<Item = &CallTexts<'s>> {
         self.inner.iter().chain([&self.outer])
     }
 
     /// The innermost call's options, and those of the calls after it, in order.
-    #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+    #[cfg(any(feature = "number", feature = "currency"))]
     pub(crate) fn innermost(&self) -> (&CallTexts<'s>, impl Iterator<Item = &CallTexts<'s>>) {
         match self.inner.split_first() {
             Some((first, rest)) => (first, rest.iter().chain(Some(&self.outer))),
             None => (&self.outer, [].iter().chain(None)),
         }
     }
-
-    /// The expression's `u:dir`: the outermost call's that gives one, else `inherit`. A value
-    /// keeps its operand's `u:dir`.
-    pub(crate) fn dir(&self) -> Dir {
-        [&self.outer]
-            .into_iter()
-            .chain(self.inner.iter().rev())
-            .find_map(|call| call.dir)
-            .unwrap_or(Dir::Inherit)
-    }
-}
-
-/// Why the load fixes no texts for a chain's options.
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "conformance"
-))]
-enum Unfixed {
-    /// A variable gives an option's value.
-    Variable,
-    /// A `u:dir` names no direction.
-    Misnamed,
 }
 
 impl<'m> Chain<'m> {
@@ -382,30 +292,22 @@ impl<'m> Chain<'m> {
         self.inner.last().map_or(self.outer, |call| call).function
     }
 
-    /// The calls' resolved options, each option's text by `text`: `u:dir` parsed, `u:id`
-    /// dropped. `misnamed` is the error of a `u:dir` that names no direction.
+    /// The calls' resolved options, each option's text by `text`.
     fn texts_by<'s, E>(
         &self,
         mut text: impl FnMut(&'m Opt) -> Result<&'s str, E>,
-        misnamed: impl Fn() -> E,
     ) -> Result<Texts<'s>, E>
     where
         'm: 's,
     {
         let mut resolved = |call: &'m Call| {
-            let mut dir = None;
-            let mut options = Vec::with_capacity(call.options.len());
-            for option in &call.options {
-                let text = text(option)?;
-                match &option.name {
-                    Name::Dir => dir = Some(Dir::named(text).ok_or_else(&misnamed)?),
-                    Name::Id => {}
-                    Name::Of(name) => options.push((&**name, text)),
-                }
-            }
+            let options = call
+                .options
+                .iter()
+                .map(|option| Ok((&*option.name, text(option)?)))
+                .collect::<Result<_, E>>()?;
             Ok(CallTexts {
                 function: call.function,
-                dir,
                 options,
             })
         };
@@ -426,42 +328,20 @@ impl<'m> Chain<'m> {
     /// # Errors
     ///
     /// [`Failure::Unresolved`] for an argument the message does not give, and
-    /// [`Failure::Option`] for a variable whose value fails, or a `u:dir` that names no
-    /// direction.
+    /// [`Failure::Option`] for a variable whose value fails.
     pub(crate) fn texts<'s>(&self, scope: &'s Scope<'m>) -> Result<Texts<'s>, Failure> {
-        self.texts_by(
-            |option| {
-                scope
-                    .text(&option.value)
-                    .map_err(|failure| failure.under(option.name.as_str()))
-            },
-            || Failure::Option(Name::Dir.as_str().to_owned()),
-        )
+        self.texts_by(|option| {
+            scope
+                .text(&option.value)
+                .map_err(|failure| failure.under(&option.name))
+        })
     }
 
     /// The calls' resolved options when the load fixes every option's text; `None` when a
     /// variable gives one.
-    ///
-    /// # Errors
-    ///
-    /// [`Refusal::Option`] for a `u:dir` that names no direction.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "conformance"
-    ))]
-    pub(crate) fn fixed_texts(&self) -> Result<Option<Texts<'m>>, Refusal> {
-        match self.texts_by(
-            |option| option.value.fixed().ok_or(Unfixed::Variable),
-            || Unfixed::Misnamed,
-        ) {
-            Ok(texts) => Ok(Some(texts)),
-            Err(Unfixed::Variable) => Ok(None),
-            Err(Unfixed::Misnamed) => Err(Refusal::Option {
-                option: Name::Dir.as_str().to_owned(),
-            }),
-        }
+    #[cfg(any(feature = "number", feature = "currency"))]
+    pub(crate) fn fixed_texts(&self) -> Option<Texts<'m>> {
+        self.texts_by(|option| option.value.fixed().ok_or(())).ok()
     }
 
     /// The resolution error of `failure` in the message `id`: an operand's names the innermost
@@ -491,15 +371,6 @@ impl<'m> Chain<'m> {
             },
         }
     }
-}
-
-/// How a message uses a call's value at a site that takes its text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Use {
-    /// A placeholder formats it.
-    Format,
-    /// An option takes it as its value.
-    Value,
 }
 
 /// Why a call does not format, select or give a value at resolution.
@@ -535,17 +406,10 @@ impl Failure {
 #[derive(Debug)]
 pub(crate) enum Refused {
     /// The outermost function's options are defined by no module loaded so far.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "date"
-    ))]
+    #[cfg(any(feature = "number", feature = "currency", feature = "date"))]
     Undefined,
     /// The function refuses the call.
     Call(Refusal),
-    /// A selector's literal the load's [`Hold`](crate::normal::Hold) refuses.
-    Unnormalized(Unnormalized),
 }
 
 impl From<Refusal> for Refused {
@@ -559,30 +423,18 @@ impl Refused {
     /// selector's argument type.
     pub(crate) fn failure(self, function: Function) -> Failure {
         match self {
-            #[cfg(any(
-                feature = "number",
-                feature = "currency",
-                feature = "offset",
-                feature = "date"
-            ))]
+            #[cfg(any(feature = "number", feature = "currency", feature = "date"))]
             Self::Undefined => Failure::Operand,
             Self::Call(refusal) => Failure::Selector(function, refusal),
-            Self::Unnormalized(_) => Failure::Operand,
         }
     }
 
     /// The fault of the refusal of a chain whose outermost function is `function`.
     pub(crate) fn fault(self, function: Function) -> Fault {
         match self {
-            #[cfg(any(
-                feature = "number",
-                feature = "currency",
-                feature = "offset",
-                feature = "date"
-            ))]
+            #[cfg(any(feature = "number", feature = "currency", feature = "date"))]
             Self::Undefined => Fault::Undefined(function.name()),
             Self::Call(refusal) => Fault::Call(function.name(), refusal),
-            Self::Unnormalized(literal) => Fault::Unnormalized(literal.written()),
         }
     }
 }

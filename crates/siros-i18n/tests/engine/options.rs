@@ -1,6 +1,5 @@
 //! An option written as a variable takes the variable's resolved value (spec/formatting.md,
 //! "Option Resolution"), whatever binds it: an argument, a literal, or a call a declaration binds.
-//! `u:dir` takes a variable whose value names a direction (spec/u-namespace.md).
 
 use siros_i18n::{Bidi, Context};
 
@@ -10,9 +9,8 @@ use crate::{Given, cldr};
 type Args = &'static [(&'static str, &'static str)];
 
 /// Each message and its arguments, and the text MF2 gives it. EUR has two fraction digits in
-/// English, `:integer` rounds 2.6 to 3, `:offset add=1` makes 4 of 3, and `rtl` isolates its
-/// value between U+2067 and U+2069 in a left-to-right message.
-const CASES: [(&str, Args, &str); 12] = [
+/// English, and `:integer` rounds 2.6 to 3.
+const CASES: [(&str, Args, &str); 7] = [
     (
         "{$a :currency currency=$code}",
         &[("a", "12.5"), ("code", "EUR")],
@@ -47,32 +45,6 @@ const CASES: [(&str, Args, &str); 12] = [
         ".input {$n :integer} {{{$a :number minimumFractionDigits=$n}}}",
         &[("a", "1.5"), ("n", "2.6")],
         "1.500",
-    ),
-    (
-        ".local $n = {|2.6| :integer} .local $m = {|1| :offset add=$n} \
-         {{{$a :number minimumFractionDigits=$m}}}",
-        &[("a", "1.5")],
-        "1.5000",
-    ),
-    (
-        "{$x :string u:dir=$d}",
-        &[("x", "abc"), ("d", "rtl")],
-        "\u{2067}abc\u{2069}",
-    ),
-    (
-        ".input {$d} {{{$x :string u:dir=$d}}}",
-        &[("x", "abc"), ("d", "rtl")],
-        "\u{2067}abc\u{2069}",
-    ),
-    (
-        ".local $d = {|rtl|} {{{$x :string u:dir=$d}}}",
-        &[("x", "abc")],
-        "\u{2067}abc\u{2069}",
-    ),
-    (
-        ".input {$d :string} {{{$x :string u:dir=$d}}}",
-        &[("x", "abc"), ("d", "rtl")],
-        "\u{2067}abc\u{2069}",
     ),
 ];
 

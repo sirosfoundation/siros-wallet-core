@@ -129,9 +129,14 @@ impl Base {
         formatters: Formatters,
         sources: AllOf<String>,
     ) -> Result<Self, ContextError> {
-        let context = loaded(bidi, &formatters, &sources, Context::module, |at, cause| {
-            ContextError::Source { at, cause }
-        })?;
+        let context = sources.items().iter().enumerate().try_fold(
+            Context::new().bidi(bidi).formatters(formatters.clone()),
+            |context, (at, source)| {
+                context
+                    .module(source)
+                    .map_err(|cause| ContextError::Source { at, cause })
+            },
+        )?;
         if context.locale() != Some(&locale) {
             return Err(ContextError::Locale {
                 declared: context.locale().cloned(),
@@ -184,26 +189,6 @@ impl Base {
     pub const fn context(&self) -> &Context {
         &self.context
     }
-}
-
-/// The context a base's sources load into: under `bidi`, its arguments taking `formatters`, each
-/// source through `load`, in their order.
-///
-/// # Errors
-///
-/// `refused` of the first source `load` refuses: its position in load order, from 0, and the
-/// refusal.
-pub(crate) fn loaded<E>(
-    bidi: Bidi,
-    formatters: &Formatters,
-    sources: &AllOf<String>,
-    load: impl Fn(Context, &str) -> Result<Context, LoadError>,
-    refused: impl Fn(usize, LoadError) -> E,
-) -> Result<Context, E> {
-    sources.items().iter().enumerate().try_fold(
-        Context::new().bidi(bidi).formatters(formatters.clone()),
-        |context, (at, source)| load(context, source).map_err(|cause| refused(at, cause)),
-    )
 }
 
 /// Bases are equal when their entries are: each loads its context from them, its arguments

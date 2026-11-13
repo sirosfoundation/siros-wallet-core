@@ -81,17 +81,6 @@ pub enum LoadError {
         #[source]
         refusal: Refusal,
     },
-    /// A name, a variant key or a selector literal that Unicode Normalization Form C changes,
-    /// which `Context::module_in_nfc` (feature `nfc`) refuses: a build without the feature holds
-    /// it as written.
-    #[error("{id} holds {text:?}, which NFC changes")]
-    #[explain(id = "load.unnormalized")]
-    Unnormalized {
-        /// The message's id.
-        id: String,
-        /// The name, the key or the literal, as written.
-        text: String,
-    },
 }
 
 /// Why a message does not load, before its id and its line join it: [`Fault::at`] makes the
@@ -124,8 +113,6 @@ pub(crate) enum Fault {
     Undefined(&'static str),
     /// This function's refusal of a call.
     Call(&'static str, Refusal),
-    /// A name, a variant key or a selector literal, as written, that NFC changes.
-    Unnormalized(String),
 }
 
 impl Fault {
@@ -161,7 +148,6 @@ impl Fault {
                     refusal,
                 };
             }
-            Self::Unnormalized(text) => return LoadError::Unnormalized { id, text },
         };
         LoadError::Syntax { line, rule }
     }
@@ -354,10 +340,6 @@ pub enum Refusal {
     #[error("the function's value selects no variant")]
     #[explain(id = "refusal.selector")]
     Selector,
-    /// The use in a placeholder.
-    #[error("the function's value does not format")]
-    #[explain(id = "refusal.formatter")]
-    Formatter,
 }
 
 /// Why [`Context::resolve`](crate::Context::resolve) refused a message. No fallback text reaches
@@ -390,7 +372,7 @@ pub enum ResolveError {
         function: String,
     },
     /// A function refuses an option's value, which a variable gives: an argument's text, or a
-    /// declared call's value; or the call's `u:dir` names no direction.
+    /// declared call's value.
     #[error("{id}: :{function} refuses its option {option}")]
     #[explain(id = "resolve.option")]
     Option {
@@ -431,7 +413,7 @@ pub enum ResolveError {
     Argument {
         /// The message's id.
         id: String,
-        /// The argument's key, as the wording spells it: in NFC with the feature `nfc`.
+        /// The argument's key, as the wording spells it.
         key: String,
     },
 }

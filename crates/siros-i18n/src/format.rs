@@ -1,24 +1,17 @@
 //! The build's functions, one family per feature: `:string` always, `:number` and `:integer`
-//! (`number`), `:offset` (`offset`), `:currency` and `:percent` (`currency`), `:siros:date`,
-//! `:siros:time` and `:siros:datetime` (`date`), and MF2's test functions (`conformance`). A
-//! family with options parses its `[formats.<format>]` section. The load checks each
+//! (`number`), `:currency` (`currency`), and `:siros:date`, `:siros:time` and `:siros:datetime`
+//! (`date`). A family with options parses its `[formats.<format>]` section. The load checks each
 //! [`Chain`] for the use a placeholder, a selector or an option makes of it; a resolution reads
 //! the sections and formats, selects or takes the value.
 
 use std::borrow::Cow;
 
-use crate::chain::{Call, Chain, Failure, Refused, Texts, Use};
+use crate::chain::{Call, Chain, Failure, Refused, Texts};
 use crate::error::Refusal;
 pub(crate) use crate::formats::Formats;
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "date"
-))]
+#[cfg(any(feature = "number", feature = "currency", feature = "date"))]
 pub(crate) use crate::formats::Options;
 use crate::formats::Section;
-use crate::normal::Hold;
 use crate::scope::Scope;
 
 /// A text's directionality: a message's, by its module's `@dir`, and a formatted value's, which
@@ -41,25 +34,14 @@ pub(crate) enum Function {
     Number,
     #[cfg(feature = "number")]
     Integer,
-    #[cfg(feature = "offset")]
-    Offset,
     #[cfg(feature = "currency")]
     Currency,
-    #[cfg(feature = "currency")]
-    Percent,
     #[cfg(feature = "date")]
     Date,
     #[cfg(feature = "date")]
     Time,
     #[cfg(feature = "date")]
     DateTime,
-    /// `:test:function`.
-    #[cfg(feature = "conformance")]
-    Test,
-    #[cfg(feature = "conformance")]
-    TestSelect,
-    #[cfg(feature = "conformance")]
-    TestFormat,
 }
 
 impl Function {
@@ -70,24 +52,14 @@ impl Function {
         Self::Number,
         #[cfg(feature = "number")]
         Self::Integer,
-        #[cfg(feature = "offset")]
-        Self::Offset,
         #[cfg(feature = "currency")]
         Self::Currency,
-        #[cfg(feature = "currency")]
-        Self::Percent,
         #[cfg(feature = "date")]
         Self::Date,
         #[cfg(feature = "date")]
         Self::Time,
         #[cfg(feature = "date")]
         Self::DateTime,
-        #[cfg(feature = "conformance")]
-        Self::Test,
-        #[cfg(feature = "conformance")]
-        Self::TestSelect,
-        #[cfg(feature = "conformance")]
-        Self::TestFormat,
     ];
 
     /// The function of this name, without its colon; `None` for a function the build lacks.
@@ -106,24 +78,14 @@ impl Function {
             Self::Number => "number",
             #[cfg(feature = "number")]
             Self::Integer => "integer",
-            #[cfg(feature = "offset")]
-            Self::Offset => "offset",
             #[cfg(feature = "currency")]
             Self::Currency => "currency",
-            #[cfg(feature = "currency")]
-            Self::Percent => "percent",
             #[cfg(feature = "date")]
             Self::Date => "siros:date",
             #[cfg(feature = "date")]
             Self::Time => "siros:time",
             #[cfg(feature = "date")]
             Self::DateTime => "siros:datetime",
-            #[cfg(feature = "conformance")]
-            Self::Test => "test:function",
-            #[cfg(feature = "conformance")]
-            Self::TestSelect => "test:select",
-            #[cfg(feature = "conformance")]
-            Self::TestFormat => "test:format",
         }
     }
 
@@ -142,24 +104,14 @@ impl Function {
             Self::Number => bare!(Function::Number),
             #[cfg(feature = "number")]
             Self::Integer => bare!(Function::Integer),
-            #[cfg(feature = "offset")]
-            Self::Offset => bare!(Function::Offset),
             #[cfg(feature = "currency")]
             Self::Currency => bare!(Function::Currency),
-            #[cfg(feature = "currency")]
-            Self::Percent => bare!(Function::Percent),
             #[cfg(feature = "date")]
             Self::Date => bare!(Function::Date),
             #[cfg(feature = "date")]
             Self::Time => bare!(Function::Time),
             #[cfg(feature = "date")]
             Self::DateTime => bare!(Function::DateTime),
-            #[cfg(feature = "conformance")]
-            Self::Test => bare!(Function::Test),
-            #[cfg(feature = "conformance")]
-            Self::TestSelect => bare!(Function::TestSelect),
-            #[cfg(feature = "conformance")]
-            Self::TestFormat => bare!(Function::TestFormat),
         }
     }
 
@@ -169,14 +121,10 @@ impl Function {
             Self::String => Family::String,
             #[cfg(feature = "number")]
             Self::Number | Self::Integer => Family::Numeric,
-            #[cfg(feature = "offset")]
-            Self::Offset => Family::Numeric,
             #[cfg(feature = "currency")]
-            Self::Currency | Self::Percent => Family::Numeric,
+            Self::Currency => Family::Numeric,
             #[cfg(feature = "date")]
             Self::Date | Self::Time | Self::DateTime => Family::Date,
-            #[cfg(feature = "conformance")]
-            Self::Test | Self::TestSelect | Self::TestFormat => Family::Test,
         }
     }
 
@@ -186,14 +134,10 @@ impl Function {
             Self::String => None,
             #[cfg(feature = "number")]
             Self::Number | Self::Integer => Some(Section::Number),
-            #[cfg(feature = "offset")]
-            Self::Offset => Some(Section::Offset),
             #[cfg(feature = "currency")]
-            Self::Currency | Self::Percent => Some(Section::Currency),
+            Self::Currency => Some(Section::Currency),
             #[cfg(feature = "date")]
             Self::Date | Self::Time | Self::DateTime => Some(Section::Date),
-            #[cfg(feature = "conformance")]
-            Self::Test | Self::TestSelect | Self::TestFormat => None,
         }
     }
 }
@@ -201,43 +145,33 @@ impl Function {
 /// The functions that share a check and a resolution.
 enum Family {
     String,
-    #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+    #[cfg(any(feature = "number", feature = "currency"))]
     Numeric,
     #[cfg(feature = "date")]
     Date,
-    #[cfg(feature = "conformance")]
-    Test,
 }
 
-/// The numeric chain's language: the section of the function that formats its value. `:offset`
-/// formats with the function of its operand's call, and with `[formats.offset]` over `:number`,
-/// `:integer` or a literal.
+/// The numeric chain's language: the section of the function that formats its value.
 ///
 /// # Errors
 ///
 /// [`Refused::Undefined`] for a section no module defined, and [`Refusal::Operand`] for a chain
 /// with a call of another family.
-#[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+#[cfg(any(feature = "number", feature = "currency"))]
 fn language<'f>(
     chain: &Chain<'_>,
     formats: &'f Formats,
 ) -> Result<crate::numeric::Language<'f>, Refused> {
-    #[cfg(any(feature = "number", feature = "currency"))]
     use crate::numeric::options::Function as Numeric;
-    let formatter = crate::numeric::formatter(chain).ok_or(Refusal::Operand)?;
-    match (chain.outer.function, formatter) {
+    match crate::numeric::formatter(chain).ok_or(Refusal::Operand)? {
         #[cfg(feature = "currency")]
-        (_, Numeric::Currency | Numeric::Percent) => Ok(crate::numeric::Language::Currency(
+        Numeric::Currency => Ok(crate::numeric::Language::Currency(
             formats.currency().ok_or(Refused::Undefined)?,
         )),
-        #[cfg(feature = "offset")]
-        (Function::Offset, _) => Ok(crate::numeric::Language::Plain(
-            formats.offset().ok_or(Refused::Undefined)?,
-        )),
         #[cfg(feature = "number")]
-        (_, Numeric::Number | Numeric::Integer | Numeric::Offset) => Ok(
-            crate::numeric::Language::Plain(formats.number().ok_or(Refused::Undefined)?),
-        ),
+        Numeric::Number | Numeric::Integer => Ok(crate::numeric::Language::Plain(
+            formats.number().ok_or(Refused::Undefined)?,
+        )),
         #[cfg(not(all(feature = "number", feature = "currency")))]
         _ => Err(Refusal::Operand.into()),
     }
@@ -248,7 +182,7 @@ fn language<'f>(
 /// # Errors
 ///
 /// [`Failure::Operand`] for a chain no section of the context formats.
-#[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+#[cfg(any(feature = "number", feature = "currency"))]
 fn formatting<'f>(
     chain: &Chain<'_>,
     formats: &'f Formats,
@@ -265,27 +199,14 @@ fn formatting<'f>(
 pub(crate) fn check(
     chain: &Chain<'_>,
     #[cfg_attr(
-        not(feature = "conformance"),
-        expect(
-            unused_variables,
-            reason = "only the test functions tell the uses apart"
-        )
-    )]
-    at: Use,
-    #[cfg_attr(
-        not(any(
-            feature = "number",
-            feature = "currency",
-            feature = "offset",
-            feature = "date"
-        )),
+        not(any(feature = "number", feature = "currency", feature = "date")),
         expect(unused_variables, reason = "only the format functions read a section")
     )]
     formats: &Formats,
 ) -> Result<(), Refused> {
     match chain.outer.function.family() {
         Family::String => crate::string::check(chain),
-        #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+        #[cfg(any(feature = "number", feature = "currency"))]
         Family::Numeric => crate::numeric::check(chain, language(chain, formats)?),
         #[cfg(feature = "date")]
         Family::Date => {
@@ -294,8 +215,6 @@ pub(crate) fn check(
             }
             Ok(crate::date::check(chain)?)
         }
-        #[cfg(feature = "conformance")]
-        Family::Test => crate::test_functions::check(chain, at),
     }
 }
 
@@ -305,40 +224,34 @@ pub(crate) enum Selecting {
     /// `:string`: the key equal to the operand's text.
     Text,
     /// A numeric function: by its `select`.
-    #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+    #[cfg(any(feature = "number", feature = "currency"))]
     Number(crate::numeric::Selection),
-    /// A test function.
-    #[cfg(feature = "conformance")]
-    Test,
 }
 
 impl Selecting {
     /// How the chain selects, checked for its use as a selector against the sections of the
-    /// modules loaded so far, a literal it compares held by `hold`.
+    /// modules loaded so far.
     ///
     /// # Errors
     ///
-    /// [`Refused`] for a section no module defined, a call the function refuses, or a literal
-    /// `hold` refuses: a function that does not select refuses with [`Refusal::Selector`].
+    /// [`Refused`] for a section no module defined, or a call the function refuses: a function
+    /// that does not select refuses with [`Refusal::Selector`].
     pub(crate) fn of(
         chain: &Chain<'_>,
         #[cfg_attr(
-            not(any(feature = "number", feature = "currency", feature = "offset")),
+            not(any(feature = "number", feature = "currency")),
             expect(unused_variables, reason = "only the numeric functions read a section")
         )]
         formats: &Formats,
-        hold: Hold,
     ) -> Result<Self, Refused> {
         match chain.outer.function.family() {
-            Family::String => crate::string::selecting(chain, hold).map(|()| Self::Text),
-            #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+            Family::String => crate::string::check(chain).map(|()| Self::Text),
+            #[cfg(any(feature = "number", feature = "currency"))]
             Family::Numeric => {
                 crate::numeric::selection(chain, language(chain, formats)?).map(Self::Number)
             }
             #[cfg(feature = "date")]
             Family::Date => Err(Refusal::Selector.into()),
-            #[cfg(feature = "conformance")]
-            Family::Test => crate::test_functions::selecting(chain).map(|()| Self::Test),
         }
     }
 
@@ -350,13 +263,13 @@ impl Selecting {
     pub(crate) fn reads(
         self,
         #[cfg_attr(
-            not(any(feature = "number", feature = "currency", feature = "offset")),
+            not(any(feature = "number", feature = "currency")),
             expect(unused_variables, reason = "only the numeric selection refuses a key")
         )]
         key: &str,
     ) -> Result<(), Refusal> {
         match self {
-            #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+            #[cfg(any(feature = "number", feature = "currency"))]
             Self::Number(_) => crate::numeric::key(key),
             _ => Ok(()),
         }
@@ -371,27 +284,20 @@ impl Selecting {
         self,
         chain: &Chain<'s>,
         #[cfg_attr(
-            not(any(
-                feature = "number",
-                feature = "currency",
-                feature = "offset",
-                feature = "conformance"
-            )),
+            not(any(feature = "number", feature = "currency")),
             expect(unused_variables, reason = "`:string` reads no option")
         )]
         texts: &Texts<'_>,
         scope: &Scope<'s>,
     ) -> Result<Selected<'s>, Failure> {
         match self {
-            Self::Text => crate::string::selected(chain, scope).map(Selected::Text),
-            #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+            Self::Text => crate::string::value(chain, scope).map(Selected::Text),
+            #[cfg(any(feature = "number", feature = "currency"))]
             Self::Number(selection) => {
                 let language = formatting(chain, scope.formats)?;
                 crate::numeric::selected(chain, texts, scope, language, selection)
                     .map(Selected::Number)
             }
-            #[cfg(feature = "conformance")]
-            Self::Test => crate::test_functions::selected(chain, texts, scope).map(Selected::Test),
         }
     }
 }
@@ -400,13 +306,10 @@ impl Selecting {
 #[derive(Debug)]
 pub(crate) enum Selected<'s> {
     /// The text a key equals.
-    Text(Cow<'s, str>),
+    Text(&'s str),
     /// A number's exact key and plural category.
-    #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+    #[cfg(any(feature = "number", feature = "currency"))]
     Number(crate::numeric::Selected),
-    /// The keys a test function's value matches, best first.
-    #[cfg(feature = "conformance")]
-    Test(&'static [&'static str]),
 }
 
 impl Selected<'_> {
@@ -414,44 +317,34 @@ impl Selected<'_> {
     /// it does not match.
     pub(crate) fn rank(&self, key: &str) -> Option<usize> {
         match self {
-            Self::Text(text) => (text.as_ref() == key).then_some(0),
-            #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+            Self::Text(text) => (*text == key).then_some(0),
+            #[cfg(any(feature = "number", feature = "currency"))]
             Self::Number(number) => number.rank(key),
-            #[cfg(feature = "conformance")]
-            Self::Test(matched) => matched.iter().position(|text| *text == key),
         }
     }
 }
 
 /// The chain's value as an option's value: the operand's text for `:string` and the date
-/// functions, the number for the numeric functions, and the test functions' input.
+/// functions, the number for the numeric functions.
 ///
 /// # Errors
 ///
 /// [`Failure`] as [`format`].
 pub(crate) fn value<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<Cow<'m, str>, Failure> {
     #[cfg_attr(
-        not(any(
-            feature = "number",
-            feature = "currency",
-            feature = "offset",
-            feature = "date",
-            feature = "conformance"
-        )),
+        not(any(feature = "number", feature = "currency", feature = "date")),
         expect(unused_variables, reason = "`:string` reads no option")
     )]
     let texts = chain.texts(scope)?;
     match chain.outer.function.family() {
         Family::String => crate::string::value(chain, scope).map(Cow::Borrowed),
-        #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+        #[cfg(any(feature = "number", feature = "currency"))]
         Family::Numeric => {
             let language = formatting(chain, scope.formats)?;
             crate::numeric::value(chain, &texts, scope, language).map(Cow::Owned)
         }
         #[cfg(feature = "date")]
         Family::Date => crate::date::value(chain, &texts, scope).map(Cow::Borrowed),
-        #[cfg(feature = "conformance")]
-        Family::Test => crate::test_functions::value(chain, &texts, scope).map(Cow::Borrowed),
     }
 }
 
@@ -465,13 +358,7 @@ pub(crate) fn value<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<Cow<'m, 
 pub(crate) fn format(
     chain: &Chain<'_>,
     #[cfg_attr(
-        not(any(
-            feature = "number",
-            feature = "currency",
-            feature = "offset",
-            feature = "date",
-            feature = "conformance"
-        )),
+        not(any(feature = "number", feature = "currency", feature = "date")),
         expect(unused_variables, reason = "`:string` reads no option")
     )]
     texts: &Texts<'_>,
@@ -481,7 +368,7 @@ pub(crate) fn format(
         Family::String => {
             crate::string::value(chain, scope).map(|text| (text.to_owned(), Direction::Unknown))
         }
-        #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+        #[cfg(any(feature = "number", feature = "currency"))]
         Family::Numeric => {
             let language = formatting(chain, scope.formats)?;
             let text = crate::numeric::format(chain, texts, scope, language)?;
@@ -493,8 +380,5 @@ pub(crate) fn format(
             let text = crate::date::format(chain, texts, scope, section)?;
             Ok((text, section.direction()))
         }
-        #[cfg(feature = "conformance")]
-        Family::Test => crate::test_functions::format(chain, texts, scope)
-            .map(|text| (text, Direction::Unknown)),
     }
 }

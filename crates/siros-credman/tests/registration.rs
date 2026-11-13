@@ -586,59 +586,6 @@ fn one_source_under_two_types_is_written_and_loads() {
     );
 }
 
-/// The writer refuses a base source and a type's source holding a variant key that Unicode
-/// Normalization Form C changes, which [`Base::load`] takes, and writes them with the key in NFC.
-/// U+1E0A U+0323 is outside NFC, which writes it U+1E0C U+0307 (UAX #15).
-#[test]
-fn a_key_outside_nfc_is_not_written() {
-    const WRITTEN: &str = "\u{1E0A}\u{323}";
-    const NORMAL: &str = "\u{1E0C}\u{307}";
-    let source = |section: &str, key: &str| {
-        format!(
-            "@locale en\n---\n[{section}]\nlabel = .input {{$x :string}} .match $x {key} {{{{a}}}} * {{{{b}}}}\n"
-        )
-    };
-    let base = |second: String| {
-        Base::load(
-            tag("en"),
-            AllOf::one(tag("en")),
-            Bidi::Default,
-            Formatters::new(),
-            AllOf::new(vec![SOURCE.to_owned(), second]).expect("sources"),
-        )
-        .expect("the reader's load takes it")
-    };
-    let unnormalized = LoadError::Unnormalized {
-        id: "gate.label".to_owned(),
-        text: WRITTEN.to_owned(),
-    };
-    assert_eq!(
-        write(&base(source("gate", WRITTEN)), &Keyed::empty()),
-        Err(RegisterError::Source {
-            at: 1,
-            cause: unnormalized.clone(),
-        }),
-        "a base source"
-    );
-    assert_eq!(
-        write(&honest_base(), &types(&[("t1", &source("gate", WRITTEN))])),
-        Err(RegisterError::Transaction {
-            kind: kind("t1"),
-            cause: unnormalized,
-        }),
-        "a type's source"
-    );
-    assert_eq!(
-        write(
-            &base(source("gate", NORMAL)),
-            &types(&[("t1", &source("t1", NORMAL))])
-        )
-        .map(|_| ()),
-        Ok(()),
-        "the sources with the key in NFC"
-    );
-}
-
 /// A reader over bytes that records each range of bytes it reads.
 struct Counting {
     bytes: Vec<u8>,

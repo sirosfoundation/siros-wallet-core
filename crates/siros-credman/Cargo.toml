@@ -11,9 +11,8 @@ readme = "README.md"
 publish = false
 
 [features]
-# The registration writer, which the wallet links. It checks every source with siros-i18n's
-# `Context::module_in_nfc`.
-register = ["siros-i18n/nfc"]
+# The registration writer, which the wallet links.
+register = []
 
 [dependencies]
 siros-openid4vp = { workspace = true, features = ["match"] }

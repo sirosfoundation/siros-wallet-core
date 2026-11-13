@@ -14,15 +14,14 @@
 //! and show the fraction digits it is written with; `:currency` takes a number and a `currency`
 //! option, an ISO 4217 code of siros-syntax's table; `:siros:date`, `:siros:time` and
 //! `:siros:datetime` take siros-syntax's ISO 8601 literals. Each function family is a feature:
-//! `number` (`:number`, `:integer`), `currency` (`:currency`, `:percent`), `offset` (`:offset`) and
-//! `date`; `:string` is always in. `siros-cldr` writes the format sections of a language from
+//! `number` (`:number`, `:integer`), `currency` (`:currency`) and `date`; `:string` is always
+//! in. `siros-cldr` writes the format sections of a language from
 //! CLDR 49.0.0.
 //!
 //! An option's value is a literal or a variable's value (MF2's Option Resolution): an argument's
 //! text, a literal, or the value of the call a declaration binds, which is the operand's text for
 //! `:string` and the date functions and the number, without an exponent, for the numeric
-//! functions. `u:dir` takes `ltr`, `rtl`, `auto` or `inherit`; a variable's other value refuses
-//! the message at resolution.
+//! functions. The load refuses an option of MF2's `u:` namespace.
 //!
 //! [`escape`] writes a text as a resource value that resolves to it: a converter writes each
 //! issuer text through it.
@@ -51,18 +50,10 @@
 //!
 //! # Features
 //!
-//! - `number`, `currency`, `offset`, `date` (default): the function families.
+//! - `number`, `currency`, `date` (default): the function families.
 //! - `derive` (default): `#[derive(Message)]`.
-//! - `nfc` (default): MF2's Unicode Normalization Form C of names, variant keys and the literals
-//!   `:string` selects on, and of the keys of a message's arguments, and
-//!   `Context::module_in_nfc`. A build without it holds each as written: it resolves a module
-//!   `module_in_nfc` loads to the texts a build with it resolves. Text and arguments' values stay
-//!   as written in both.
 //! - `check`: `Context::check`, over one row per derived error and statement of every crate the
 //!   binary links. Test builds turn it on; a build without it holds no row.
-//! - `conformance`: MF2's test functions `:test:function`, `:test:select` and `:test:format`,
-//!   which siros-i18n's conformance tests call. A wording that calls one fails to load in a
-//!   build without it.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -92,13 +83,7 @@ mod compile;
 mod context;
 #[cfg(feature = "date")]
 mod date;
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "date",
-    feature = "conformance"
-))]
+#[cfg(any(feature = "number", feature = "currency", feature = "date"))]
 mod digit;
 mod error;
 mod escape;
@@ -108,16 +93,13 @@ mod locale;
 mod message;
 mod messages;
 mod mf2;
-mod normal;
-#[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+#[cfg(any(feature = "number", feature = "currency"))]
 mod numeric;
 mod registry;
 mod resource;
 mod scope;
 mod seen;
 mod string;
-#[cfg(feature = "conformance")]
-mod test_functions;
 mod text;
 
 pub use context::{Bidi, Context};

@@ -162,28 +162,10 @@ impl Num {
         }
     }
 
-    /// Zero, of this sign.
-    pub(crate) const fn zero(negative: bool) -> Self {
-        Self {
-            negative,
-            digits: Vec::new(),
-            exponent: 0,
-        }
-    }
-
     /// The value a `number-literal` writes (MF2 spec/functions/number.md); `None` for another
     /// text or a written digit at a power of ten outside `i16`'s range.
     pub(crate) fn literal(text: &str) -> Option<Self> {
         Given::literal(text).map(|given| given.value)
-    }
-
-    /// The value times 10^`power`.
-    pub(crate) fn shifted(&self, power: i64) -> Self {
-        let mut shifted = self.clone();
-        if !shifted.digits.is_empty() {
-            shifted.exponent += power;
-        }
-        shifted
     }
 
     /// The power of ten of its most significant digit; `None` for zero.
@@ -209,30 +191,6 @@ impl Num {
             .zip((low..=top).rev())
             .map(|(digit, _)| digit)
             .collect()
-    }
-
-    /// The value plus the integer `addend`.
-    pub(crate) fn plus(&self, addend: i64) -> Self {
-        let other = Self::new(
-            addend < 0,
-            Digit::of_integer(u128::from(addend.unsigned_abs())),
-            0,
-        );
-        let low = self.exponent.min(other.exponent).min(0);
-        let (a, b) = (self.integer_at(low), other.integer_at(low));
-        if self.negative == other.negative || self.digits.is_empty() || other.digits.is_empty() {
-            let negative = if self.digits.is_empty() {
-                other.negative
-            } else {
-                self.negative
-            };
-            return Self::new(negative, add(&a, &b), low);
-        }
-        match compare(&a, &b) {
-            Ordering::Less => Self::new(other.negative, subtract(&b, &a), low),
-            Ordering::Equal => Self::zero(false),
-            Ordering::Greater => Self::new(self.negative, subtract(&a, &b), low),
-        }
     }
 
     /// The value rounded to a multiple of `increment` × 10^`magnitude` by `mode`.
@@ -344,27 +302,10 @@ impl Given {
     }
 
     /// The value rounded to an integer by `mode`, written without fraction digits.
-    #[cfg(feature = "number")]
     pub(crate) fn integer(&self, mode: RoundingMode) -> Self {
         Self {
             value: self.value.round(0, NonZeroU32::MIN, mode),
             scale: 0,
-        }
-    }
-
-    /// The value plus the integer `addend`, written with as many fraction digits.
-    pub(crate) fn plus(&self, addend: i64) -> Self {
-        Self {
-            value: self.value.plus(addend),
-            scale: self.scale,
-        }
-    }
-
-    /// The value times 100, written with two fraction digits fewer.
-    pub(crate) fn percent(&self) -> Self {
-        Self {
-            value: self.value.shifted(2),
-            scale: self.scale.saturating_sub(2),
         }
     }
 }
@@ -388,20 +329,6 @@ fn half_compare(remainder: u64, increment: NonZeroU32, gap: bool, rest: &[Digit]
     }
 }
 
-/// `digits` without their leading zeros.
-fn significant(mut digits: &[Digit]) -> &[Digit] {
-    while let [Digit::Zero, rest @ ..] = digits {
-        digits = rest;
-    }
-    digits
-}
-
-/// Compares two digit strings as integers.
-fn compare(a: &[Digit], b: &[Digit]) -> Ordering {
-    let (a, b) = (significant(a), significant(b));
-    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
-}
-
 /// The sum of two digit strings.
 fn add(a: &[Digit], b: &[Digit]) -> Vec<Digit> {
     let mut sum = Vec::with_capacity(a.len().max(b.len()) + 1);
@@ -423,20 +350,6 @@ fn add(a: &[Digit], b: &[Digit]) -> Vec<Digit> {
     }
     sum.reverse();
     sum
-}
-
-/// `a` − `b` for `a` ≥ `b`.
-fn subtract(a: &[Digit], b: &[Digit]) -> Vec<Digit> {
-    let mut difference = Vec::with_capacity(a.len());
-    let mut borrow = false;
-    let mut y = b.iter().rev();
-    for &p in a.iter().rev() {
-        let taken = y.next().copied().unwrap_or(Digit::Zero).value() + u8::from(borrow);
-        borrow = p.value() < taken;
-        difference.push(Digit::last(u128::from(p.value() + 10 - taken)));
-    }
-    difference.reverse();
-    difference
 }
 
 /// The quotient and remainder of a digit string divided by `divisor`.

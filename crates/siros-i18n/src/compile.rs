@@ -13,15 +13,12 @@ use std::borrow::Cow;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 use crate::args::Args;
-use crate::chain::{
-    Call, Chain, Declared, Dir, Failure, Link, Name, Operand, Opt, Site, Use, Value,
-};
+use crate::chain::{Call, Chain, Declared, Failure, Link, Operand, Opt, Site, Value};
 use crate::context::Bidi;
 use crate::error::{Fault, Refusal, ResolveError};
 use crate::format::{Direction, Formats, Function, Selected, Selecting};
 use crate::mf2::ast::{self, MarkupKind};
 use crate::mf2::valid::{Shape, Valid};
-use crate::normal::Hold;
 use crate::registry::Formatters;
 use crate::scope::Scope;
 use crate::text::{Style, Text, Writer};
@@ -118,12 +115,11 @@ enum Bound<'a> {
     Variable(&'a str),
 }
 
-/// The compilation of one message: the context's formats, how the load holds selector literals,
-/// what each declared variable stands for, the declared calls, the variables of those options
-/// read, and the keys of the arguments the message names.
+/// The compilation of one message: the context's formats, what each declared variable stands
+/// for, the declared calls, the variables of those options read, and the keys of the arguments
+/// the message names.
 struct Compiler<'c, 'a> {
     formats: &'c Formats,
-    hold: Hold,
     bound: FxHashMap<&'a str, Bound<'a>>,
     declared: Declared,
     reading: FxHashSet<&'a str>,
@@ -131,19 +127,16 @@ struct Compiler<'c, 'a> {
     arguments: Vec<Box<str>>,
 }
 
-/// Compiles a message of a module whose direction is `direction`, each literal a selector
-/// compares held by `hold`.
+/// Compiles a message of a module whose direction is `direction`.
 ///
 /// # Errors
 ///
 /// The [`Fault`] of a function the build lacks, a function whose section no module defined, a
-/// call its function refuses, a selector literal `hold` refuses, and markup outside the styles
-/// or not nested.
+/// call its function refuses, and markup outside the styles or not nested.
 pub(crate) fn compile<'a>(
     message: &Valid<'a, '_>,
     direction: Direction,
     formats: &Formats,
-    hold: Hold,
 ) -> Result<Compiled, Fault> {
     let declarations = message.declarations;
     let calls = declarations
@@ -155,7 +148,6 @@ pub(crate) fn compile<'a>(
         .count();
     let mut compiler = Compiler {
         formats,
-        hold,
         bound: FxHashMap::with_capacity_and_hasher(declarations.len(), FxBuildHasher),
         declared: Declared::with_capacity(calls),
         reading: FxHashSet::default(),
@@ -269,7 +261,7 @@ impl<'a> Compiler<'_, 'a> {
     }
 
     /// An option of a call of `called`: its value, a literal or a variable, whose declared call
-    /// is checked to give a value; and its name, a `u:dir` the load fixes naming a direction.
+    /// is checked to give a value; and its name, outside the `u:` namespace.
     fn option(&mut self, called: Function, option: &'a ast::Opt<'_>) -> Result<Opt, Fault> {
         let value = match (&option.value, self.bound(&option.value)) {
             (ast::Operand::Literal(_), Bound::Literal(text)) => Value::Literal(text.into()),
@@ -277,7 +269,7 @@ impl<'a> Compiler<'_, 'a> {
             (_, Bound::Variable(name)) => {
                 if let Some(link) = self.declared.call(name) {
                     let chain = self.declared.chain(link);
-                    crate::format::check(&chain, Use::Value, self.formats)
+                    crate::format::check(&chain, self.formats)
                         .map_err(|refused| refused.fault(chain.outer.function))?;
                     if self.reading.insert(name) {
                         self.read.push(name.into());
@@ -286,22 +278,15 @@ impl<'a> Compiler<'_, 'a> {
                 Value::Variable(name.into())
             }
         };
-        let refuse = || {
-            let option = option.name.to_string();
-            Fault::Call(called.name(), Refusal::Option { option })
-        };
-        let name = match option.name.as_ref() {
-            "u:dir" => match &value {
-                Value::Literal(text) | Value::Bound(text) if Dir::named(text).is_none() => {
-                    return Err(refuse());
-                }
-                Value::Literal(_) | Value::Bound(_) | Value::Variable(_) => Name::Dir,
-            },
-            "u:id" => Name::Id,
-            other if other.starts_with("u:") => return Err(refuse()),
-            other => Name::Of(other.into()),
-        };
-        Ok(Opt { name, value })
+        let name = option.name.as_ref();
+        if name.starts_with("u:") {
+            let option = name.to_owned();
+            return Err(Fault::Call(called.name(), Refusal::Option { option }));
+        }
+        Ok(Opt {
+            name: name.into(),
+            value,
+        })
     }
 
     /// What a placeholder formats, its chain checked.
@@ -324,7 +309,7 @@ impl<'a> Compiler<'_, 'a> {
             }),
         };
         let chain = self.declared.site(&site);
-        crate::format::check(&chain, Use::Format, self.formats)
+        crate::format::check(&chain, self.formats)
             .map_err(|refused| refused.fault(chain.outer.function))?;
         Ok(site)
     }
@@ -345,7 +330,7 @@ impl<'a> Compiler<'_, 'a> {
         let selecting = match self.declared.call(variable) {
             Some(link) => {
                 let chain = self.declared.chain(link);
-                let selecting = Selecting::of(&chain, self.formats, self.hold)
+                let selecting = Selecting::of(&chain, self.formats)
                     .map_err(|refused| refused.fault(chain.outer.function))?;
                 Some(selecting)
             }
@@ -441,20 +426,14 @@ impl<'a> Compiler<'_, 'a> {
 }
 
 /// The isolating character a placeholder opens under MF2's Default Bidi Strategy; `None` for a
-/// placeholder it does not isolate. `dir` is its `u:dir`, `value` its formatted value's direction
-/// and `message` the message's.
-fn isolation(bidi: Bidi, dir: Dir, value: Direction, message: Direction) -> Option<&'static str> {
+/// placeholder it does not isolate. `value` is its formatted value's direction and `message` the
+/// message's.
+fn isolation(bidi: Bidi, value: Direction, message: Direction) -> Option<&'static str> {
     if bidi == Bidi::None {
         return None;
     }
-    let direction = match dir {
-        Dir::Ltr => Direction::Ltr,
-        Dir::Rtl => Direction::Rtl,
-        Dir::Auto => Direction::Unknown,
-        Dir::Inherit => value,
-    };
-    match direction {
-        Direction::Ltr if message == Direction::Ltr && dir == Dir::Inherit => None,
+    match value {
+        Direction::Ltr if message == Direction::Ltr => None,
         Direction::Ltr => Some("\u{2066}"),
         Direction::Rtl => Some("\u{2067}"),
         Direction::Unknown => Some("\u{2068}"),
@@ -500,8 +479,8 @@ impl Compiled {
                 Part::Open(style) => writer.open(*style),
                 Part::Close(style) => writer.close(*style),
                 Part::Placeholder(site) => {
-                    let (text, value, dir) = self.placeholder(site, &scope, id)?;
-                    match isolation(bidi, dir, value, self.direction) {
+                    let (text, value) = self.placeholder(site, &scope, id)?;
+                    match isolation(bidi, value, self.direction) {
                         Some(open) => {
                             writer.text(open);
                             writer.text(&text);
@@ -515,7 +494,7 @@ impl Compiled {
         Ok(writer.finish())
     }
 
-    /// The text of the placeholder `site`, its value's direction and its `u:dir`.
+    /// The text of the placeholder `site`, and its value's direction.
     ///
     /// # Errors
     ///
@@ -525,16 +504,13 @@ impl Compiled {
         site: &'m Site,
         scope: &Scope<'m>,
         id: &str,
-    ) -> Result<(String, Direction, Dir), ResolveError> {
+    ) -> Result<(String, Direction), ResolveError> {
         let chain = scope
             .typed(self.declared.site(site))
             .map_err(|failure| self.declared.site(site).error(id, failure))?;
         chain
             .texts(scope)
-            .and_then(|texts| {
-                let (text, value) = crate::format::format(&chain, &texts, scope)?;
-                Ok((text, value, texts.dir()))
-            })
+            .and_then(|texts| crate::format::format(&chain, &texts, scope))
             .map_err(|failure| chain.error(id, failure))
     }
 
@@ -592,8 +568,8 @@ impl Select {
             return Ok(selecting);
         }
         let function = chain.outer.function;
-        let selecting = Selecting::of(chain, scope.formats, Hold::Normal)
-            .map_err(|refused| refused.failure(function))?;
+        let selecting =
+            Selecting::of(chain, scope.formats).map_err(|refused| refused.failure(function))?;
         for variant in &self.variants {
             if let Some(Key::Literal(key)) = variant.keys.get(column) {
                 selecting

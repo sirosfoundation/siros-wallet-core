@@ -1,14 +1,13 @@
 //! The registration writer, which the wallet links: the bytes of the crate README's "Format",
-//! written once every request's context loads from them into the same messages with siros-i18n's
-//! `nfc` and without it.
+//! written once every request's context loads from them.
 
 use rustc_hash::FxHashSet;
 use siros_explain::Explain;
-use siros_i18n::{Context, LoadError};
+use siros_i18n::LoadError;
 use siros_openid4vp::ids::TransactionType;
 use siros_syntax::{Entry, Keyed};
 
-use crate::registration::{Base, COMMA, HEADER, Kind, MAGIC, VERSION, bidi_byte, loaded};
+use crate::registration::{Base, COMMA, HEADER, Kind, MAGIC, VERSION, bidi_byte};
 
 /// A directory entry's bytes beside its name: the kind, the offset, the length and the name's
 /// length.
@@ -17,18 +16,7 @@ const ENTRY: u32 = 11;
 /// Why a registration is not written.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum RegisterError {
-    /// A base source that holds a name, a variant key or a selector literal Unicode
-    /// Normalization Form C changes ([`LoadError::Unnormalized`]).
-    #[error("base source {at} holds a name, a key or a selector literal outside NFC")]
-    #[explain(id = "register.source")]
-    Source {
-        /// Its position in load order, from 0.
-        at: usize,
-        /// The refusal.
-        #[source]
-        cause: LoadError,
-    },
-    /// A transaction type's source that `Context::module_in_nfc` refuses in a clone of the base's
+    /// A transaction type's source that `Context::module` refuses in a clone of the base's
     /// context, alone or after the sources of the types before it.
     #[error("the source of the transaction type \"{kind}\" does not load")]
     #[explain(id = "register.transaction")]
@@ -104,24 +92,16 @@ fn priority(base: &Base) -> String {
     text
 }
 
-/// The base's sources loaded again in their order, then each type's source loaded into a clone of
-/// that context alone, and every type's source into one clone in ascending order, each through
-/// `Context::module_in_nfc`, a source byte-equal to an earlier type's once. A request's context
-/// loads the sources of the types it names into a clone of the base's context in that order, so it
-/// loads, and a build without siros-i18n's `nfc` loads it into the same messages.
+/// Each type's source loaded into a clone of the base's context alone, and every type's source
+/// into one clone in ascending order, a source byte-equal to an earlier type's once. A request's
+/// context loads the sources of the types it names into a clone of the base's context in that
+/// order, so it loads.
 ///
 /// # Errors
 ///
-/// [`RegisterError::Source`] for the first base source `Context::module_in_nfc` refuses, then
 /// [`RegisterError::Transaction`] for the first type's source either context refuses.
 fn loads(base: &Base, types: &[&Entry<TransactionType<'_>, String>]) -> Result<(), RegisterError> {
-    let context = loaded(
-        base.bidi(),
-        base.formatters(),
-        base.sources(),
-        Context::module_in_nfc,
-        |at, cause| RegisterError::Source { at, cause },
-    )?;
+    let context = base.context();
     let mut together = context.clone();
     let mut seen: FxHashSet<&str> = FxHashSet::default();
     for entry in types {
@@ -133,24 +113,22 @@ fn loads(base: &Base, types: &[&Entry<TransactionType<'_>, String>]) -> Result<(
             kind: entry.key().clone().into_owned(),
             cause,
         };
-        if let Err(cause) = context.clone().module_in_nfc(entry.value()) {
+        if let Err(cause) = context.clone().module(entry.value()) {
             return Err(refused(cause));
         }
-        together = together.module_in_nfc(entry.value()).map_err(refused)?;
+        together = together.module(entry.value()).map_err(refused)?;
     }
     Ok(())
 }
 
 /// The registration of `base` and of each transaction type's converted View source: the
 /// header, the directory and the entries, in the directory's order (the crate README's
-/// "Format"). Every request's context loads from what it writes, and resolves to the same texts
-/// in a build without siros-i18n's `nfc`.
+/// "Format"). Every request's context loads from what it writes.
 ///
 /// # Errors
 ///
-/// [`RegisterError::Source`] for a base source with a name, a variant key or a selector literal
-/// outside NFC, [`RegisterError::Transaction`] for a type's source that does not load or holds
-/// one, [`RegisterError::Name`] for a transaction type past 65,535 bytes,
+/// [`RegisterError::Transaction`] for a type's source that does not load,
+/// [`RegisterError::Name`] for a transaction type past 65,535 bytes,
 /// [`RegisterError::Size`] for a registration past 4,294,967,295 bytes, and
 /// [`RegisterError::Memory`] for bytes that find no memory.
 pub fn write(

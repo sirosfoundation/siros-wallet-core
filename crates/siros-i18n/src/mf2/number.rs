@@ -1,5 +1,5 @@
-//! MF2's `number-literal` (spec/functions/number.md): the operand text `:number`, `:integer` and
-//! the test functions take.
+//! MF2's `number-literal` (spec/functions/number.md): the operand text the numeric functions
+//! take.
 //!
 //! ```text
 //! number-literal = ["-"] (%x30 / (%x31-39 *DIGIT)) ["." 1*DIGIT] [%i"e" ["-" / "+"] 1*DIGIT]
