@@ -393,6 +393,16 @@ pub struct MatchParams {
     /// the UI's transaction summary.
     #[serde(default)]
     pub transaction_data: Vec<String>,
+    /// The request's client metadata, raw — the verifier's OWN
+    /// `vp_formats_supported` lives here (the zkp_req circuit lists
+    /// `system_id_values`/`proof_system_values` the wallet's planner
+    /// reads to build the plan's `system_filter`), beside the
+    /// `client_name`/`logo_uri` the consent shows. Found on-device: the
+    /// engine dropped it, the wallet's planner answered with no
+    /// metadata, the plan carried no circuit filter, and the presenter
+    /// refused every zkp_req ask at step=CIRCUIT.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_metadata: Option<serde_json::Value>,
 }
 
 /// The match answer: the selected credentials, one per DCQL query

@@ -184,6 +184,13 @@ impl FlowHandler for Oid4vpFlow {
                 scope: auth_req.scope.clone(),
                 verifier: verifier.clone(),
                 transaction_data: auth_req.transaction_data_raw.clone(),
+                // The verifier's client metadata, verbatim — the wallet's
+                // planner reads `vp_formats_supported.zkp_req`'s circuit lists
+                // for the plan's system_filter, and the consent reads
+                // client_name/logo_uri. Found on-device: without it the plan
+                // carried no filter and every zkp_req ask refused at
+                // step=CIRCUIT.
+                client_metadata: auth_req.client_metadata.clone(),
             })
             .await
             .map_err(|err| flow_error(err.to_string()))?;
