@@ -429,16 +429,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ct-merkle"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ed89bf5e2d6dfa1762dcd00e1ef68f1f6070a67e217ce280ab6b53971c3a60d"
-dependencies = [
- "digest 0.11.3",
- "subtle",
-]
-
-[[package]]
 name = "ctr"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -909,12 +899,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "heck"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
-
-[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1081,27 +1065,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b5cf4372d022092674a83b8febf5865f7a573cc0c5baec5e49c879b6a20978f"
 dependencies = [
  "hybrid-array",
-]
-
-[[package]]
-name = "iso_country"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20633e788d3948ea7336861fdb09ec247f5dae4267e8f0743fa97de26c28624d"
-dependencies = [
- "lazy_static",
-]
-
-[[package]]
-name = "iso_currency"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52d721074ff687a7ac523217a2bedb8277ac81d83dc10216ffc2a19128ca3dd5"
-dependencies = [
- "iso_country",
- "proc-macro2",
- "quote",
- "strum",
 ]
 
 [[package]]
@@ -1874,16 +1837,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
-name = "siros-explain"
-version = "0.1.0"
-dependencies = [
- "iso_currency",
- "siros-explain-derive",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "siros-explain-derive"
+name = "siros-derive-internals"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
@@ -1892,14 +1846,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "siros-explain"
+version = "0.1.0"
+dependencies = [
+ "siros-explain-derive",
+]
+
+[[package]]
+name = "siros-explain-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "siros-derive-internals",
+ "syn 3.0.9",
+]
+
+[[package]]
 name = "siros-i18n"
 version = "0.1.0"
 dependencies = [
- "ct-merkle",
  "icu_properties",
- "sha2 0.11.1",
+ "rustc-hash",
  "siros-explain",
+ "siros-i18n-derive",
+ "siros-syntax",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "siros-i18n-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "siros-derive-internals",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -1910,8 +1892,8 @@ dependencies = [
  "rustc-hash",
  "sha2 0.11.1",
  "siros-explain",
- "siros-i18n",
  "siros-openid4vp",
+ "siros-syntax",
  "thiserror 2.0.21",
 ]
 
@@ -1936,6 +1918,30 @@ dependencies = [
  "sha3 0.12.0",
  "siros-explain",
  "siros-i18n",
+ "siros-syntax",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "siros-qes"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "rustc-hash",
+ "sha2 0.11.1",
+ "sha3 0.12.0",
+ "siros-explain",
+ "siros-i18n",
+ "siros-openid4vp",
+ "siros-syntax",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "siros-syntax"
+version = "0.1.0"
+dependencies = [
+ "siros-explain",
  "thiserror 2.0.21",
 ]
 
@@ -1954,6 +1960,8 @@ dependencies = [
  "siros-explain",
  "siros-i18n",
  "siros-openid4vp",
+ "siros-qes",
+ "siros-syntax",
  "thiserror 2.0.21",
 ]
 
@@ -1978,7 +1986,9 @@ dependencies = [
  "der 0.8.3",
  "sha2 0.11.1",
  "siros-explain",
+ "siros-i18n",
  "siros-openid4vp",
+ "siros-syntax",
  "spki 0.8.1",
  "thiserror 2.0.21",
  "x509-cert 0.3.0",
@@ -2122,27 +2132,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "strum"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
-dependencies = [
- "strum_macros",
-]
-
-[[package]]
-name = "strum_macros"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
 
 [[package]]
 name = "subtle"
