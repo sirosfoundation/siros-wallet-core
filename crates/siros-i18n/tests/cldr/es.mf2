@@ -1,0 +1,619 @@
+# The format options of es from CLDR 49.0.0 (unicode-org/cldr-json), written by siros-cldr.
+@locale es
+@dir ltr
+---
+
+[formats.number]
+zero = 0
+decimal = ,
+group = .
+minus = -
+plus = +
+grouping = 2
+cardinal =
+  one: n = 1
+  many: e = 0 and i != 0 and i % 1000000 = 0 and v = 0 or e != 0..5
+ordinal =
+  one: n % 10 = 1,3 and n % 100 != 11
+pattern = #,##0.###
+
+[formats.currency]
+zero = 0
+decimal = ,
+group = .
+minus = -
+plus = +
+grouping = 2
+cardinal =
+  one: n = 1
+  many: e = 0 and i != 0 and i % 1000000 = 0 and v = 0 or e != 0..5
+ordinal =
+  one: n % 10 = 1,3 and n % 100 != 11
+pattern = #,##0.###
+standard = #,##0.00 ¤
+standard-alpha = #,##0.00 ¤
+accounting = #,##0.00 ¤
+accounting-alpha = #,##0.00 ¤
+no-currency = #,##0.00
+no-currency-accounting = #,##0.00
+unit-pattern =
+  other {0} {1}
+digits =
+  default 2
+  AFN 0
+  ALL 0
+  AMD 2
+  BHD 3
+  BIF 0
+  BYN 2
+  CAD 2
+  CHF 2
+  CLF 4
+  CLP 0
+  COP 0
+  CRC 2
+  CZK 2
+  DJF 0
+  DKK 2
+  GNF 0
+  GYD 2
+  HUF 0
+  IDR 0
+  IQD 0
+  IRR 0
+  ISK 0
+  JOD 3
+  JPY 0
+  KMF 0
+  KPW 0
+  KRW 0
+  KWD 3
+  LAK 0
+  LBP 0
+  LYD 3
+  MGA 0
+  MMK 0
+  MNT 2
+  MRU 2
+  MUR 2
+  NOK 2
+  OMR 3
+  PKR 2
+  PYG 0
+  RSD 2
+  RWF 0
+  SEK 2
+  SLE 2
+  SOS 0
+  SYP 0
+  TND 3
+  TWD 2
+  TZS 2
+  UGX 0
+  UYI 0
+  UYW 4
+  UZS 2
+  VND 0
+  VUV 0
+  XAD 2
+  XAF 0
+  XAU 2
+  XOF 0
+  XPF 0
+  YER 0
+symbols =
+  EUR €
+  THB ฿
+  USD US$
+  VND ₫
+  XCG Cg.
+  XPF CFPF
+  XXX ¤
+narrow =
+  AFN ؋
+  AMD ֏
+  AOA Kz
+  ARS $
+  AUD $
+  AZN ₼
+  BAM KM
+  BBD $
+  BDT ৳
+  BMD $
+  BND $
+  BOB Bs
+  BRL R$
+  BSD $
+  BWP P
+  BYN р.
+  BZD $
+  CAD $
+  CHF Fr.
+  CLP $
+  CNY ¥
+  COP $
+  CRC ₡
+  CUP $
+  CZK Kč
+  DKK kr
+  DOP $
+  EUR €
+  FJD $
+  FKP £
+  GBP £
+  GEL ₾
+  GHS GH₵
+  GIP £
+  GNF FG
+  GTQ Q
+  GYD $
+  HKD $
+  HNL L
+  HUF Ft
+  IDR Rp
+  ILS ₪
+  INR ₹
+  ISK kr
+  JMD $
+  JPY ¥
+  KGS ⃀
+  KHR ៛
+  KMF CF
+  KPW ₩
+  KRW ₩
+  KYD $
+  KZT ₸
+  LAK ₭
+  LBP L£
+  LKR Rs
+  LRD $
+  MGA Ar
+  MMK K
+  MNT ₮
+  MUR Rs
+  MXN $
+  MYR RM
+  NAD $
+  NGN ₦
+  NIO C$
+  NOK kr
+  NPR Rs
+  NZD $
+  PHP ₱
+  PKR Rs
+  PLN zł
+  PYG ₲
+  RON L
+  RUB ₽
+  RWF RF
+  SBD $
+  SEK kr
+  SGD $
+  SHP £
+  SRD $
+  SSP £
+  STN Db
+  SYP £
+  THB ฿
+  TOP T$
+  TRY ₺
+  TTD $
+  TWD NT$
+  UAH ₴
+  USD $
+  UYU $
+  VND ₫
+  XCD $
+  XCG Cg.
+  XPF CFPF
+  XXX ¤
+  ZAR R
+  ZMW ZK
+names =
+  AED one dírham de los Emiratos Árabes Unidos
+  AED other dírhams de los Emiratos Árabes Unidos
+  AFN one afgani afgano
+  AFN other afganis afganos
+  ALL one lek albanés
+  ALL other leks albaneses
+  AMD one dram armenio
+  AMD other drams armenios
+  AOA one kuanza angoleño
+  AOA other kuanzas angoleños
+  ARS one peso argentino
+  ARS other pesos argentinos
+  AUD one dólar australiano
+  AUD other dólares australianos
+  AWG one florín arubeño
+  AWG other florines arubeños
+  AZN one manat azerbaiyano
+  AZN other manats azerbaiyanos
+  BAM one marco convertible de Bosnia y Herzegovina
+  BAM other marcos convertibles de Bosnia y Herzegovina
+  BBD one dólar barbadense
+  BBD other dólares barbadenses
+  BDT one taka bangladesí
+  BDT other takas bangladesíes
+  BHD one dinar bareiní
+  BHD other dinares bareiníes
+  BIF one franco burundés
+  BIF other francos burundeses
+  BMD one dólar bermudeño
+  BMD other dólares bermudeños
+  BND one dólar bruneano
+  BND other dólares bruneanos
+  BOB one boliviano
+  BOB other bolivianos
+  BOV one MVDOL boliviano
+  BOV other MVDOL bolivianos
+  BRL one real brasileño
+  BRL other reales brasileños
+  BSD one dólar bahameño
+  BSD other dólares bahameños
+  BTN one gultrum butanés
+  BTN other gultrums butaneses
+  BWP one pula botsuano
+  BWP other pulas botsuanos
+  BYN one rublo bielorruso
+  BYN other rublos bielorrusos
+  BZD one dólar beliceño
+  BZD other dólares beliceños
+  CAD one dólar canadiense
+  CAD other dólares canadienses
+  CDF one franco congoleño
+  CDF other francos congoleños
+  CHE one euro WIR
+  CHE other euros WIR
+  CHF one franco suizo
+  CHF other francos suizos
+  CHW one franco WIR
+  CHW other francos WIR
+  CLF one unidad de fomento chilena
+  CLF other unidades de fomento chilenas
+  CLP one peso chileno
+  CLP other pesos chilenos
+  CNY one yuan renminbi
+  CNY other yuanes renminbi
+  COP one peso colombiano
+  COP other pesos colombianos
+  COU one unidad de valor real
+  COU other unidades de valor reales
+  CRC one colón costarricense
+  CRC other colones costarricenses
+  CUP one peso cubano
+  CUP other pesos cubanos
+  CVE one escudo de Cabo Verde
+  CVE other escudos de Cabo Verde
+  CZK one corona checa
+  CZK other coronas checas
+  DJF one franco yibutiano
+  DJF other francos yibutianos
+  DKK one corona danesa
+  DKK other coronas danesas
+  DOP one peso dominicano
+  DOP other pesos dominicanos
+  DZD one dinar argelino
+  DZD other dinares argelinos
+  EGP one libra egipcia
+  EGP other libras egipcias
+  ERN one nakfa eritreo
+  ERN other nakfas eritreos
+  ETB one bir etíope
+  ETB other bires etíopes
+  EUR one euro
+  EUR other euros
+  FJD one dólar fiyiano
+  FJD other dólares fiyianos
+  FKP one libra malvinense
+  FKP other libras malvinenses
+  GBP one libra esterlina
+  GBP other libras esterlinas
+  GEL one lari georgiano
+  GEL other laris georgianos
+  GHS one cedi ghanés
+  GHS other cedis ghaneses
+  GIP one libra gibraltareña
+  GIP other libras gibraltareñas
+  GMD one dalasi gambiano
+  GMD other dalasis gambianos
+  GNF one franco guineano
+  GNF other francos guineanos
+  GTQ one quetzal guatemalteco
+  GTQ other quetzales guatemaltecos
+  GYD one dólar guyanés
+  GYD other dólares guyaneses
+  HKD one dólar hongkonés
+  HKD other dólares hongkoneses
+  HNL one lempira hondureño
+  HNL other lempiras hondureños
+  HTG one gurde haitiano
+  HTG other gurdes haitianos
+  HUF one forinto húngaro
+  HUF other forintos húngaros
+  IDR one rupia indonesia
+  IDR other rupias indonesias
+  ILS one nuevo séquel israelí
+  ILS other nuevos séqueles israelíes
+  INR one rupia india
+  INR other rupias indias
+  IQD one dinar iraquí
+  IQD other dinares iraquíes
+  IRR one rial iraní
+  IRR other riales iraníes
+  ISK one corona islandesa
+  ISK other coronas islandesas
+  JMD one dólar jamaicano
+  JMD other dólares jamaicanos
+  JOD one dinar jordano
+  JOD other dinares jordanos
+  JPY one yen japonés
+  JPY other yenes japoneses
+  KES one chelín keniano
+  KES other chelines kenianos
+  KGS one som kirguís
+  KGS other soms kirguises
+  KHR one riel camboyano
+  KHR other rieles camboyanos
+  KMF one franco comorense
+  KMF other francos comorenses
+  KPW one won norcoreano
+  KPW other wons norcoreanos
+  KRW one won surcoreano
+  KRW other wons surcoreanos
+  KWD one dinar kuwaití
+  KWD other dinares kuwaitíes
+  KYD one dólar de las Islas Caimán
+  KYD other dólares de las Islas Caimán
+  KZT one tengue kazajo
+  KZT other tengues kazajos
+  LAK one kip laosiano
+  LAK other kips laosianos
+  LBP one libra libanesa
+  LBP other libras libanesas
+  LKR one rupia esrilanquesa
+  LKR other rupias esrilanquesas
+  LRD one dólar liberiano
+  LRD other dólares liberianos
+  LSL one loti lesotense
+  LSL other lotis lesotenses
+  LYD one dinar libio
+  LYD other dinares libios
+  MAD one dírham marroquí
+  MAD other dírhams marroquíes
+  MDL one leu moldavo
+  MDL other leus moldavos
+  MGA one ariari malgache
+  MGA other ariaris malgaches
+  MKD one dinar macedonio
+  MKD other dinares macedonios
+  MMK one kiat de Myanmar
+  MMK other kiats de Myanmar
+  MNT one tugrik mongol
+  MNT other tugriks mongoles
+  MOP one pataca macaense
+  MOP other patacas macaenses
+  MRU one uguiya mauritano
+  MRU other uguiyas mauritanos
+  MUR one rupia mauriciana
+  MUR other rupias mauricianas
+  MVR one rufiya maldiva
+  MVR other rufiyas maldivas
+  MWK one kuacha malauí
+  MWK other kuachas malauíes
+  MXN one peso mexicano
+  MXN other pesos mexicanos
+  MXV one unidad de inversión (UDI) mexicana
+  MXV other unidades de inversión (UDI) mexicanas
+  MYR one ringit malasio
+  MYR other ringits malasios
+  MZN one metical mozambiqueño
+  MZN other meticales mozambiqueños
+  NAD one dólar namibio
+  NAD other dólares namibios
+  NGN one naira nigeriano
+  NGN other nairas nigerianos
+  NIO one córdoba oro
+  NIO other córdobas oro
+  NOK one corona noruega
+  NOK other coronas noruegas
+  NPR one rupia nepalí
+  NPR other rupias nepalíes
+  NZD one dólar neozelandés
+  NZD other dólares neozelandeses
+  OMR one rial omaní
+  OMR other riales omaníes
+  PAB one balboa panameño
+  PAB other balboas panameños
+  PEN one sol peruano
+  PEN other soles peruanos
+  PGK one kina papú
+  PGK other kinas papúes
+  PHP one peso filipino
+  PHP other pesos filipinos
+  PKR one rupia pakistaní
+  PKR other rupias pakistaníes
+  PLN one esloti polaco
+  PLN other eslotis polacos
+  PYG one guaraní paraguayo
+  PYG other guaraníes paraguayos
+  QAR one rial catarí
+  QAR other riales cataríes
+  RON one leu rumano
+  RON other leus rumanos
+  RSD one dinar serbio
+  RSD other dinares serbios
+  RUB one rublo ruso
+  RUB other rublos rusos
+  RWF one franco ruandés
+  RWF other francos ruandeses
+  SAR one rial saudí
+  SAR other riales saudíes
+  SBD one dólar salomonense
+  SBD other dólares salomonenses
+  SCR one rupia seychellense
+  SCR other rupias seychellenses
+  SDG one libra sudanesa
+  SDG other libras sudanesas
+  SEK one corona sueca
+  SEK other coronas suecas
+  SGD one dólar singapurense
+  SGD other dólares singapurenses
+  SHP one libra de Santa Elena
+  SHP other libras de Santa Elena
+  SLE one leona sierraleonesa
+  SLE other leonas sierraleonesas
+  SOS one chelín somalí
+  SOS other chelines somalíes
+  SRD one dólar surinamés
+  SRD other dólares surinameses
+  SSP one libra sursudanesa
+  SSP other libras sursudanesas
+  STN one dobra santotomense
+  STN other dobras santotomenses
+  SVC one colón salvadoreño
+  SVC other colones salvadoreños
+  SYP one libra siria
+  SYP other libras sirias
+  SZL one lilangeni esuatiní
+  SZL other lilangenis esuatiníes
+  THB one bat tailandés
+  THB other bats tailandeses
+  TJS one somoni tayiko
+  TJS other somonis tayikos
+  TMT one manat turcomano
+  TMT other manats turcomanos
+  TND one dinar tunecino
+  TND other dinares tunecinos
+  TOP one paanga tongano
+  TOP other paangas tonganos
+  TRY one lira turca
+  TRY other liras turcas
+  TTD one dólar de Trinidad y Tobago
+  TTD other dólares de Trinidad y Tobago
+  TWD one nuevo dólar taiwanés
+  TWD other nuevos dólares taiwaneses
+  TZS one chelín tanzano
+  TZS other chelines tanzanos
+  UAH one grivna ucraniana
+  UAH other grivnas ucranianas
+  UGX one chelín ugandés
+  UGX other chelines ugandeses
+  USD one dólar estadounidense
+  USD other dólares estadounidenses
+  USN one dólar estadounidense (día siguiente)
+  USN other dólares estadounidenses (día siguiente)
+  UYI one peso uruguayo en unidades indexadas
+  UYI other pesos uruguayos en unidades indexadas
+  UYU one peso uruguayo
+  UYU other pesos uruguayos
+  UYW one unidad previsional uruguayo
+  UYW other unidades previsionales uruguayos
+  UZS one sum uzbeko
+  UZS other sums uzbekos
+  VES one bolívar venezolano
+  VES other bolívares venezolanos
+  VND one dong vietnamita
+  VND other dongs vietnamitas
+  VUV one vatu vanuatense
+  VUV other vatus vanuatenses
+  WST one tala samoano
+  WST other talas samoanos
+  XAF one franco CFA de África Central
+  XAF other francos CFA de África Central
+  XAG other plata
+  XAU other oro
+  XBA one unidad compuesta europea
+  XBA other unidades compuestas europeas
+  XBB one unidad monetaria europea
+  XBB other unidades monetarias europeas
+  XBC one unidad de cuenta europea (XBC)
+  XBC other unidades de cuenta europeas (XBC)
+  XBD one unidad de cuenta europea (XBD)
+  XBD other unidades de cuenta europeas (XBD)
+  XCD one dólar del Caribe Oriental
+  XCD other dólares del Caribe Oriental
+  XCG one florín caribeño
+  XCG other florines caribeños
+  XDR other derechos especiales de giro
+  XOF one franco CFA de África Occidental
+  XOF other francos CFA de África Occidental
+  XPD other paladio
+  XPF one franco CFP
+  XPF other francos CFP
+  XPT other platino
+  XTS other código reservado para pruebas
+  XXX one (moneda desconocida)
+  XXX other (moneda desconocida)
+  YER one rial yemení
+  YER other riales yemeníes
+  ZAR one rand sudafricano
+  ZAR other rands sudafricanos
+  ZMW one kuacha zambiano
+  ZMW other kuachas zambianos
+  ZWG other oro zimbabuense
+
+[formats.date]
+zero = 0
+date-short = d/M/yy
+date-medium = d MMM y
+date-long = d 'de' MMMM 'de' y
+date-full = EEEE, d 'de' MMMM 'de' y
+time-short = H:mm
+time-medium = H:mm:ss
+time-long = H:mm:ss z
+time-full = H:mm:ss (zzzz)
+datetime-short = {1}, {0}
+datetime-medium = {1}, {0}
+datetime-long = {1} 'a' 'las' {0}
+datetime-full = {1}, {0}
+months-wide =
+  enero
+  febrero
+  marzo
+  abril
+  mayo
+  junio
+  julio
+  agosto
+  septiembre
+  octubre
+  noviembre
+  diciembre
+months-abbreviated =
+  ene
+  feb
+  mar
+  abr
+  may
+  jun
+  jul
+  ago
+  sept
+  oct
+  nov
+  dic
+days-wide =
+  domingo
+  lunes
+  martes
+  miércoles
+  jueves
+  viernes
+  sábado
+days-abbreviated =
+  dom
+  lun
+  mar
+  mié
+  jue
+  vie
+  sáb
+periods =
+  a. m.
+  p. m.
+zone-gmt = GMT{0}
+zone-hours = +HH:mm;-HH:mm
+year-era = y G
+eras =
+  a. C.
+  d. C.

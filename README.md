@@ -59,8 +59,17 @@ a socket, a clock, or a keystore.
 | `siros-presentation` | The plan of a request over the wallet's credentials, the consent view, the selection, the response |
 | `siros-explain` | The error contract: a stable id and named arguments, each a typed value with its `Display` |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
-| `siros-derive-internals` | The derives' field rules: arguments, `Option`, `Arg` bounds, the id marker, the `check` row |
+| `siros-derive-internals` | The field rules the two derives share: arguments, `Option`, `Arg` bounds, the id marker, the `check` row |
 | `siros-syntax` | Checked texts, keyed and non-empty lists, and values in their literal forms: numbers, amounts in the currencies of ISO 4217 List One (SIX, 2026-09-17), dates and times |
+| `siros-i18n` | The wallet's texts: a `Context` of MessageFormat 2 sources resolves an error or a statement (`Message`) to `Text` |
+| `siros-i18n-derive` | `#[derive(Message)]` for statements |
+| `siros-cldr` | Writes a language's CLDR format options as MF2 source |
+
+siros-i18n's format functions are features, which an app turns on as its
+wording calls them: `number` (`:number`, `:integer`), `currency` (`:currency`)
+and `date` (`:siros:date`, `:siros:time`, `:siros:datetime`). `derive` gives
+`#[derive(Message)]`. All four are defaults. `check` adds `Context::check`, the
+wallet's completeness test.
 
 Rust 1.89 is the floor of every crate (`rust-version` in `Cargo.toml`).
 
@@ -84,6 +93,14 @@ cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml
+```
+
+On a push to `main`, CI's per-merge tier also runs siros-i18n's ignored tests, its
+differentials against ICU4X 2.4: dates, times and years, plural categories, numbers and
+amounts in every currency.
+
+```sh
+cargo test --locked -p siros-i18n --all-features -- --ignored
 ```
 
 Nothing panics outside the tests: a type makes the impossible state

@@ -17,8 +17,9 @@ All notable changes to this workspace. The format follows
   refused, and an id given twice in a crate fails the build. `scope!` names a
   crate's scope once, at its root. Under `check`, each derived id registers a
   row that `check::rows` reads.
-- `siros-derive-internals`: the derives' field rules, which
-  siros-explain-derive calls through its `Derive` trait.
+- `siros-derive-internals`: the field rules `#[derive(Explain)]` and
+  `#[derive(Message)]` share, which siros-explain-derive and siros-i18n-derive
+  call through its `Derive` trait.
 - `siros-syntax` holds the checked texts and values: `checked!`, `Keyed` with
   `Entry` and `Repeated`, the non-empty `AllOf`, and `Count`, `Decimal`,
   `Amount`, `Currency` with ISO 4217 List One (SIX's `list-one.xml`, published
@@ -27,7 +28,44 @@ All notable changes to this workspace. The format follows
   as `Display` and parses exactly that form, refusing any other text with
   `Malformed`. `Digits`, one or more ASCII digits as written, give their count
   through `Count::from`. Its errors derive `Explain`.
+- `siros-i18n` resolves the wallet's texts. A `Context` holds the
+  MessageFormat 2 sources of one locale, each loaded whole and checked
+  (`LoadError`); `Context::resolve` makes a `Text`, styled spans, from an error
+  or a statement (`ResolveError`), and no other code makes one. A statement
+  derives `Message` (`siros-i18n-derive`). Every argument is typed: the
+  context's `Formatters` give each type the functions a call may name on it and
+  at most one default, which a placeholder, a declaration and a selector that
+  name no function take (`ResolveError::Unformatted`, `ResolveError::Selector`,
+  `RegisterError`). Every type takes `:string`, which writes its `Display` as
+  given, by default where it registers no other. The functions read the
+  argument's text: `:number` and `:integer` parse an MF2 number literal and
+  show its fraction digits as written; `:currency` (its `currency` option
+  literal or variable), `:siros:date`, `:siros:time` and `:siros:datetime`
+  parse their operand. An option's value is a literal or a variable's value: an
+  argument's text, a literal, or the value of a declared call. The load refuses
+  an option of the `u:` namespace. Names, variant keys and selector literals
+  compare as written. A load takes memory in proportion to its source, and time
+  in proportion to its source and, for each use of a call, to the calls its
+  operand's value applies. Each function sits behind its feature: `number`,
+  `currency` and `date`, the defaults with `derive`. `check` holds
+  `Context::check`. `escape` writes a resource value that resolves to a given
+  text, and `Context::bidi` takes the app's bidi strategy. ICU4X 2.4 over CLDR
+  49.0.0 is its oracle.
+- siros-i18n's `check` feature is the wallet's one completeness test: each
+  derive registers its id and argument names, and `Context::check` refuses an
+  id two crates share, an id no source words, a message that names an
+  argument its row lacks, and a formatter whose options no module defines.
+- `siros-i18n-derive`: `#[derive(Message)]` on a statement, its id under the
+  crate's scope and its named fields as arguments. A repeated id fails the
+  build; under `check` each id registers a row for `Context::check`.
+- `siros-cldr` writes a language's format options from CLDR's JSON release
+  49.0.0 as MF2 source: a resource head and `[formats.<format>]` sections.
 - Each is edition 2024 and unpublished.
+- CI's per-merge job runs siros-i18n's ignored tests on a push to `main`.
+- The architecture contract's messages component (§4.19, layer L0): an error
+  is a stable id and named arguments, a statement a `Message` of the same
+  shape, and the wallet words both in MessageFormat 2 sources that a `Context`
+  loads and resolves into `Text`; the UI lays out the result (D4, §4.17).
 
 ### Changed
 

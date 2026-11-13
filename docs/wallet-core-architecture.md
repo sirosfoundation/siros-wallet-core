@@ -72,7 +72,7 @@ Dependencies point downward through the layers:
 
 | Layer | Components |
 |---|---|
-| L0 | codec |
+| L0 | codec, messages |
 | L1 | DCQL, SD-JWT, mdoc, OpenID4VP, `zkp_req`, nym_auth, trust |
 | L2 | wallet state, credential, display, transaction data |
 | L3 | presentation |
@@ -268,7 +268,7 @@ A component MUST NOT depend on a component of its own or a higher layer, except 
 - **D1.** It is the only metadata merger: it MUST remove `auxiliary_data` before any merge (privatedata §5A.3).
 - **D2.** Each display array MUST resolve by PaSO View §4: RFC 4647 Lookup with the wallet's language, then the entry without `locale`. The format-specific display falls back to `credential_metadata` per language (D3). One function serves credential display and transaction data.
 - **D3.** Format-specific display (SD-JWT VC type metadata) wins over OpenID4VCI `credential_metadata`, which is the fallback (OpenID4VCI 1.0 §12.2.4).
-- **D4.** Values MUST be typed for display (null, text, boolean, integer, number, date, date-time, bytes, list, group). The UI formats dates and numbers for its locale.
+- **D4.** Values MUST be typed for display (null, text, boolean, integer, number, date, date-time, bytes, list, group). Numbers, amounts, dates and times format through the messages component (§4.19).
 - **D5.** A credential claim's bytes are shown by their length.
 
 ### 4.12 Transaction data
@@ -381,7 +381,7 @@ A component MUST NOT depend on a component of its own or a higher layer, except 
 
 ### 4.17 User interface (each platform)
 
-**Responsibility:** rendering views, collecting the selection, locale formatting of dates and numbers.
+**Responsibility:** rendering views and collecting the selection. Texts and formatted values come from the messages component (§4.19).
 
 **Requirement:** it MUST render only what a view contains and MUST return selections in the core's selection form.
 
@@ -409,11 +409,25 @@ A component MUST NOT depend on a component of its own or a higher layer, except 
 - **TR4. Provision.** The host supplies the store (H4), with every list, federation statement and certificate in it. The store is global, the same for every request and channel, because the DC API gives the picker nothing per request.
 - **TR5. Picker facts.** At registration the wallet resolves each credential against the store. The projection records the credential's AKI keyIdentifiers and the `type` and `value` of every store entry that admits it. The picker admits an issuer from these facts alone, with the same rule. The picker has no clock: its facts hold at registration time (K2). The wallet registers again when the store, the wallet state, the wallet's language or a credential's metadata changes.
 
+### 4.19 Messages (siros-i18n)
+
+**Responsibility:** resolving every text the End-User sees into styled text in the wallet's language. A crate declares each error as a stable id and named arguments (siros-explain's `Explain`) and each other text it shows as a statement (`Message`, the same shape). The wallet words both in MessageFormat 2 sources, which a `Context` loads and resolves into `Text`. The crates ship no wording.
+
+**Requirements:**
+- **M1. Errors.** Every error a crate exposes MUST implement `Explain`: an id `err.<scope>.<id>`, stable across releases, and named arguments, each a field its key names, which a reader takes by its type or by its `Display`. `#[derive(Explain)]` writes it beside `thiserror::Error`, and `scope!` names the crate's scope once, at its root. An id given twice in a crate MUST fail the build. `Display` stays the English line for logs.
+- **M2. Statements.** Every other text the core shows MUST be a statement: a `Message` with an id `<scope>.<id>` and named arguments (`#[derive(Message)]`, siros-i18n-derive). A value shown alone travels in a statement that carries its literal text.
+- **M3. Contexts.** A `Context` holds the wallet's sources for one locale, one resource file per `module` call. Loading MUST parse a source whole and refuse it at the first rule it breaks (`LoadError`): its syntax or MF2's data model, an id the context already words, a locale other than the context's, a function the build does not compile, or a call whose format options no loaded module defines. The wallet loads its format options first; siros-cldr writes them from CLDR 49.0.0.
+- **M4. Resolution.** `Context::resolve` alone makes a `Text`, from an error or a statement, and refuses with a `ResolveError`. Every argument is typed: the context's `Formatters` give each type the functions a call may name on it and at most one default, which a placeholder, a declaration and a selector that name no function take; every type takes `:string`, which writes its `Display` as given, by default where it registers no other. The functions read the argument's text: `:number` and `:integer` parse an MF2 number literal and show its fraction digits as written; `:currency` checks its code against ISO 4217 List One; `:siros:date`, `:siros:time` and `:siros:datetime` parse siros-syntax's ISO 8601 forms. An option's value is a literal or a variable's value.
+- **M5. Output.** A `Text` is spans of text, each with a set of styles (strong, emphasis, underline). Its `Display` is the plain text. The platform lays the spans out (§4.17).
+- **M6. Bidi and language.** `Context::new` applies MF2's Default Bidi Strategy, and `Context::bidi` takes the app's. The wallet picks the locale by the `Context` it passes, and the core uses that one context for a presentation; fallback languages are the wallet's to decide when it builds its context.
+- **M7. Completeness.** Under feature `check`, every derived id registers a row, and `Context::check` MUST refuse an id two crates share, an id no source words and a message that names an argument its row lacks. The wallet runs it over the sources of each locale it ships.
+- **M8. Features.** Each format function is a feature: `number`, `currency`, `offset`, `date`. A source that calls a function the build lacks fails to load. Under `nfc`, a context holds names, variant keys and selector literals in Unicode Normalization Form C, as MF2 compares them, and `module_in_nfc` refuses a source normalization would change. A build without `nfc` holds them as written and resolves a source `module_in_nfc` loads to the same texts.
+
 ## 5. Boundary contracts
 
 | Boundary | Crosses inward | Crosses outward | Guaranteed by the core | Guaranteed by the other side |
 |---|---|---|---|---|
-| Host ↔ core | wallet state; display metadata; locales; key factors; circuits; trust store; time; effect results (request object texts, trust verdicts, signatures); reply bodies | effects (`RequestObject`, `Trust`, `Sign`); the URLs of the documents it wants; views; submissions as data; presentation records; refusals | R-G2 to R-G7; P1; P3; P4; P6 | H1 to H5 |
+| Host ↔ core | wallet state; display metadata; locales; the wallet's `Context` (§4.19); key factors; circuits; trust store; time; effect results (request object texts, trust verdicts, signatures); reply bodies | effects (`RequestObject`, `Trust`, `Sign`); the URLs of the documents it wants; views; submissions as data; presentation records; refusals | R-G2 to R-G7; P1; P3; P4; P6 | H1 to H5 |
 | HTTP adapter ↔ verifiers and publishers | request objects; replies; held metadata | request object requests; submissions; metadata requests | P3; P4 | F5 |
 | UI ↔ core | selection | consent view: verifier, purposes, offers with cards, rows and proof statements, optional additions, transactions | the view equals the plan; R-G6 | H6, §4.17 |
 | Engine ↔ web client | verified request | submission | P1; F3 | E1 to E5 |
