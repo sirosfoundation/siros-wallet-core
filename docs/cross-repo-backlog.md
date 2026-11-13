@@ -139,6 +139,49 @@ re-rank freely; the tiers are proposals.
    parser (the legacy path's concern).
    https://github.com/sirosfoundation/go-wallet-backend/pull/551
 
+   **[2026-11-13, midday] Investigation follow-up — the TEE direction, an
+   architectural constraint on this fix and the engine's state design
+   generally.** Server-side state makes TEE deployment hard (encrypted
+   pages, small RAM budgets, attestation-unfriendly state sprawl), so the
+   goal is mechanisms that keep the engine stateless — the state rides
+   the wire, sealed to the client, and the engine holds nothing across
+   requests. **The state the engine keeps today (the inventory):**
+   - `MemorySessionStore` (engine-adapter-server/handler.rs) — the WMP
+     sessions (that is what `Session not found` was: the TTL lapsed).
+   - `InMemoryKv` (engine-adapter-server/ports.rs:602) — the KV port's
+     default implementation; `AuthorizationStash` (oid4vci/mod.rs, 600s
+     TTL) rides it, 8 put/get sites total (6 oid4vci, 2 runtime).
+   - The resumption token already carries state forward (transport.rs:279)
+     — the sessions are half-stateless already.
+   **The mechanisms to investigate (in rough order of effort):**
+   1. **The client-held sealed stash (the #551 pattern, adapted):** replace
+      `AuthorizationStash`-in-KV with a signed (HMAC or the host key) and
+      optionally encrypted blob returned to the wallet with the redirect
+      hand-off, presented back on the resume — the engine verifies,
+      never stores. #551 built exactly this for the Go engine
+      (the 5-minute signed `authorization_context`); the Rust engine can
+      adopt the same shape at the `wmp.flow.action` boundary.
+   2. **The KV port to an attested host:** the `KeyValue` port
+      (engine-ports) is already an interface — a TEE deployment can back
+      it with the host's encrypted storage (or a sealed sidecar) without
+      engine changes, IF the host is trusted for that state. This is the
+      low-effort TEE story: the engine's logic is unchanged, only the
+      adapter. Cost: the TEE boundary then excludes the state (a
+      session/stash read is a host roundtrip) — fine for correctness,
+      weaker for the confidentiality story.
+   3. **The full stateless resume (the biggest lift):** the flow start
+      returns everything the resume needs (the offer params already ride
+      the stash today — the resume re-parses them); extend that so
+      NOTHING needs the KV: the resume carries the verifier, state,
+      redirect, PKCE, and configuration, sealed. Sessions go the same way
+      — the resumption token IS the session, the store becomes a cache,
+      not a source of truth.
+   Design rule going forward (the actionable part): every new engine flow
+   must state its resume story up front — what rides the wire, what the
+   engine must hold, what the TTL is — and the default is the
+   stateless option. #551's `iss` fix (item 4 above) should land in
+   shape 1 (the sealed stash), not by deepening the KV dependency.
+
 5. **The parity sweep** — one cross-SDK push through the 2026-11-11 audit's
    remaining set: zkp_req match planning, the WMP REAUTH surface, Swift's
    local disconnect + attestation ask, Kotlin's WMP match UX.
