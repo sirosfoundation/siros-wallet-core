@@ -378,7 +378,7 @@ impl<'m> Chain<'m> {
     }
 
     /// The function of the innermost call, whose operand is the root.
-    fn innermost(&self) -> Function {
+    pub(crate) fn innermost(&self) -> Function {
         self.inner.last().map_or(self.outer, |call| call).function
     }
 

@@ -13,8 +13,8 @@
 //! other. A function reads the value's `Display`: `:number` and `:integer` take a number literal
 //! and show the fraction digits it is written with; `:currency` takes a number and a `currency`
 //! option, an ISO 4217 code of siros-syntax's table; `:siros:date`, `:siros:time` and
-//! `:siros:datetime` take siros-syntax's ISO 8601 literals. Each function family is a feature: `number`
-//! (`:number`, `:integer`), `currency` (`:currency`, `:percent`), `offset` (`:offset`) and
+//! `:siros:datetime` take siros-syntax's ISO 8601 literals. Each function family is a feature:
+//! `number` (`:number`, `:integer`), `currency` (`:currency`, `:percent`), `offset` (`:offset`) and
 //! `date`; `:string` is always in. `siros-cldr` writes the format sections of a language from
 //! CLDR 49.0.0.
 //!

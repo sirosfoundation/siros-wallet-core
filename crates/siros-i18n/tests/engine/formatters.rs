@@ -1,7 +1,7 @@
 //! An argument takes the formatters its type registers: a placeholder, a declaration or a
 //! selector without a function takes the type's default, a type without one takes `:string`,
-//! and a call of a function the type does not take refuses. Each registration rule refuses its
-//! fixture.
+//! a call on the argument of a function the type does not take refuses, and a call on another
+//! call's value takes that value. Each registration rule refuses its fixture.
 
 use std::any::type_name;
 use std::fmt;
@@ -68,6 +68,7 @@ string = {$n :string}
 name = {$who}
 plural = .match $n one {{one}} * {{other}}
 untaken = {$n :percent}
+outer = .local $i = {$n :integer} {{{$i :percent}}}
 untaken_name = {$who :number}
 day = .match $d |2026-11-13| {{that day}} * {{another}}
 key = .match $n |x| {{x}} * {{other}}";
@@ -106,6 +107,7 @@ fn an_argument_takes_its_types_formatters() {
         ("named", 1234, Ok("1234")),
         ("string", 1234, Ok("1234")),
         ("name", 1, Ok("Ada")),
+        ("outer", 1, Ok("100%")),
         ("plural", 1, Ok("one")),
         ("plural", 2, Ok("other")),
     ];

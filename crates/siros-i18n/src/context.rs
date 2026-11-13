@@ -190,17 +190,16 @@ impl Context {
     /// rows in the order of their ids.
     #[cfg(feature = "check")]
     pub fn check(&self) -> Result<(), CheckError> {
-        let mut undefined: Vec<(&'static str, &'static str)> = self
+        let undefined = self
             .formatters
             .functions()
             .filter(|(function, _)| !self.formats.defines(*function))
             .map(|(function, of)| (of, function.name()))
-            .collect();
-        undefined.sort_unstable();
-        if let Some((of, function)) = undefined.first() {
+            .min();
+        if let Some((of, function)) = undefined {
             return Err(CheckError::Undefined {
                 of,
-                function: (*function).to_owned(),
+                function: function.to_owned(),
             });
         }
         let mut rows: Vec<(&'static str, &'static [&'static str])> = siros_explain::check::rows()

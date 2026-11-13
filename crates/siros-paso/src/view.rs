@@ -8,14 +8,14 @@
 //! one context. In it, each display array is one message under the key of what it labels: a
 //! claim's `claim_<k>`, a UI label's name. An array's message is the text of the entries View §4
 //! tries for that tag: one entry's, or for a template that an absent claim discards, a `.match`
-//! over each such entry's argument `e<j>` (`live` or `dead`, by its position) whose fallback is
-//! the last entry tried. A plain label is literal text, a `mini_markdown` label its emphasis,
-//! strong and underline spans as markup (`strong`, `emphasis`, `underline`), a template label its
-//! spans with each `{n}` naming a claim as the argument `c<n>`: `:currency` over an amount's
-//! number `c<n>` with its code `c<n>_currency`, any other value as its type's default formatter
-//! shows it (a `siros_syntax::Date`, `OffsetTime`, `DateTime` or `Currency`, a text as `String`). Every text
-//! the metadata writes reaches the source through [`siros_i18n::escape`]. A message's format
-//! options are the wallet's modules' in the same context.
+//! by `:string` over each such entry's argument `e<j>` (`live` or `dead`, by its position) whose
+//! fallback is the last entry tried. A plain label is literal text, a `mini_markdown` label its
+//! emphasis, strong and underline spans as markup (`strong`, `emphasis`, `underline`), a template
+//! label its spans with each `{n}` naming a claim as the argument `c<n>`: `:currency` over an
+//! amount's number `c<n>` with its code `c<n>_currency`, any other value as its type's default
+//! formatter shows it (a `siros_syntax::Date`, `OffsetTime`, `DateTime` or `Currency`, a text as
+//! `String`). Every text the metadata writes reaches the source through [`siros_i18n::escape`].
+//! A message's format options are the wallet's modules' in the same context.
 //!
 //! Every id, name and variant key the source holds is ASCII: digests, language tags,
 //! `claim_<n>`, UI labels' names, `c<n>`, `c<n>_currency`, `e<j>`, `live`, and the functions' and

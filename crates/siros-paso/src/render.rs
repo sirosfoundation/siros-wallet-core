@@ -677,10 +677,7 @@ impl Label {
         let mut args: Vec<(String, Given)> = self
             .liveness
             .into_iter()
-            .map(|(position, live)| {
-                let state = if live { view::LIVE } else { view::DEAD };
-                (view::liveness(position), Given::Text(state.to_owned()))
-            })
+            .map(|(position, live)| (view::liveness(position), Given::Liveness(Liveness(live))))
             .collect();
         for (claim, value) in self.values {
             let name = view::argument(claim);
@@ -712,6 +709,7 @@ struct Worded {
 
 /// A converted label's argument, of the type whose formatters show it.
 enum Given {
+    Liveness(Liveness),
     Text(String),
     Date(Date),
     Time(OffsetTime),
@@ -719,6 +717,16 @@ enum Given {
     Currency(Currency),
     /// An amount's number.
     Number(Decimal),
+}
+
+/// Whether no absent claim discards an entry, `live` or `dead`: a type no wallet names, so the
+/// converted selection over it takes `:string`.
+struct Liveness(bool);
+
+impl fmt::Display for Liveness {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(if self.0 { view::LIVE } else { view::DEAD })
+    }
 }
 
 impl Message for Worded {
@@ -731,7 +739,8 @@ impl Message for Worded {
             .iter()
             .find(|(name, _)| name == key)
             .map(|(_, given)| match given {
-                Given::Text(text) => text as &dyn Arg,
+                Given::Liveness(live) => live as &dyn Arg,
+                Given::Text(text) => text,
                 Given::Date(date) => date,
                 Given::Time(time) => time,
                 Given::DateTime(at) => at,

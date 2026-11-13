@@ -421,7 +421,7 @@ pub enum ResolveError {
         id: String,
         /// The function, without its colon.
         function: String,
-        /// The refusal: [`Refusal::Selector`], [`Refusal::Key`], or a section no module defines.
+        /// The refusal: [`Refusal::Selector`] or [`Refusal::Key`].
         #[source]
         refusal: Refusal,
     },

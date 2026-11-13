@@ -47,12 +47,14 @@ impl<'m> Scope<'m> {
     }
 
     /// The chain over its argument's type: a call the wording leaves unwritten is the type's
-    /// default formatter's, and the type takes every call's function.
+    /// default formatter's, and the type takes the function of the call on the argument. Each
+    /// further call takes the value of the call inside it.
     ///
     /// # Errors
     ///
     /// [`Failure::Unresolved`] for an argument the message does not give, and
-    /// [`Failure::Unformatted`] for a call of a function the type takes no formatter of.
+    /// [`Failure::Unformatted`] for a call on the argument of a function its type takes no
+    /// formatter of.
     pub(crate) fn typed(&self, chain: Chain<'m>) -> Result<Chain<'m>, Failure> {
         let Some((key, unwritten)) = chain.argument() else {
             return Ok(chain);
@@ -66,13 +68,11 @@ impl<'m> Scope<'m> {
         } else {
             chain
         };
-        let refused = chain
-            .calls()
-            .map(|call| call.function)
-            .find(|function| !self.formatters.takes(of, *function));
-        match refused {
-            Some(function) => Err(Failure::Unformatted(key.to_owned(), function)),
-            None => Ok(chain),
+        let function = chain.innermost();
+        if self.formatters.takes(of, function) {
+            Ok(chain)
+        } else {
+            Err(Failure::Unformatted(key.to_owned(), function))
         }
     }
 
