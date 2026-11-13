@@ -14,10 +14,10 @@ re-rank freely; the tiers are proposals.
 
 | Piece | State |
 |---|---|
-| wallet-core **v0.2.2–v0.2.4** | Released: AARs on Central + GH Packages, XCFramework + bindings per tag, engine image on ghcr, conformance green. **v0.2.4** (2026-11-13): `VpParams` carries `verified_request` + `response_encryption` — the zkp_req policy inputs (#33) |
+| wallet-core **v0.2.2–v0.2.5** | Released: AARs on Central + GH Packages, XCFramework + bindings per tag, engine image on ghcr, conformance green. **v0.2.4**: `VpParams` carries `verified_request` + `response_encryption` (#33). **v0.2.5** (2026-11-13): `VpVerifiedRequest` carries `signature_verification` (#34 — the on-device find below) |
 | Kotlin SDK **v0.23.0** | Released: Maven Central, GH Packages, Play internal track — the consent round and the credential deck shipped. **Predates #404** (the zkp_req match + sign pipeline, the session recovery, the diagnostics, the dialog buttons) |
 | Swift SDK **v0.17.0** | Released: tarballs + TestFlight — the consent bridge and the listener-contract repairs shipped. **Predates #283** (the session recovery twin) |
-| GDC | Backend 0.25.2 (deployed), engine **re-pinned to v0.2.4 and verified live** (2026-11-13 overnight: `fly-up` ran, the machine runs `engine-server:v0.2.4`, `/healthz` and `/readyz` answer 200 through the wallet-proxy) |
+| GDC | Backend 0.25.2 (deployed), engine **re-pinned to v0.2.5 and verified live** (2026-11-13: `fly-up` ran, the machine runs `engine-server:v0.2.5`, `/healthz` answers 200 through the wallet-proxy) |
 | Native AARs | **8/8 on Maven Central** (wallet-core 0.2.2 and verifier-core-ffi 0.1.2 added 2026-11-12; the token-free resolution is proven) |
 | Multi-credential issuance (Platform-Epics#63) | Analyzed, decided (no mid-flow selection; subset-at-flow-start; `IssuanceSelectionPolicy` knob), tracked in five repos — **not started** |
 | **SDK patch releases (v0.23.1 / v0.17.1)** | **Queued behind the morning nym_auth validation.** Carry #404/#283 from merged main + embed engine **v0.2.4** — both SDKs currently pin **v0.2.2** (Kotlin: the `walletCoreVersion` gradle property in `sdk/transport/build.gradle.kts`; Swift: the `Package.swift` xcframework zip URL). The embedded engine only serves local-first mode (a local-first zkp_req needs v0.2.4's `VpParams` or it dies at the same policy gate); the remote path deserializes the params from the wire, so the morning test does not wait on this. The #33 change touched no FFI records (`VpParams` is an engine-internal port), so the vendored UniFFI bindings are unchanged — the bump is the AAR pin + the zip URL, re-vendored from v0.2.4 anyway for the same-release rule |
@@ -163,6 +163,24 @@ re-rank freely; the tiers are proposals.
    - Swift SDK: **#283** merged (the session recovery). The Swift zkp match
      and sign pipeline are the remaining #277 work.
    After the v0.2.4 engine deploy: the nym_auth test should run end-to-end.
+
+   **[2026-11-13, morning] THE v0.2.4 TEST REFUSED AT
+   step=unsigned-request, reason=NOT_TRUSTED — a fourth layer found.**
+   Match, trust and consent all ran; the sign ask died at the wallet's
+   ZK policy gate (`ZkpReqPolicy.refusalStep`). Root cause: the gate
+   reads `signed` AND `signature_verification == "verified"`
+   (go-wallet-backend#471's `VerifiedRequest` shape, which the legacy
+   backend sends); #33's `VpVerifiedRequest` carried `signed` but not
+   `signature_verification` — the SDK read the absent member as null ≠
+   "verified" and refused, whatever `signed` said. Engine wire drift,
+   fixed by wallet-core **#34** (v0.2.5, deployed): the member rides
+   the ask ("verified" — the engine verifies synchronously at parse and
+   never defers; "none" without a signed request object), `signed`
+   simplifies to `request_jwt.is_some()` (the parser's refusal is the
+   truth source; the DID schemes verify against resolved keys, not an
+   x5c chain), and a wire test now asserts the exact member set the
+   wallets' `VerifiedRequest`/`ResponseEncryptionRequest` readers
+   expect — this class of drift fails in CI now, not on a device.
 6. **Consent-set hardening** — the shared-query-in-unselected-option and the
    multi-element-option misattribution edges, against the consent UX that
    just shipped.
