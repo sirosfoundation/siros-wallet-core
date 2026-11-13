@@ -429,7 +429,19 @@ impl FlowHandler for Oid4vpFlow {
                         client_id_scheme: auth_req.client_id_scheme.name().to_owned(),
                         response_mode: auth_req.response_mode.as_str().to_owned(),
                         response_uri: auth_req.response_uri.clone(),
-                        signed: auth_req.request_jwt.is_some() && auth_req.x5c.is_some(),
+                        // The parser refuses a request object whose
+                        // signature does not verify (RequestObjectSignature),
+                        // so a present request JWT is a VERIFIED one — and
+                        // the DID schemes verify against resolved keys, not
+                        // an x5c chain, so the x5c is not the truth source.
+                        signed: auth_req.request_jwt.is_some(),
+                        signature_verification: if auth_req.request_jwt.is_some() {
+                            // The engine verifies synchronously at parse; it
+                            // never defers.
+                            "verified".to_owned()
+                        } else {
+                            "none".to_owned()
+                        },
                         request_jwt: auth_req.request_jwt.clone(),
                     })
                 } else {

@@ -431,6 +431,18 @@ pub struct VpVerifiedRequest {
     /// whose leaf's key verified the request's RFC 9052 Sig_structure).
     #[serde(default)]
     pub signed: bool,
+    /// `verified`, `deferred` or `none` — the wallet's ZK policy gate
+    /// (go-wallet-backend#471's shape) reads this alongside `signed`:
+    /// `deferred` is never treated as verified. The engine verifies the
+    /// request object synchronously at parse (an unverified signature
+    /// refuses the request outright), so it sends `verified` when there
+    /// was a signed request object and `none` when there was not — it
+    /// never defers. Found on-device: the member was absent from the
+    /// first cut of this struct and every zkp_req sign ask refused at
+    /// step=unsigned-request because the gate reads the null as not
+    /// verified, whatever `signed` said.
+    #[serde(default)]
+    pub signature_verification: String,
     /// The raw request JWT (the signed request object, when present).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_jwt: Option<String>,
