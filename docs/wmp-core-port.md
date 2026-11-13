@@ -65,7 +65,7 @@ a dev-dependency for test-time validation, not as a core dependency).
 
 The crate follows the workspace rules: `#![deny(unsafe_code)]`,
 `#![deny(missing_docs)]`, the panic lints outside tests, `clippy -D warnings`,
-`rust-version` 1.82. Where go-wmp reaches for ambient state — `crypto/rand`
+`rust-version` 1.89. Where go-wmp reaches for ambient state — `crypto/rand`
 for tokens and request ids, the wall clock for expiry — the Rust port takes
 the value from the caller (an entropy source, a clock value), so tests are
 deterministic and the future SDK/engine adapters own the effects.
