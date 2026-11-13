@@ -242,6 +242,14 @@ impl SessionService {
             .as_ref()
             .filter(|p| p.is_authenticated())
             .ok_or_else(|| RpcError::code(ERR_NOT_AUTHORIZED))?;
+        // The ownership key of the deployment's mode (the subject in user
+        // mode, the tenant in tenant mode — engine-parity.md §8 G1): a
+        // principal without one cannot own the session it would create,
+        // and a session no principal can resume is a resource leak, so it
+        // is refused here, not created orphaned.
+        if principal.key().is_empty() {
+            return Err(RpcError::code(ERR_NOT_AUTHORIZED).into());
+        }
         let selected = negotiate_version(offered_version(&p.wmp.version)?, &self.cfg.versions)?;
         let mode = if p.security.mode.is_empty() {
             self.cfg.security_modes.first().cloned().unwrap_or_default()

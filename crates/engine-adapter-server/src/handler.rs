@@ -32,11 +32,12 @@ pub struct EngineHandler {
     /// The flow→session notes: each flow's start records the session it
     /// runs in, so the host bridge starts the flow's asks under it.
     flows: Arc<crate::host_bridge::FlowSessions>,
-    /// The #319 lifecycle gate: the user's token cut-off, consulted at
+    /// The #319 lifecycle gate: the user's — or, in tenant mode, the
+    /// tenant's (engine-parity.md §8 G2) — token cut-off, consulted at
     /// each flow start (an instance revoked mid-token must not start
     /// new flows). The standalone default answers nothing; the backend
-    /// adapter implements it against the user store.
-    gate: Arc<crate::token::NoTokenGate>,
+    /// adapter implements it against its store.
+    gate: Arc<dyn crate::token::TokenGate>,
 }
 
 impl EngineHandler {
@@ -79,6 +80,20 @@ impl EngineHandler {
             flows,
             gate: Arc::new(crate::token::NoTokenGate),
         })
+    }
+
+    /// Overrides the #319 lifecycle gate (the backend adapter's
+    /// store-backed gate; the tests' fixed cut-off).
+    #[must_use]
+    pub fn with_gate(mut self: Arc<Self>, gate: Arc<dyn crate::token::TokenGate>) -> Arc<Self> {
+        let handler = Arc::get_mut(&mut self).unwrap_or_else(|| {
+            // The handler is uniquely held at construction; this cannot
+            // fail in the build path that calls it.
+            eprintln!("engine-server: the handler gate cannot be swapped under shares");
+            std::process::exit(1);
+        });
+        handler.gate = gate;
+        self
     }
 }
 

@@ -1,0 +1,1 @@
+openid4vp://?client_id=x509_hash%3A2nKZMd8sdr2PgLELPxVmUPERlgvJjjCxWg--2mn-4OU&request_uri=https%3A%2F%2Fsirosid-gdc-flow-core.fly.dev%2Frequest-object%2Ffr_F6AO1Vv1EEb-539t54OU8ytg9maPXmrq

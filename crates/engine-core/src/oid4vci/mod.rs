@@ -546,11 +546,14 @@ impl FlowHandler for Oid4vciFlow {
             let authorization = start_authorization_code(
                 ctx,
                 &params.flow_id,
-                &offer_params,
-                &offer,
-                &as_metadata,
-                &issuer_metadata,
-                &configuration_id,
+                &CodeGrantStart {
+                    offer_params: &offer_params,
+                    offer: &offer,
+                    as_metadata: &as_metadata,
+                    issuer_metadata: &issuer_metadata,
+                    configuration_id: &configuration_id,
+                    dpop_key_id: dpop_key_id.as_deref(),
+                },
             )
             .await?;
 
@@ -691,6 +694,14 @@ struct AuthorizationStash {
     redirect_uri: String,
     client_id: String,
     resource: Option<String>,
+    /// The client-held DPoP key the start named (`dpop_key_id`) — the resume
+    /// re-threads it into the token exchange so the DPoP proof the host
+    /// signs rides the SAME key the WIA attests (EC TS03's one-key rule, the
+    /// Go engine's client-held mode). Found driving the GDC issuance: the
+    /// resume asked dpop_proof with no key, the host answered empty, and the
+    /// engine DPoP'd with its own ephemeral key — the AS answered
+    /// invalid_dpop_proof.
+    dpop_key_id: Option<String>,
     /// The selected credential configuration — the user's choice, made
     /// before the redirect: the resume requests the same one, never a
     /// re-derivation (and never a second ask) after the browser
@@ -706,6 +717,23 @@ fn stash_key(flow_id: &str) -> String {
     format!("oid4vci:auth-code:{flow_id}")
 }
 
+/// The authorization-code grant's start inputs: the offer the wallet
+/// passed (its raw params and their parse), the AS and issuer metadata
+/// the flow resolved, the configuration the selection named, and the
+/// client-held DPoP key the start named (`dpop_key_id`: stashed for the
+/// resume - the redirect's answer rides the action - so the resume's
+/// token exchange asks the host to DPoP with the SAME key the WIA
+/// attests, EC TS03's one-key rule; found driving - see the stash field).
+/// Bundled because they travel together from the one call site.
+struct CodeGrantStart<'a> {
+    offer_params: &'a serde_json::Value,
+    offer: &'a types::CredentialOffer,
+    as_metadata: &'a types::AsMetadata,
+    issuer_metadata: &'a types::IssuerMetadata,
+    configuration_id: &'a str,
+    dpop_key_id: Option<&'a str>,
+}
+
 /// Builds the authorization request for the authorization_code grant:
 /// the PKCE pair and the OAuth state from the Rng port, the assembled
 /// parameters (auth_params), PAR when the AS advertises it (with the
@@ -713,12 +741,13 @@ fn stash_key(flow_id: &str) -> String {
 async fn start_authorization_code(
     ctx: &FlowContext,
     flow_id: &str,
-    offer_params: &serde_json::Value,
-    offer: &types::CredentialOffer,
-    as_metadata: &types::AsMetadata,
-    issuer_metadata: &types::IssuerMetadata,
-    configuration_id: &str,
+    start: &CodeGrantStart<'_>,
 ) -> Result<AuthorizationHandoff, HandlerError> {
+    let offer_params = start.offer_params;
+    let offer = start.offer;
+    let as_metadata = start.as_metadata;
+    let issuer_metadata = start.issuer_metadata;
+    let configuration_id = start.configuration_id;
     let flow_error = |reason: String| {
         HandlerError::Rpc(wmp_core::error::RpcError::new(
             wmp_core::error::ERR_FLOW_ERROR,
@@ -864,6 +893,7 @@ async fn start_authorization_code(
         redirect_uri,
         client_id,
         resource,
+        dpop_key_id: start.dpop_key_id.map(str::to_owned),
         configuration_id: configuration_id.to_owned(),
         offer_params: offer_params.clone(),
     };
@@ -1032,7 +1062,7 @@ async fn resume_authorization_code(
         &as_metadata,
         &auth_code::CodeExchangeSpec {
             flow_id: &params.flow_id,
-            dpop_key_id: None,
+            dpop_key_id: stash.dpop_key_id.as_deref(),
             client_key_kid: client_key_kid.as_deref(),
             client_id: &stash.client_id,
             code: &code,
@@ -1102,7 +1132,12 @@ async fn resume_authorization_code(
             delivery: Some(&delivery),
             negotiated_encryption: negotiated_encryption.as_ref(),
             dpop_key: dpop_key.as_ref(),
-            dpop_key_id: None,
+            // The stash's client-held DPoP key id: the AS bound the token to
+            // it (the start named it), so the credential request's DPoP proof
+            // must ride the SAME key - a fresh engine-held key here answers
+            // "DPoP key does not match the key bound to the access token"
+            // (found driving the GDC issuance, 2026-11-07).
+            dpop_key_id: stash.dpop_key_id.as_deref(),
             reissuance_kid: None,
         },
     )
@@ -1408,6 +1443,7 @@ mod auth_code_flow_tests {
             Ok(EvaluationResponse {
                 trusted: true,
                 decision: None,
+                context: None,
             })
         }
         async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {
@@ -1807,6 +1843,7 @@ mod renewal_flow_tests {
             Ok(EvaluationResponse {
                 trusted: true,
                 decision: None,
+                context: None,
             })
         }
         async fn resolve(&self, _r: ResolveRequest) -> Result<ResolveResponse, PdpError> {

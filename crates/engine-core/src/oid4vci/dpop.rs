@@ -60,8 +60,12 @@ pub async fn create_dpop_proof(
     now_unix: i64,
 ) -> Result<String, DpopError> {
     // The JTI: a counter-based identifier (the Rng port supplies the
-    // entropy in production; the host's sign flow carries the proof).
-    let jti = format!("dpop-{}", next_counter());
+    // entropy in production; the host's sign flow carries the proof) —
+    // 12 hex chars wide: RFC 9449 §4.2 requires a unique jti per proof and
+    // issuers enforce a minimum length (SUNET's GDC apigw: "invalid JTI:
+    // must be at least 12 characters" — `dpop-1` is 6; found driving the
+    // GDC issuance, 2026-11-07).
+    let jti = format!("dpop-{:012x}", next_counter());
 
     // The claims.
     let claims = DpopClaims {
@@ -215,8 +219,12 @@ impl DpopKey {
         nonce: Option<&str>,
         now_unix: i64,
     ) -> Result<String, DpopError> {
-        // The jti: 8 bytes from the Rng port.
-        let mut entropy = [0u8; 8];
+        // The jti: 16 bytes from the Rng port. RFC 9449 §4.2 requires it
+        // unique per proof, and issuers enforce a minimum length - SUNET's
+        // GDC apigw: "invalid JTI: must be at least 12 characters" (8
+        // bytes base64url is 11, one short; found driving the GDC
+        // issuance, 2026-11-07). 16 bytes -> 22 base64url chars.
+        let mut entropy = [0u8; 16];
         if !rng.fill(&mut entropy) {
             return Err(DpopError::Entropy);
         }

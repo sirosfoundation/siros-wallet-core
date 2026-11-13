@@ -24,6 +24,11 @@
         clippy::disallowed_methods
     )
 )]
+// The clippy disallowed-types rule (std HashMap/HashSet, the WASI
+// random_get seed) is matcher.wasm's: this server crate never links into
+// it (a native tokio process, WASI-capable), and jose-rs's Claims.extra
+// is a std HashMap - the tests' token mint fills one. Allowed here.
+#![allow(clippy::disallowed_types)]
 
 pub mod config;
 pub mod handler;
@@ -59,6 +64,9 @@ pub struct EngineServer {
     /// The remote host (the `Host` port inside the ports) carries it;
     /// exposed for the tests, which drive an ask end to end.
     pub bridge: Arc<crate::host_bridge::WmpHostBridge>,
+    /// The engine's per-token revocation list (engine-parity.md §8 G2):
+    /// `revoke` a `jti` and every later bearer of that token is refused.
+    pub revocation: Arc<token::JtiBlacklist>,
     /// The engine's configuration.
     pub config: config::Config,
 }
@@ -71,7 +79,14 @@ impl EngineServer {
     /// type nobody registered answers `-31005` (core §10.3).
     pub fn new(config: config::Config) -> Self {
         let store = Arc::new(MemorySessionStore::new());
-        let validator = Arc::new(token::TokenValidator::from_config(&config));
+        // The per-token revocation list (engine-parity.md §8 G2): the
+        // tenant-bound deployment's cheap per-token revocation, consulted
+        // on every bearer validation. Exposed for the deployment's
+        // revocation path; in-memory in the standalone engine.
+        let revocation = Arc::new(token::JtiBlacklist::default());
+        let validator = Arc::new(
+            token::TokenValidator::from_config(&config).with_revocation(revocation.clone()),
+        );
         let outbox = Arc::new(Outbox::new());
         // The flow→session notes: each flow's start records its session,
         // and the host bridge starts the flow's asks under it.
@@ -143,8 +158,17 @@ impl EngineServer {
             runtime,
             outbox,
             bridge,
+            revocation,
             config,
         }
+    }
+
+    /// Revokes the token identified by `jti` (engine-parity.md §8 G2):
+    /// every later bearer validation of that token refuses it. The
+    /// tenant-bound deployment's per-token revocation, paired with its
+    /// short-TTL tokens.
+    pub fn revoke_jti(&self, jti: &str) {
+        self.revocation.revoke(jti);
     }
 }
 

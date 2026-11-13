@@ -539,7 +539,9 @@ fn issue_mini_mdl(
 /// the device key's ES256 signature over the session transcript of the
 /// `OpenID4VPHandover` (OpenID4VP 1.0, B.2.6.1): `[null, null,
 /// ["OpenID4VPHandover", SHA-256(cbor([client_id, nonce, thumb|null,
-/// response_uri]))]]`; each map in the core deterministic encoding (RFC
+/// response_uri]))]]`, or on the Digital Credentials API channel of the
+/// `OpenID4VPDCAPIHandover` (B.2.6.2) over `[origin, nonce,
+/// thumb|null]`; each map in the core deterministic encoding (RFC
 /// 8949 §4.2.1). Each claim is a claims path (OpenID4VP §7)
 /// JSON-encoded, its keys a namespace then an element identifier
 /// (B.4.1). `sign` signs the device signature's `Sig_structure` with
@@ -598,22 +600,33 @@ fn present_mini_mdl(
                 .map_err(|err| format!("the thumbprint does not decode: {err}"))?,
         )
     };
-    let info = cbor(&Cbor::Array(vec![
-        text(&params.audience),
-        text(&params.nonce),
-        thumbprint,
-        text(&params.response_uri),
-    ]))?;
-    let handover_digest = kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &info)
-        .map_err(|err| format!("the handover digest: {err}"))?;
+    // The Digital Credentials API channel (B.2.6.2): the
+    // OpenID4VPDCAPIHandover covers [origin, nonce, jwkThumbprint], the
+    // origin the request's expected_origins named.
+    let (handover_name, info) = if params.origin.is_empty() {
+        (
+            "OpenID4VPHandover",
+            Cbor::Array(vec![
+                text(&params.audience),
+                text(&params.nonce),
+                thumbprint,
+                text(&params.response_uri),
+            ]),
+        )
+    } else {
+        (
+            "OpenID4VPDCAPIHandover",
+            Cbor::Array(vec![text(&params.origin), text(&params.nonce), thumbprint]),
+        )
+    };
+    let handover_digest =
+        kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &cbor(&info)?)
+            .map_err(|err| format!("the handover digest: {err}"))?;
     // SessionTranscript = [null, null, Handover] (B.2.6).
     let transcript = Cbor::Array(vec![
         Cbor::Null,
         Cbor::Null,
-        Cbor::Array(vec![
-            text("OpenID4VPHandover"),
-            Cbor::Bytes(handover_digest),
-        ]),
+        Cbor::Array(vec![text(handover_name), Cbor::Bytes(handover_digest)]),
     ]);
 
     // DeviceNameSpacesBytes = #6.24(bstr .cbor {}): the response carries
@@ -717,6 +730,14 @@ pub struct MiniHost {
     /// The page's authorization callback: `(url) => Promise<void>` —
     /// navigate, and the suite's AS redirects back to the page.
     open_authorization: Option<js_sys::Function>,
+    /// The fresh batch keys this host has handed out (kid → signer).
+    /// A fresh-key ask generates a key for that ask alone (the OID4VCI
+    /// batch rule — each credential in a batch binds to its own key,
+    /// SDJWT-10.1); the sign asks that follow must reach the very key
+    /// the proof header carries, so the host keeps them by kid. The
+    /// Host port hands out `&self`, so the map sits in a RefCell —
+    /// the wasm page is single-threaded.
+    fresh_signers: std::sync::Mutex<rustc_hash::FxHashMap<String, Signer>>,
 }
 
 impl MiniHost {
@@ -781,6 +802,7 @@ impl MiniHost {
             client_key,
             tx_code,
             open_authorization,
+            fresh_signers: std::sync::Mutex::new(rustc_hash::FxHashMap::default()),
         })
     }
 
@@ -803,8 +825,20 @@ impl Host for MiniHost {
     async fn request_sign(&self, params: SignParams) -> Result<SignResult, HostError> {
         // The key id routes: the engine asks for the registered kid
         // (or the conventional client-auth name) when the client
-        // assertion needs the client key; anything else is the device
-        // key (the OID4VCI proof).
+        // assertion needs the client key; a fresh batch key's kid
+        // reaches the key the proof header carries; anything else is
+        // the device key (the OID4VCI proof).
+        if let Some(id) = params.key_id.as_deref() {
+            if let Ok(table) = self.fresh_signers.lock() {
+                if let Some(signer) = table.get(id) {
+                    let signature =
+                        kryptering::Signer::sign(signer, &params.to_sign).map_err(|e| {
+                            HostError::Cannot(format!("the fresh key does not sign: {e}"))
+                        })?;
+                    return Ok(SignResult { signature });
+                }
+            }
+        }
         let use_client =
             params
                 .key_id
@@ -843,6 +877,30 @@ impl Host for MiniHost {
                     Some(kid) => id == kid,
                     None => id == engine_core::oid4vci::token::CLIENT_AUTH_KEY_ID,
                 });
+        // A FRESH key ask (the OID4VCI batch rule): generate one for this
+        // ask alone — each credential in a batch binds to its own key
+        // (SDJWT-10.1, the suite's VCIEnsureProofKeysAreDistinct). The
+        // kid is the RFC 7638 thumbprint; the sign asks that follow name
+        // it, and this host signs with the very key it handed out.
+        if params.fresh {
+            let key =
+                jose_rs::jwk::generate_ec("P-256").map_err(|e| HostError::Cannot(e.to_string()))?;
+            let kid = jose_rs::jwk::thumbprint::thumbprint_sha256(&key)
+                .map_err(|e| HostError::Cannot(e.to_string()))?;
+            let signer = p256_signer(&key).map_err(|e| HostError::Cannot(e.to_string()))?;
+            let mut public = key.to_public_jwk();
+            public.kid = Some(kid.clone());
+            let text = public
+                .to_json()
+                .map_err(|e| HostError::Cannot(e.to_string()))?;
+            let jwk: serde_json::Value =
+                serde_json::from_str(&text).map_err(|e| HostError::Cannot(e.to_string()))?;
+            self.fresh_signers
+                .lock()
+                .map_err(|_| HostError::Cannot("the fresh-key table is poisoned".to_owned()))?
+                .insert(kid, signer);
+            return Ok(engine_ports::SigningKeyResult { jwk });
+        }
         let jwk = if use_client {
             self.client_key.clone().ok_or_else(|| {
                 HostError::Cannot("the mini host carries no client key".to_owned())
@@ -931,6 +989,16 @@ impl Host for MiniHost {
         let now = (js_sys::Date::now() / 1000.0) as i64;
         let iat = u64::try_from(now)
             .map_err(|_| HostError::Cannot("the clock is before the epoch".to_owned()))?;
+        // The KB-JWT's `aud`: on the Digital Credentials API channel
+        // the origin in its HAIP-7.3.2 serialization, `origin:` and the
+        // expected origin URL (the suite's CheckAudInBindingJwtDcApi);
+        // the client_id on the redirect channel.
+        let dc_api_origin = format!("origin:{}", params.origin);
+        let audience = if params.origin.is_empty() {
+            params.audience.as_str()
+        } else {
+            dc_api_origin.as_str()
+        };
 
         let mut tokens = Vec::new();
         for selection in &params.selections {
@@ -957,7 +1025,7 @@ impl Host for MiniHost {
                 &self.pid,
                 &selection.disclosed_claims,
                 iat,
-                &params.audience,
+                audience,
                 &params.nonce,
                 |input| {
                     kryptering::Signer::sign(&self.signer, input)
