@@ -1,0 +1,315 @@
+//! Counts, exact decimals and amounts.
+
+use std::borrow::Cow;
+use std::cmp::Ordering;
+use std::fmt;
+
+use crate::iso4217::Currency;
+use crate::malformed::{Malformed, Reader, parse};
+
+/// A count: a natural number of any length, such as a size, an index or an age. A `u64` when it
+/// fits, else its decimal digits, so each number has one form. Its literal is its digits: `0`, or
+/// a digit other than `0` and then digits.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Count(Form);
+
+/// A count's form: a `u64`, or the digits of a count past `u64::MAX`, the first other than `0`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Form {
+    Word(u64),
+    Long(Box<str>),
+}
+
+impl Form {
+    /// The form of a count's literal: ASCII digits, the first other than `0` unless it is `0`.
+    fn of(literal: &str) -> Self {
+        literal
+            .bytes()
+            .try_fold(0u64, |value, digit| {
+                value.checked_mul(10)?.checked_add(u64::from(digit - b'0'))
+            })
+            .map_or_else(|| Self::Long(literal.into()), Self::Word)
+    }
+}
+
+/// Decimal digits as written: one or more ASCII digits, leading zeros kept, such as a JSON
+/// number's integer part. `Count::from` takes their value.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Digits(Box<str>);
+
+impl Digits {
+    /// The digits `text` writes: one or more ASCII digits.
+    ///
+    /// # Errors
+    ///
+    /// [`Malformed`] for any other text.
+    pub fn parse(text: &str) -> Result<Self, Malformed> {
+        parse(text, "Digits", |reader| {
+            if reader.digit().is_none() {
+                return Err(reader.here());
+            }
+            while reader.digit().is_some() {}
+            Ok(())
+        })?;
+        Ok(Self(text.into()))
+    }
+}
+
+/// The digits as written.
+impl fmt::Display for Digits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// The count the digits write, their leading zeros dropped.
+impl From<&Digits> for Count {
+    fn from(digits: &Digits) -> Self {
+        Self(Form::of(match digits.0.trim_start_matches('0') {
+            "" => "0",
+            significant => significant,
+        }))
+    }
+}
+
+impl Count {
+    /// The count of a `u64`.
+    #[must_use]
+    pub const fn of(value: u64) -> Self {
+        Self(Form::Word(value))
+    }
+
+    /// The count `text` writes: `0`, or a digit other than `0` and then digits.
+    ///
+    /// # Errors
+    ///
+    /// [`Malformed`] for any other text.
+    pub fn parse(text: &str) -> Result<Self, Malformed> {
+        parse(text, "Count", |reader| natural(reader, |_| true))?;
+        Ok(Self(Form::of(text)))
+    }
+
+    /// The count, when it fits a `u64`.
+    #[must_use]
+    pub const fn to_u64(&self) -> Option<u64> {
+        match &self.0 {
+            Form::Word(value) => Some(*value),
+            Form::Long(_) => None,
+        }
+    }
+
+    /// Its decimal digits, without leading zeros: `0` for zero.
+    #[must_use]
+    pub fn digits(&self) -> Cow<'_, str> {
+        match &self.0 {
+            Form::Word(value) => Cow::Owned(value.to_string()),
+            Form::Long(digits) => Cow::Borrowed(digits),
+        }
+    }
+}
+
+impl PartialOrd for Count {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Counts compare as integers: a `u64` below a longer count, longer digits above shorter ones.
+impl Ord for Count {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (&self.0, &other.0) {
+            (Form::Word(a), Form::Word(b)) => a.cmp(b),
+            (Form::Word(_), Form::Long(_)) => Ordering::Less,
+            (Form::Long(_), Form::Word(_)) => Ordering::Greater,
+            (Form::Long(a), Form::Long(b)) => a.len().cmp(&b.len()).then_with(|| a.cmp(b)),
+        }
+    }
+}
+
+/// Its literal: its digits.
+impl fmt::Display for Count {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.digits())
+    }
+}
+
+/// Reads `0` or a digit other than `0` and then digits, giving `add` each digit; refused at a digit
+/// `add` refuses.
+fn natural(reader: &mut Reader<'_>, mut add: impl FnMut(u8) -> bool) -> Result<(), Malformed> {
+    let at = reader.at();
+    let first = reader.digit().ok_or_else(|| reader.here())?;
+    if !add(first) {
+        return Err(reader.refuse(at));
+    }
+    if first == 0 {
+        return Ok(());
+    }
+    loop {
+        let at = reader.at();
+        let Some(digit) = reader.digit() else {
+            return Ok(());
+        };
+        if !add(digit) {
+            return Err(reader.refuse(at));
+        }
+    }
+}
+
+/// An exact decimal: `units` × 10^-`scale`, with the scale it was written with. Its literal is
+/// `-?(0|[1-9][0-9]*)(\.[0-9]+)?` with `scale` fraction digits, the sign only on a value other
+/// than zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Decimal {
+    units: i128,
+    scale: u8,
+}
+
+impl Decimal {
+    /// The most fraction digits: an `i128` holds 38 decimal digits whatever their value.
+    const MAX_SCALE: u8 = 38;
+
+    /// The decimal; `None` beyond 38 fraction digits, which an `i128` cannot hold.
+    #[must_use]
+    pub const fn new(units: i128, scale: u8) -> Option<Self> {
+        if scale > Self::MAX_SCALE {
+            None
+        } else {
+            Some(Self { units, scale })
+        }
+    }
+
+    /// The decimal `text` writes.
+    ///
+    /// # Errors
+    ///
+    /// [`Malformed`] for a text outside the literal form, a negative zero, units beyond an
+    /// `i128`, or more than 38 fraction digits.
+    pub fn parse(text: &str) -> Result<Self, Malformed> {
+        parse(text, "Decimal", Self::read)
+    }
+
+    /// The decimal at the reader. Its units accumulate toward their sign, so that `i128::MIN`
+    /// reads, and a digit that leaves an `i128` is refused where it stands.
+    pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, Malformed> {
+        let start = reader.at();
+        let negative = reader.take(b'-');
+        let mut units = 0i128;
+        let mut shift = |digit: u8| {
+            let digit = i128::from(digit);
+            let next = units.checked_mul(10).and_then(|value| {
+                if negative {
+                    value.checked_sub(digit)
+                } else {
+                    value.checked_add(digit)
+                }
+            });
+            if let Some(next) = next {
+                units = next;
+            }
+            next.is_some()
+        };
+        natural(reader, &mut shift)?;
+        let mut scale = 0u8;
+        if reader.take(b'.') {
+            loop {
+                let at = reader.at();
+                let Some(digit) = reader.digit() else {
+                    break;
+                };
+                if scale == Self::MAX_SCALE || !shift(digit) {
+                    return Err(reader.refuse(at));
+                }
+                scale += 1;
+            }
+            if scale == 0 {
+                return Err(reader.here());
+            }
+        }
+        if negative && units == 0 {
+            return Err(reader.refuse(start));
+        }
+        Ok(Self { units, scale })
+    }
+
+    /// The units.
+    #[must_use]
+    pub const fn units(self) -> i128 {
+        self.units
+    }
+
+    /// The number of fraction digits.
+    #[must_use]
+    pub const fn scale(self) -> u8 {
+        self.scale
+    }
+}
+
+/// Its literal: `-1234.50` for `units` -123450 at `scale` 2.
+impl fmt::Display for Decimal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let magnitude = self.units.unsigned_abs();
+        let place = 10u128
+            .checked_pow(u32::from(self.scale))
+            .ok_or(fmt::Error)?;
+        let whole = magnitude.checked_div(place).ok_or(fmt::Error)?;
+        let fraction = magnitude.checked_rem(place).ok_or(fmt::Error)?;
+        if self.units < 0 {
+            f.write_str("-")?;
+        }
+        write!(f, "{whole}")?;
+        if self.scale > 0 {
+            write!(f, ".{fraction:0width$}", width = usize::from(self.scale))?;
+        }
+        Ok(())
+    }
+}
+
+/// An amount: an exact decimal in a currency. Its literal is the decimal's, a space, and the
+/// currency's code: `42.50 EUR`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Amount {
+    value: Decimal,
+    currency: Currency,
+}
+
+impl Amount {
+    /// The amount.
+    #[must_use]
+    pub const fn new(value: Decimal, currency: Currency) -> Self {
+        Self { value, currency }
+    }
+
+    /// The amount `text` writes.
+    ///
+    /// # Errors
+    ///
+    /// [`Malformed`] for a text other than a decimal's literal, one space, and an ISO 4217
+    /// alphabetic code.
+    pub fn parse(text: &str) -> Result<Self, Malformed> {
+        parse(text, "Amount", |reader| {
+            let value = Decimal::read(reader)?;
+            reader.expect(b' ')?;
+            let currency = Currency::read(reader)?;
+            Ok(Self::new(value, currency))
+        })
+    }
+
+    /// The value.
+    #[must_use]
+    pub const fn value(self) -> Decimal {
+        self.value
+    }
+
+    /// The currency.
+    #[must_use]
+    pub const fn currency(self) -> Currency {
+        self.currency
+    }
+}
+
+/// Its literal: `42.50 EUR`.
+impl fmt::Display for Amount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.value, self.currency)
+    }
+}

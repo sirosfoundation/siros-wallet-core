@@ -3410,6 +3410,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "siros-syntax"
+version = "0.1.0"
+dependencies = [
+ "siros-explain",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "siros-transaction-data"
 version = "0.11.0"
 dependencies = [

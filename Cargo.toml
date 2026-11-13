@@ -13,6 +13,7 @@ members = [
     "crates/siros-oid4vp",
     "crates/siros-presentation",
     "crates/siros-sdjwt",
+    "crates/siros-syntax",
     "crates/siros-transaction-data",
     "crates/siros-trust",
     "crates/siros-wallet-state",
@@ -48,6 +49,7 @@ siros-mdoc = { path = "crates/siros-mdoc" }
 siros-oid4vp = { path = "crates/siros-oid4vp" }
 siros-presentation = { path = "crates/siros-presentation", default-features = false }
 siros-sdjwt = { path = "crates/siros-sdjwt" }
+siros-syntax = { path = "crates/siros-syntax" }
 siros-transaction-data = { path = "crates/siros-transaction-data", default-features = false }
 siros-trust = { path = "crates/siros-trust", default-features = false }
 siros-wallet-state = { path = "crates/siros-wallet-state" }
