@@ -1,6 +1,6 @@
 //! `Context::check` over the rows of every derived error and statement this binary links: the rows
-//! are the derives' ids, and the check refuses a row no module words and a wording that reads an
-//! argument its row lacks.
+//! are the derives' ids, and the check refuses a formatter whose options no module defines, a row
+//! no module words and a wording that names an argument its row lacks.
 
 use std::path::Path;
 
@@ -101,6 +101,20 @@ fn check_refuses_an_unworded_row_and_an_unknown_key() {
         Err(CheckError::Unknown {
             id: "checked.greeting".to_owned(),
             key: "nobody".to_owned()
+        })
+    );
+}
+
+#[test]
+fn check_refuses_a_formatter_without_its_options() {
+    let context = Context::new()
+        .default_formatter::<u32>("siros:date")
+        .expect("the build has :siros:date");
+    assert_eq!(
+        context.check(),
+        Err(CheckError::Undefined {
+            of: "u32",
+            function: "siros:date".to_owned()
         })
     );
 }

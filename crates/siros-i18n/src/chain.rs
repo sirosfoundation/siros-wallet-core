@@ -91,10 +91,13 @@ impl Declared {
             root,
             inner,
             outer: &link.call,
+            unwritten: false,
         }
     }
 
-    /// The chain of the variable `name`: its declared call's, else `:string` on the argument.
+    /// The chain of the variable `name`: its declared call's, else the argument's, whose call
+    /// the wording leaves unwritten: `:string` at the load, the argument type's default
+    /// formatter at resolution.
     pub(crate) fn variable<'m>(&'m self, name: &'m str) -> Chain<'m> {
         match self.call(name) {
             Some(link) => self.chain(link),
@@ -102,6 +105,7 @@ impl Declared {
                 root: Root::Argument(name),
                 inner: Vec::new(),
                 outer: &STRING,
+                unwritten: true,
             },
         }
     }
@@ -115,6 +119,7 @@ impl Declared {
                 root: Root::Literal(text),
                 inner: Vec::new(),
                 outer: &STRING,
+                unwritten: false,
             },
         }
     }
@@ -236,6 +241,8 @@ pub(crate) struct Chain<'m> {
     pub(crate) root: Root<'m>,
     inner: Vec<&'m Call>,
     pub(crate) outer: &'m Call,
+    /// An argument's chain whose call the wording does not write.
+    unwritten: bool,
 }
 
 /// An expression's `u:dir` (spec/u-namespace.md).
@@ -348,6 +355,23 @@ enum Unfixed {
 }
 
 impl<'m> Chain<'m> {
+    /// The argument the chain starts from and whether the wording writes no call on it.
+    pub(crate) fn argument(&self) -> Option<(&'m str, bool)> {
+        match self.root {
+            Root::Argument(key) => Some((key, self.unwritten)),
+            Root::None | Root::Literal(_) => None,
+        }
+    }
+
+    /// The chain with `call` for the call the wording leaves unwritten.
+    pub(crate) fn written(self, call: &'m Call) -> Self {
+        Self {
+            outer: call,
+            unwritten: false,
+            ..self
+        }
+    }
+
     /// The calls, innermost first.
     pub(crate) fn calls(&self) -> impl DoubleEndedIterator<Item = &'m Call> {
         self.inner.iter().rev().copied().chain([self.outer])
@@ -455,6 +479,16 @@ impl<'m> Chain<'m> {
                 option,
             },
             Failure::Unresolved(key) => ResolveError::Unresolved { id, key },
+            Failure::Unformatted(key, function) => ResolveError::Unformatted {
+                id,
+                key,
+                function: function.name().to_owned(),
+            },
+            Failure::Selector(function, refusal) => ResolveError::Selector {
+                id,
+                function: function.name().to_owned(),
+                refusal,
+            },
         }
     }
 }
@@ -473,6 +507,10 @@ pub(crate) enum Use {
 pub(crate) enum Failure {
     /// The function refuses the operand's text.
     Operand,
+    /// The argument of this key takes no formatter of the function's name.
+    Unformatted(String, Function),
+    /// The argument type's default formatter refuses the use as a selector or a variant key.
+    Selector(Function, Refusal),
     /// The function refuses an option's text, which a variable gives.
     Option(String),
     /// The argument of this key, which the message does not give: the operand's or an
@@ -486,7 +524,9 @@ impl Failure {
     fn under(self, name: &str) -> Self {
         match self {
             Self::Unresolved(key) => Self::Unresolved(key),
-            Self::Operand | Self::Option(_) => Self::Option(name.to_owned()),
+            Self::Operand | Self::Option(_) | Self::Unformatted(..) | Self::Selector(..) => {
+                Self::Option(name.to_owned())
+            }
         }
     }
 }
@@ -515,6 +555,22 @@ impl From<Refusal> for Refused {
 }
 
 impl Refused {
+    /// The failure at resolution of the refusal of `function`, the default formatter of a
+    /// selector's argument type.
+    pub(crate) fn failure(self, function: Function) -> Failure {
+        match self {
+            #[cfg(any(
+                feature = "number",
+                feature = "currency",
+                feature = "offset",
+                feature = "date"
+            ))]
+            Self::Undefined => Failure::Operand,
+            Self::Call(refusal) => Failure::Selector(function, refusal),
+            Self::Unnormalized(_) => Failure::Operand,
+        }
+    }
+
     /// The fault of the refusal of a chain whose outermost function is `function`.
     pub(crate) fn fault(self, function: Function) -> Fault {
         match self {

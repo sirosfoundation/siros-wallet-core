@@ -233,7 +233,8 @@ pub enum SyntaxRule {
         /// The message's id.
         id: String,
     },
-    /// A selector references no declaration with a function.
+    /// A selector references, directly or through local declarations, a literal without a
+    /// function.
     #[error("Missing Selector Annotation in {id}: ${variable}")]
     #[explain(id = "syntax.missing_selector_annotation")]
     MissingSelectorAnnotation {
@@ -400,6 +401,30 @@ pub enum ResolveError {
         /// The option.
         option: String,
     },
+    /// A call names a function the type of its argument takes no formatter of.
+    #[error("{id}: the argument {key} takes no :{function}")]
+    #[explain(id = "resolve.unformatted")]
+    Unformatted {
+        /// The message's id.
+        id: String,
+        /// The argument's key.
+        key: String,
+        /// The function, without its colon.
+        function: String,
+    },
+    /// The default formatter of a selector's argument type refuses the selector or one of its
+    /// variant keys.
+    #[error("{id}: :{function} refuses the selector: {refusal}")]
+    #[explain(id = "resolve.selector")]
+    Selector {
+        /// The message's id.
+        id: String,
+        /// The function, without its colon.
+        function: String,
+        /// The refusal: [`Refusal::Selector`], [`Refusal::Key`], or a section no module defines.
+        #[source]
+        refusal: Refusal,
+    },
     /// The message gives a value whose `Display` fails.
     #[error("{id} gives the argument {key} a value that does not display")]
     #[explain(id = "resolve.argument")]
@@ -408,6 +433,35 @@ pub enum ResolveError {
         id: String,
         /// The argument's key, as the wording spells it: in NFC with the feature `nfc`.
         key: String,
+    },
+}
+
+/// Why [`Context::formatter`](crate::Context::formatter) or
+/// [`Context::default_formatter`](crate::Context::default_formatter) refused a formatter.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+pub enum RegisterError {
+    /// The build has no function of the name.
+    #[error("the build has no function :{name}")]
+    #[explain(id = "register.function")]
+    Function {
+        /// The name, without its colon.
+        name: String,
+    },
+    /// The type takes the function already.
+    #[error("{of} takes :{name} already")]
+    #[explain(id = "register.repeated")]
+    Repeated {
+        /// The type's name.
+        of: &'static str,
+        /// The function, without its colon.
+        name: String,
+    },
+    /// The type has a default formatter already.
+    #[error("{of} has a default formatter already")]
+    #[explain(id = "register.default")]
+    Default {
+        /// The type's name.
+        of: &'static str,
     },
 }
 
@@ -427,6 +481,15 @@ pub enum CheckError {
     Unworded {
         /// The id.
         id: String,
+    },
+    /// A type takes a function whose options no module of the context defines.
+    #[error("{of} takes :{function}, whose options no module defines")]
+    #[explain(id = "check.undefined")]
+    Undefined {
+        /// The type's name.
+        of: &'static str,
+        /// The function, without its colon.
+        function: String,
     },
     /// A message's wording names an argument its row lacks.
     #[error("the wording of {id} names {key}, which its row lacks")]

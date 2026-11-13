@@ -2,17 +2,22 @@
 
 use rustc_hash::FxHashMap;
 
+use std::any::TypeId;
+
+use siros_explain::Arg;
+
 use crate::args::Args;
 use crate::compile;
 #[cfg(feature = "check")]
 use crate::error::CheckError;
-use crate::error::{LoadError, ResolveError};
+use crate::error::{LoadError, RegisterError, ResolveError};
 use crate::format::Formats;
 use crate::locale::LocaleTag;
 use crate::message::Message;
 use crate::messages::{Messages, Prefix};
 use crate::mf2;
 use crate::normal::Hold;
+use crate::registry::Registry;
 use crate::resource::{self, Entry};
 use crate::text::Text;
 
@@ -29,14 +34,15 @@ pub enum Bidi {
     None,
 }
 
-/// The modules of one locale, each a W3C message resource of MF2 messages, and the format options
-/// their `[formats.<format>]` sections define. [`Context::resolve`] resolves a [`Message`]'s id
-/// and arguments into a [`Text`].
+/// The modules of one locale, each a W3C message resource of MF2 messages, the format options
+/// their `[formats.<format>]` sections define, and the formatters each argument type takes.
+/// [`Context::resolve`] resolves a [`Message`]'s id and arguments into a [`Text`].
 #[derive(Debug, Clone, Default)]
 pub struct Context {
     locale: Option<LocaleTag>,
     bidi: Bidi,
     formats: Formats,
+    registry: Registry,
     messages: Messages,
 }
 
@@ -51,6 +57,36 @@ impl Context {
     #[must_use]
     pub fn bidi(self, bidi: Bidi) -> Self {
         Self { bidi, ..self }
+    }
+
+    /// The context, with an argument of the type `T` taking the function `name`, without its
+    /// colon, where a call names it. Every type takes `:string`, its value's `Display`.
+    ///
+    /// # Errors
+    ///
+    /// [`RegisterError::Function`] for a function the build lacks, and
+    /// [`RegisterError::Repeated`] for a function `T` takes already.
+    pub fn formatter<T: Arg>(self, name: &str) -> Result<Self, RegisterError> {
+        self.register::<T>(name, false)
+    }
+
+    /// The context, with an argument of the type `T` taking the function `name` where a call
+    /// names it and where the wording names none: a placeholder `{$x}`, a declaration
+    /// `.input {$x}` and a selector `.match $x`. A type without a default takes `:string`.
+    ///
+    /// # Errors
+    ///
+    /// The [`RegisterError`] of [`Context::formatter`], and [`RegisterError::Default`] for a
+    /// second default of `T`.
+    pub fn default_formatter<T: Arg>(self, name: &str) -> Result<Self, RegisterError> {
+        self.register::<T>(name, true)
+    }
+
+    /// The context, with `T` taking `name`, by default when `default`.
+    fn register<T: Arg>(mut self, name: &str, default: bool) -> Result<Self, RegisterError> {
+        self.registry
+            .register(TypeId::of::<T>(), std::any::type_name::<T>(), name, default)?;
+        Ok(self)
     }
 
     /// The context with the resource `source` loaded whole: its `@locale`, which the first
@@ -147,12 +183,15 @@ impl Context {
 
     /// The message's id worded by the context's modules, over the arguments the wording names:
     /// each argument's text is its value's `Display`, its key asked for as the wording spells it,
-    /// in NFC with `nfc`.
+    /// in NFC with `nfc`. An argument takes the functions its type takes, and where the wording
+    /// names none, its type's default.
     ///
     /// # Errors
     ///
     /// [`ResolveError`] for an id no module words, an argument whose `Display` fails, an
-    /// argument the wording reads and the message lacks, and a text a function refuses.
+    /// argument the wording reads and the message lacks, a function the argument's type takes
+    /// no formatter of, a selector or a key its type's default refuses, and a text a function
+    /// refuses.
     pub fn resolve(&self, message: &dyn Message) -> Result<Text, ResolveError> {
         let id = message.id();
         let unknown = || ResolveError::Unknown { id: id.to_owned() };
@@ -161,21 +200,36 @@ impl Context {
             id: id.to_owned(),
             key: key.to_owned(),
         })?;
-        worded.resolve(id, &args, &self.formats, self.bidi)
+        worded.resolve(id, &args, &self.formats, &self.registry, self.bidi)
     }
 
-    /// The wallet's completeness test: every error and statement the binary links has a
-    /// wording that names only its arguments, in its `.input` declarations and in each variable
-    /// no declaration binds. It reads the rows the derives register under
-    /// `check` (siros-explain's for errors, this crate's for statements).
+    /// The wallet's completeness test: every formatter a type takes has its options, and every
+    /// error and statement the binary links has a wording that names only its arguments, in its
+    /// `.input` declarations and in each variable no declaration binds. It reads the rows the
+    /// derives register under `check` (siros-explain's for errors, this crate's for statements).
     ///
     /// # Errors
     ///
-    /// The first of [`CheckError::Repeated`] for two rows of one id, [`CheckError::Unworded`]
-    /// for a row no module words, and [`CheckError::Unknown`] for a wording that names an
-    /// argument its row lacks, each over the rows in the order of their ids.
+    /// The first of [`CheckError::Undefined`] for a formatter whose options no module defines,
+    /// in the order of the types' names and the functions'; [`CheckError::Repeated`] for two
+    /// rows of one id, [`CheckError::Unworded`] for a row no module words, and
+    /// [`CheckError::Unknown`] for a wording that names an argument its row lacks, each over the
+    /// rows in the order of their ids.
     #[cfg(feature = "check")]
     pub fn check(&self) -> Result<(), CheckError> {
+        let mut undefined: Vec<(&'static str, &'static str)> = self
+            .registry
+            .functions()
+            .filter(|(function, _)| !self.formats.defines(*function))
+            .map(|(function, of)| (of, function.name()))
+            .collect();
+        undefined.sort_unstable();
+        if let Some((of, function)) = undefined.first() {
+            return Err(CheckError::Undefined {
+                of,
+                function: (*function).to_owned(),
+            });
+        }
         let mut rows: Vec<(&'static str, &'static [&'static str])> = siros_explain::check::rows()
             .map(|row| (row.id, row.keys))
             .chain(crate::check::rows().map(|row| (row.id, row.keys)))

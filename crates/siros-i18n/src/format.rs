@@ -7,7 +7,7 @@
 
 use std::borrow::Cow;
 
-use crate::chain::{Chain, Failure, Refused, Texts, Use};
+use crate::chain::{Call, Chain, Failure, Refused, Texts, Use};
 use crate::error::Refusal;
 pub(crate) use crate::formats::Formats;
 #[cfg(any(
@@ -124,6 +124,42 @@ impl Function {
             Self::TestSelect => "test:select",
             #[cfg(feature = "conformance")]
             Self::TestFormat => "test:format",
+        }
+    }
+
+    /// Its call without options: the call of a placeholder or a selector whose wording names no
+    /// function, over an argument whose type takes it by default.
+    pub(crate) fn bare(self) -> &'static Call {
+        macro_rules! bare {
+            ($function:expr) => {{
+                static CALL: Call = Call::new($function, Vec::new());
+                &CALL
+            }};
+        }
+        match self {
+            Self::String => bare!(Function::String),
+            #[cfg(feature = "number")]
+            Self::Number => bare!(Function::Number),
+            #[cfg(feature = "number")]
+            Self::Integer => bare!(Function::Integer),
+            #[cfg(feature = "offset")]
+            Self::Offset => bare!(Function::Offset),
+            #[cfg(feature = "currency")]
+            Self::Currency => bare!(Function::Currency),
+            #[cfg(feature = "currency")]
+            Self::Percent => bare!(Function::Percent),
+            #[cfg(feature = "date")]
+            Self::Date => bare!(Function::Date),
+            #[cfg(feature = "date")]
+            Self::Time => bare!(Function::Time),
+            #[cfg(feature = "date")]
+            Self::DateTime => bare!(Function::DateTime),
+            #[cfg(feature = "conformance")]
+            Self::Test => bare!(Function::Test),
+            #[cfg(feature = "conformance")]
+            Self::TestSelect => bare!(Function::TestSelect),
+            #[cfg(feature = "conformance")]
+            Self::TestFormat => bare!(Function::TestFormat),
         }
     }
 

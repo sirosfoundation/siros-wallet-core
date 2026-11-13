@@ -40,7 +40,7 @@ impl<'a, 's> Valid<'a, 's> {
     ///
     /// The [`Fault`] of the first data model rule the message breaks.
     pub(crate) fn of(message: &'a Message<'s>) -> Result<Self, Fault> {
-        let annotated = declarations(&message.declarations)?;
+        let constant = declarations(&message.declarations)?;
         for declaration in &message.declarations {
             let function = match declaration {
                 Declaration::Input { function, .. } => function.as_ref(),
@@ -66,7 +66,7 @@ impl<'a, 's> Valid<'a, 's> {
                     .ok_or(Fault::MissingFallbackVariant)?;
                 if let Some(selector) = selectors
                     .iter()
-                    .find(|selector| !annotated.contains(selector.as_ref()))
+                    .find(|selector| constant.contains(selector.as_ref()))
                 {
                     return Err(Fault::MissingSelectorAnnotation(selector.to_string()));
                 }
@@ -92,10 +92,12 @@ impl<'a, 's> Valid<'a, 's> {
 
 /// Duplicate Declaration: a declaration binds no variable a previous declaration binds or names,
 /// and none its own expression or function names. Returns the variables that reference, directly
-/// or through local declarations, a declaration with a function (Missing Selector Annotation).
+/// or through local declarations, a literal without a function, which a selector cannot select
+/// by (Missing Selector Annotation). A selector over an argument selects by the default
+/// formatter of the argument's type.
 fn declarations<'a>(declarations: &'a [Declaration<'_>]) -> Result<FxHashSet<&'a str>, Fault> {
     let mut bound: FxHashSet<&str> = FxHashSet::default();
-    let mut annotated: FxHashSet<&str> = FxHashSet::default();
+    let mut constant: FxHashSet<&str> = FxHashSet::default();
     let mut named: FxHashSet<&str> = FxHashSet::default();
     for declaration in declarations {
         let (name, operand, function) = match declaration {
@@ -106,16 +108,16 @@ fn declarations<'a>(declarations: &'a [Declaration<'_>]) -> Result<FxHashSet<&'a
             }
         };
         let name = name.as_ref();
-        let with = match declaration {
-            Declaration::Input { function, .. } => function.is_some(),
-            Declaration::Local {
+        let literal = match declaration {
+            Declaration::Input { .. }
+            | Declaration::Local {
                 expression:
                     Expression::Function(_)
                     | Expression::Operand {
                         function: Some(_), ..
                     },
                 ..
-            } => true,
+            } => false,
             Declaration::Local {
                 expression:
                     Expression::Operand {
@@ -123,7 +125,7 @@ fn declarations<'a>(declarations: &'a [Declaration<'_>]) -> Result<FxHashSet<&'a
                         function: None,
                     },
                 ..
-            } => annotated.contains(next.as_ref()),
+            } => constant.contains(next.as_ref()),
             Declaration::Local {
                 expression:
                     Expression::Operand {
@@ -131,18 +133,18 @@ fn declarations<'a>(declarations: &'a [Declaration<'_>]) -> Result<FxHashSet<&'a
                         function: None,
                     },
                 ..
-            } => false,
+            } => true,
         };
         let own = || variables(operand, function);
         if named.contains(name) || own().any(|own| own == name) || !bound.insert(name) {
             return Err(Fault::DuplicateDeclaration(name.to_owned()));
         }
         named.extend(own());
-        if with {
-            annotated.extend([name]);
+        if literal {
+            constant.extend([name]);
         }
     }
-    Ok(annotated)
+    Ok(constant)
 }
 
 /// The variable an operand names.

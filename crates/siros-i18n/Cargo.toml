@@ -73,10 +73,10 @@ required-features = ["number", "currency", "offset", "nfc"]
 name = "differential"
 required-features = ["number", "currency", "date"]
 
-# The refusal fixtures call `:number` and `:currency`.
+# The refusal fixtures call `:number` and `:currency`; the formatter fixtures `:siros:date`.
 [[test]]
 name = "engine"
-required-features = ["number", "currency"]
+required-features = ["number", "currency", "date"]
 
 # siros-syntax, whose rows the gate counts, links under `date`.
 [[test]]
