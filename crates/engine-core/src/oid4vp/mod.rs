@@ -447,28 +447,45 @@ impl FlowHandler for Oid4vpFlow {
                 } else {
                     None
                 },
-                // The response encryption parameters: the verifier's JWK
-                // when the response mode is direct_post.jwt (the wallet's
-                // JARM), absent for the plain modes.
-                response_encryption: auth_req.verifier_jwk.clone().map(|jwk| {
-                    // The verifier's jwk object itself may carry the JARM
-                    // parameters; the OID4VP spec puts them in the
-                    // client_metadata's jwks, but the jwk member is the
-                    // wallet's actual input. Fall back to the spec's
-                    // defaults rather than guessing from key type (the
-                    // wallet's BlindPresentation checks these against its
-                    // own capabilities anyway).
-                    let alg = jwk
-                        .get("alg")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("RSA-OAEP")
-                        .to_owned();
-                    let enc = jwk
-                        .get("enc")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("A256GCM")
-                        .to_owned();
-                    engine_ports::VpResponseEncryption { jwk, alg, enc }
+                // The response encryption parameters: the SAME key and
+                // algorithms the engine's own JARM submission selects —
+                // the wallet's ZK policy gate requires the member for
+                // direct_post.jwt (the "encrypted response" leg), and its
+                // transcript thumbprint cross-checks the jwk against the
+                // verifier_jwk_thumbprint above (both derive from this one
+                // selection, so they always agree). Found on-device: the
+                // first cut read the request object's top-level `jwk`
+                // member, which the nym_auth request does not carry (its
+                // key lives in client_metadata.jwks), so the member left
+                // the engine empty and the wallet refused at
+                // step=response-not-encrypted.
+                response_encryption: (|| {
+                    let metadata = auth_req.client_metadata.as_ref()?;
+                    let jwk = jarm::select_verifier_jwk(metadata).ok()?;
+                    let (alg, enc) = jarm::resolve_algorithms(Some(metadata), &jwk).ok()?;
+                    Some(engine_ports::VpResponseEncryption {
+                        jwk: serde_json::to_value(&jwk).ok()?,
+                        alg: alg.as_str().to_owned(),
+                        enc: enc.as_str().to_owned(),
+                    })
+                })()
+                .or_else(|| {
+                    // The request object's own top-level `jwk` member, the
+                    // pre-spec shape: its alg/enc when it carries them, the
+                    // spec's defaults otherwise.
+                    auth_req.verifier_jwk.clone().map(|jwk| {
+                        let alg = jwk
+                            .get("alg")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("RSA-OAEP")
+                            .to_owned();
+                        let enc = jwk
+                            .get("enc")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("A256GCM")
+                            .to_owned();
+                        engine_ports::VpResponseEncryption { jwk, alg, enc }
+                    })
                 }),
             })
             .await
