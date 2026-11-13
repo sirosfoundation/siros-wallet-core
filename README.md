@@ -79,12 +79,7 @@ a build compiles what it registers. The right column names the core's features
 each crate turns on: those it always turns on, then `feature: core features`
 for each of its own features that turns more on. siros-i18n's format functions
 are features too: the core turns on none, siros-paso turns on `currency` and
-`date`, and the app turns on those its wording calls. siros-i18n's `nfc`, a
-default, holds MessageFormat 2's names and keys in Unicode Normalization Form C.
-The wallet turns it on, as siros-credman's `register` does. The matcher leaves
-it off and links no unicode-normalization: siros-credman's writer refuses a
-source normalization would change, so both builds resolve a registration to the
-same texts.
+`date`, and the app turns on those its wording calls.
 
 ```text
 siros-openid4vp       the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims
@@ -101,7 +96,7 @@ siros-openid4vp       the core: a request in, a response built   match | resolve
 ├── siros-zkp-catalogues   the zkp_req rulebooks: nym_auth         resolve, cbor, dc-api, uri
 ├── siros-testkit     the core's test doubles                     resolve, dc-api, request-decryption, cbor, sha3, blake2, k12, sri, claims
 └── siros-integration the HAIP and WE BUILD builds end to end     resolve
-siros-i18n            Message, Context, Text                      derive | check | number | currency | offset | date | nfc | conformance
+siros-i18n            Message, Context, Text                      derive | check | number | currency | date
 siros-i18n-derive     #[derive(Message)]
 siros-syntax          checked!, Keyed, AllOf; values in their literal forms; ISO 4217 List One
 siros-cldr            CLDR format options as MF2 source

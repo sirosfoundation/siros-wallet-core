@@ -409,9 +409,7 @@ fn a_labels_kind_is_its_display_type() {
 /// An issuer's label holding MessageFormat 2's syntax and text outside Unicode Normalization Form
 /// C (U+1E0A U+0323, which NFC writes U+1E0C U+0307) shows as its characters in each form of Proof
 /// Metadata §3.3, through the source the registration carries: `view::convert` escapes every text
-/// it takes from the metadata. The workspace's `--all-features` runs it with siros-i18n's `nfc`,
-/// and `cargo test -p siros-paso --all-features --test rendering` without it: both show the same
-/// characters.
+/// it takes from the metadata.
 #[test]
 fn an_issuers_label_shows_as_its_characters() {
     const LABEL: &str = ".match {$x} {#strong} | \\ end \u{1E0A}\u{323}";

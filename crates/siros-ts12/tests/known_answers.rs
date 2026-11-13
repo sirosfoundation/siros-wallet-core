@@ -287,9 +287,7 @@ fn i33_one_entry_takes_the_generic_tag() {
 
 /// An issuer's label holding MessageFormat 2's syntax and text outside Unicode Normalization Form
 /// C (U+1E0A U+0323, which NFC writes U+1E0C U+0307) shows as its characters, unstyled, through
-/// the source the registration carries: `view::convert` escapes it. The workspace's
-/// `--all-features` runs it with siros-i18n's `nfc`, and `cargo test -p siros-ts12 --all-features
-/// --test known_answers` without it: both show the same characters.
+/// the source the registration carries: `view::convert` escapes it.
 #[test]
 fn an_issuers_label_shows_as_its_characters() {
     const LABEL: &str = ".match {$x} {#strong} | \\ \u{1E0A}\u{323}";

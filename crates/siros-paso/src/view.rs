@@ -16,11 +16,6 @@
 //! formatter shows it (a `siros_syntax::Date`, `OffsetTime`, `DateTime` or `Currency`, a text as
 //! `String`). Every text the metadata writes reaches the source through [`siros_i18n::escape`].
 //! A message's format options are the wallet's modules' in the same context.
-//!
-//! Every id, name and variant key the source holds is ASCII: digests, language tags,
-//! `claim_<n>`, UI labels' names, `c<n>`, `c<n>_currency`, `e<j>`, `live`, and the functions' and
-//! the markup's names. A matcher whose siros-i18n is built without `nfc` loads the source into the
-//! messages the wallet loads.
 
 use sha2::{Digest, Sha256};
 use siros_explain::Explain;

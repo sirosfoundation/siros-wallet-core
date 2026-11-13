@@ -3328,7 +3328,7 @@ siros-openid4vp     the core: a request in, a response built               match
 ├── siros-credman   Credential Manager's entries; the entry emission; the registration; register: its writer   match
 ├── siros-webuild   WE BUILD's CS-02 rules: Cs02Claims, Cs02ErrorAnswer     signed, uri
 └── siros-zkp-req   zkp_req's existing format, until the zkp_req proposal   resolve, cbor
-siros-i18n          statements and their wording: Message and its derive, Context, Text   derive | check | conformance | number | currency | offset | date | nfc
+siros-i18n          statements and their wording: Message and its derive, Context, Text   derive | check | number | currency | date
 siros-syntax        checked!, Keyed, AllOf; the value types in their literal forms; the ISO 4217 table
 siros-explain       the error contract: Explain, its derive and scope!          derive | check
 siros-testkit       the core's test doubles                                 tests
@@ -3436,23 +3436,19 @@ whether or not another crate turns `sealed-signals` on.
   build with neither channel, `sri` nor `transaction-data` leaves it unused, and no request reaches
   such a build.
 - siros-i18n's features: `derive`, `#[derive(Message)]` from siros-i18n-derive; `check`, the
-  wallet's completeness test (section 4.14), which turns on siros-explain's; `conformance`, MF2's
-  test functions `:test:function`, `:test:select` and `:test:format`, which siros-i18n's conformance
-  tests call; `nfc`, a default, MF2's Unicode Normalization Form C of names, variant keys and
-  selector literals, and `Context::module_in_nfc` (section 4.14); and one per format function, each
-  a default: `number` (`:number`, `:integer`), `currency` (`:currency`, `:percent`), `offset`
-  (`:offset`), `date` (`:siros:date`, `:siros:time`, `:siros:datetime`). A crate that derives
+  wallet's completeness test (section 4.14), which turns on siros-explain's; and one per format
+  function, each a default: `number` (`:number`, `:integer`), `currency` (`:currency`), `date`
+  (`:siros:date`, `:siros:time`, `:siros:datetime`). A crate that derives
   `Message` turns on `derive`: the core, siros-paso, siros-qes and siros-testkit. siros-paso turns
   on `currency` and `date`, which its converted View sources call. siros-x509, siros-ts12 and
   siros-credman name siros-i18n without a feature, for its `Context`; siros-mdoc and siros-sdjwt
-  name it as a dev-dependency alone. siros-credman's `register` turns on `nfc`: its writer loads
-  through `Context::module_in_nfc`. The wallet app turns on `nfc` and the functions its own wording
-  calls, and a module that calls a function the build lacks fails to load (`LoadError::Function`).
-  The matcher's build leaves `nfc` off and compiles every function the registration's sources call:
-  `Registration::open` refuses a source that calls another (`ContextError::Source`). siros-i18n's
-  errors derive `Explain` under `scope!("i18n")`. It names siros-syntax under `currency` and `date`
-  (the values its functions parse), unicode-normalization under `nfc`, icu_properties under
-  `currency` (a currency symbol's edge) and inventory under `check`. siros-explain names inventory
+  name it as a dev-dependency alone. The wallet app turns on the functions its own wording calls,
+  and a module that calls a function the build lacks fails to load (`LoadError::Function`). The
+  matcher's build compiles every function the registration's sources call: `Registration::open`
+  refuses a source that calls another (`ContextError::Source`). siros-i18n's errors derive
+  `Explain` under `scope!("i18n")`. It names siros-syntax under `currency` and `date` (the values
+  its functions parse), icu_properties under `currency` (a currency symbol's edge) and inventory
+  under `check`. siros-explain names inventory
   under `check`. siros-explain-derive and siros-i18n-derive share their field rules through
   siros-derive-internals, after serde_derive_internals; the three name syn, quote and proc-macro2.
   siros-syntax's build script reads SIX's ISO 4217 List One, `list-one.xml`, vendored in the crate.
@@ -3523,10 +3519,7 @@ differ:
 
 Each row's wallet and its matcher compile the row's siros-i18n features: `derive`, which the core
 turns on, and the format functions the app's wording calls. `number` serves every row, `date` mdoc's
-dates and PaSO's, and `currency` PaSO's amounts. The wallet adds `nfc`. The matcher leaves `nfc` off
-and compiles no unicode-normalization: siros-credman's writer refuses a source whose names, keys or
-selector literals NFC would change (section 4.14). No row compiles `offset`, or `check`, which links
-inventory.
+dates and PaSO's, and `currency` PaSO's amounts. No row compiles `check`, which links inventory.
 
 Gates: I25, I39.
 
@@ -3950,25 +3943,18 @@ pub fn escape(text: &str) -> String;
   key's full id is its section's prefix, a dot and the key: `[err.ts12] expired = …` words
   `err.ts12.expired`. A section `[formats.<f>]` holds the options of format `<f>` as text, a table
   as a value over several lines, one entry per line. MF2 is stable since CLDR 47 for its syntax and
-  data model; since CLDR 49 its functions `:string`, `:number`, `:integer`, `:offset`, `:currency`
-  and `:percent` are stable, and `:date`, `:time`, `:datetime` and `:unit` are Draft. A module is
-  parsed and checked when it loads, all of it.
-- **NFC.** With feature `nfc`, a context holds names, variant keys and the literals a `:string`
-  selector compares in Unicode Normalization Form C, as MF2 compares them, and a message's argument
-  keys with them. Without it, the context holds each as written. Text, a placeholder's literal and
-  an argument's value stay as written in both builds. `module_in_nfc(source)`, under `nfc`, loads a
-  module as `module` does and refuses the first name, variant key or selector literal NFC changes
-  (`LoadError::Unnormalized { id, text }`). A module it loads resolves to the same texts in a build
-  without `nfc`, the matcher's.
+  data model, and since CLDR 49 for the functions the engine implements: `:string`, `:number`,
+  `:integer` and `:currency`; `:date`, `:time`, `:datetime` and `:unit` are Draft. A module is
+  parsed and checked when it loads, all of it. A context holds names, variant keys, selector
+  literals and argument keys as written, and compares them byte for byte.
 - **`LoadError`**, each naming what it refuses: `Syntax`, resource or MF2 syntax, an MF2 data-model
   error, or markup that does not nest; `Repeated`, an id the context or the module already words, a
   format option given twice, or a `[formats.<f>]` section the context already holds; `Locale`, a
   module whose `@locale` is absent or differs from the context's; `Function`, a call of a function
   the build does not compile in; `Option`, a call whose format options no module loaded so far
   defines; `Format`, a `[formats.<f>]` section the build's format refuses (`FormatRule`); `Call`, a
-  call its function refuses when the module loads, MF2's message function errors (`Refusal`);
-  `Unnormalized`, a name, a variant key or a selector literal NFC changes, which `module_in_nfc`
-  refuses. The wallet loads its formats first.
+  call its function refuses when the module loads, MF2's message function errors (`Refusal`). The
+  wallet loads its formats first.
 - **Resolving.** `resolve` finds the message's id among the loaded modules and evaluates its pattern
   over the message's arguments: literal text, placeholders, selection, markup and bidi isolation.
   `ResolveError`: `Unknown { id }`, an id no module words; `Unresolved { id, key }`, a pattern that
@@ -4042,12 +4028,11 @@ offset stays unzoned. Their `siros` namespace keeps them apart from MF2's Draft 
 argument that is `None` reads as `""`, so a message that selects on absence selects on the empty
 text.
 
-**The format functions** are the build's features: `number`, `currency`, `offset`, `date`. A build
-compiles the functions its crates and its app turn on, and a module that calls another fails to load
+**The format functions** are the build's features: `number`, `currency`, `date`. A build compiles
+the functions its crates and its app turn on, and a module that calls another fails to load
 (`LoadError::Function`). Each function reads its options from the context's `[formats.<f>]` section.
 MF2's own function model is the prior art: default functions, and further ones an implementation
-adds. Feature `conformance` adds MF2's test functions (`:test:function`, `:test:select`,
-`:test:format`), which siros-i18n's conformance tests call.
+adds.
 
 **Outputs hold `Text`.** A consent entry (`Card`, `Row`, `Overlay`, `Header`, `TransactionHeader`),
 a `StaticEntry`, and a `ClientBinding`'s and a `Verifier`'s name hold resolved `Text`;
@@ -4132,10 +4117,6 @@ siros-ts12's view (`siros_ts12::view::convert`, over siros-paso's).
   converted sources loads into one context. A converter writes one source per digest. Types whose
   metadata is one object share that source, which the registration's writer and reader load once.
 - Every issuer text goes through `escape`.
-- Every id, name and variant key the source holds is ASCII: the digest, the language tags,
-  `claim_<k>`, the UI labels' names, `c<n>`, `c<n>_currency`, `e<j>`, `live`, and the functions'
-  and the markup's names. A matcher built without siros-i18n's `nfc` loads the source into the
-  messages the wallet loads.
 - A typed value names no function, so its type's default formatter shows it; an amount calls
   `:currency`. Its format options come from the wallet's modules in the same context.
 - `view::convert` checks that the source loads into a clone of the context (`ConvertError::Load`).
@@ -4188,16 +4169,13 @@ siros-credman's README (`## Format`) states the layout and the reader's rules in
   loads the sources into one context under the bidi choice, its arguments taking the build's
   `Formatters`, and refuses a source the context refuses
   (`ContextError::Source`) and sources of another locale (`ContextError::Locale`).
-  `register::write(&Base, &Keyed<TransactionType, String>)`, under feature `register`, loads the
-  base's sources again in their order, then each transaction source into a clone of that context,
-  alone and after the sources of the types before it, each through `Context::module_in_nfc`. A
-  source byte-equal to an earlier type's loads once, and each type keeps its directory entry. It
-  refuses the first base source holding a name, a variant key or a selector literal outside NFC
-  (`RegisterError::Source { at, cause }`), then the first transaction source that does not load or
-  holds one (`RegisterError::Transaction { kind, cause }`). A distinct source that words an id of an
-  earlier type's source is refused (`LoadError::Repeated`). Any set of types a request names then
-  loads, and a matcher built without siros-i18n's `nfc` resolves it to the texts the wallet
-  resolves. `RegisterError::Name` refuses a type longer than 65,535 bytes and `RegisterError::Size`
+  `register::write(&Base, &Keyed<TransactionType, String>)`, under feature `register`, loads each
+  transaction source into a clone of the base's context, alone and after the sources of the types
+  before it. A source byte-equal to an earlier type's loads once, and each type keeps its directory
+  entry. It refuses the first transaction source that does not load
+  (`RegisterError::Transaction { kind, cause }`). A distinct source that words an id of an earlier
+  type's source is refused (`LoadError::Repeated`). Any set of types a request names then loads.
+  `RegisterError::Name` refuses a type longer than 65,535 bytes and `RegisterError::Size`
   a registration longer than 4,294,967,295 bytes.
 - **Reading.** `Registration::open` reads the header, the directory and the base entries, checks the
   format's rules, and loads the base through `Base::load`. `Registration::context(&Request)` reads
@@ -4258,7 +4236,7 @@ oracles.
 - **Why.** Each crate was measured as a delta, added alone to a matcher build (siros-dc-matcher
   `49946a3`, toolchain 1.99.1, its shipped `wasm-release` profile). rust-mf2 3.0.0's runtime adds
   +61,117, of which run-time NFC (3,724), float printing (2,844) and fallback rendering (612) serve
-  paths this engine leaves dead: the wallet applies NFC at load alone, numbers keep their literal
+  paths this engine leaves dead: names and keys compare as written, numbers keep their literal
   digits, and an error stands where a fallback would. The rest is its own evaluator, catalogue
   format and general number formatting. ICU4X's date formatters add +77,702 to +96,806 and do not
   fit beside the rest. A currency crate's functions add +5,845 for one table lookup. rust-mf2 also has
@@ -4289,20 +4267,17 @@ oracles.
   `:currency` reads `signDisplay`; `:integer` rounds half away from zero. An option's value is a
   literal or a variable's value (MF2's Option Resolution): an argument's text, a literal, or the
   value of the call a declaration binds, evaluated once per resolution: the operand's text for
-  `:string` and the date functions, the number after `:integer`'s rounding and `:offset`'s step,
-  without an exponent, for the numeric functions. `u:dir` takes `ltr`, `rtl`, `auto` or `inherit`:
-  the loader refuses another literal, and a resolution another variable's value
-  (`ResolveError::Option`). `u:id` changes no span, and the loader refuses another `u:` option. A date length maps to ICU4X's field sets: year, month and day for `short`
+  `:string` and the date functions, the number after `:integer`'s rounding, without an exponent,
+  for the numeric functions. The loader refuses an option of the `u:` namespace. A date length maps to ICU4X's field sets: year, month and day for `short`
   to `long`, the weekday added for `full`; `medium` is the default. A two-digit year writes two
   digits from 1950 to 2049 and the full year otherwise, as ICU4X 2.4's `YearStyle::Auto` does.
 - **ISO 4217.** siros-syntax's build script reads List One from `list-one.xml` (SIX, published
   2026-09-17) and writes each alphabetic code packed in 15 bits, ascending, with its minor units;
   an entry outside List One's form fails the build. In the matcher, a lookup with the code's
   letters and minor units costs +1,165 bytes, against +5,845 for a currency crate's own functions.
-- **Oracles.** The message-format-wg test suite (I29), variable option values included; ICU4X 2.4
-  over the same CLDR release for numbers, plural categories, currencies, dates and times (I35,
-  I36); a second reading of `list-one.xml` for the table (I34). They run in the tests, never in the shipped
-  crates.
+- **Oracles.** ICU4X 2.4 over the same CLDR release for numbers, plural categories, currencies,
+  dates and times (I35, I36); a second reading of `list-one.xml` for the table (I34). They run in
+  the tests, never in the shipped crates.
 - **Bidi.** MF2 defines bidi strategies, its default wrapping each placeholder in an isolate
   chosen by the value's direction (U+2066, U+2067, or U+2068 when unknown) and U+2069. A resource
   file's `@dir` gives a language's direction. How a platform draws isolates is the app's to know,
@@ -5618,15 +5593,14 @@ section 4.5's recourse says.
 | I26 | The documentation builds and its examples run (section 4.12). | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps`: 0 warnings; `cargo test --doc --workspace --all-features`: every example passes; every crate's `lib.rs` includes its README; each extension point of section 4.12's table has an `# Implementing` section whose example compiles. |
 | I27 | An id is unique in its crate (E0428) and across crates (`CheckError::Repeated`). An argument is a named field with `Display` (section 4.13). | In the shipped wallet crates, `cargo xtask layout` counts a type deriving `thiserror::Error` without `Explain`, derived or written by hand, and a statement (a type deriving `Message`) that implements `Display`: count 0. siros-integration's `texts.rs` links every shipped crate: its rows number the `#[explain(id` and `#[message(id` attributes of the crates it links, counted in their sources, and `Context::check` over the test app's English and German sources, with a module that words every error row, returns `Ok`. `compile_fail` doctests in siros-explain-derive and siros-i18n-derive, one per rule, each fail with their error: an id twice in a crate (E0428), an argument type without `Display` (E0277), a tuple field that is neither a cause nor skipped ("an argument is a named field: name it"), a type deriving both `Explain` and `Message` (E0119). The English texts the differentials compare are unchanged (I9). |
 | I28 | Only `Context::resolve` makes a `Text` (section 4.14). | `TableLocale` in the sources: 0. Message sources (`.mf2` files) in the shipped crates: 0. `String` fields in the box and row types: 0 (16 at `f718dc3`). `cargo xtask layout` counts each message source under `crates`, `xtask` and `locales`, outside a crate's `tests/` and siros-testkit, and, in the shipped crates' sources, each field of a statement given a value that holds a string literal, a `format!` included: count 0. `Text`'s field is private, so a crate outside siros-i18n that names `Text(..)` fails to build; inside siros-i18n, the evaluator `Context::resolve` runs makes the one `Text`. |
-| I29 | The engine conforms to MessageFormat 2. | The message-format-wg test suite at `16372a6`, for the stable scope (syntax, data model, pattern selection, bidi, `:string`, `:number`, `:integer`, `:offset`, `:currency`, `:percent`): `Context::module` refuses each syntax and data-model error test, and `Context::resolve` passes each formatting test, variable option values included: N of N, outside three skipped classes, each skip listed with its class: markup outside the three styles, parameter names outside the tokens, and undeclared inputs. A suite test that expects a fallback value passes when `resolve` returns that test's error. |
-| I30 | A context loads every source whole and words every id (section 4.14). | One fixture per `LoadError` rule, each refused for its rule and no other: resource or MF2 syntax, a data-model error and markup that does not nest (`Syntax`); an id or a `[formats.<f>]` section loaded twice (`Repeated`); a module whose `@locale` is absent or differs from the context's (`Locale`); a call of a function the build does not compile in (`Function`); a call whose format options no module loaded so far defines (`Option`); a `[formats.<f>]` section the build's format refuses (`Format`); a call its function refuses at load, MF2's message function errors (`Call`). The test app's English and German sources load into one context per language, and the end-to-end tests load the corpus's converted PaSO and TS12 View sources into a clone of it. `Context::check` over each language's context, with a module that words every error row, returns `Ok` (`texts.rs`). One fixture per `CheckError` rule returns its error: two crates under one scope (`Repeated`), an id no module words (`Unworded`), a pattern that reads a variable its row lacks (`Unknown`). |
-| I31 | Phase 2 refuses a pick whose `shown` digest differs (section 4.14). | Over the differentials' corpus, the matcher's build and the wallet's build resolve each entry's texts from the same sources and arguments: entries whose `shown` digests differ, 0. A pick whose `shown` differs from phase 2's record is refused with `Finding::Rendered`. The encoding is injective: a property over generated texts gives different digests to texts that differ in a span's text, styles or boundaries. Siros-testkit's English and German sources resolve the texts of `f718dc3`'s tables, each difference classed, in one comparison the milestone runs once. siros-paso's injection fixture holds issuer text outside NFC in a plain label, a `mini_markdown` span and a template, and siros-ts12's in a label: each shows it as written with siros-i18n's `nfc` (the workspace's run) and without it (`cargo test -p siros-paso -p siros-ts12 --all-features`). |
+| I30 | A context loads every source whole and words every id (section 4.14). | One fixture per `LoadError` rule, each refused for its rule and no other: resource or MF2 syntax, each MF2 data-model error and markup that does not nest (`Syntax`); an id or a `[formats.<f>]` section loaded twice (`Repeated`); a module whose `@locale` is absent or differs from the context's (`Locale`); a call of a function the build does not compile in (`Function`); a call whose format options no module loaded so far defines (`Option`); a `[formats.<f>]` section the build's format refuses (`Format`); a call its function refuses at load, MF2's message function errors, and an option of the `u:` namespace (`Call`). The test app's English and German sources load into one context per language, and the end-to-end tests load the corpus's converted PaSO and TS12 View sources into a clone of it. `Context::check` over each language's context, with a module that words every error row, returns `Ok` (`texts.rs`). One fixture per `CheckError` rule returns its error: two crates under one scope (`Repeated`), an id no module words (`Unworded`), a pattern that reads a variable its row lacks (`Unknown`). |
+| I31 | Phase 2 refuses a pick whose `shown` digest differs (section 4.14). | Over the differentials' corpus, the matcher's build and the wallet's build resolve each entry's texts from the same sources and arguments: entries whose `shown` digests differ, 0. A pick whose `shown` differs from phase 2's record is refused with `Finding::Rendered`. The encoding is injective: a property over generated texts gives different digests to texts that differ in a span's text, styles or boundaries. Siros-testkit's English and German sources resolve the texts of `f718dc3`'s tables, each difference classed, in one comparison the milestone runs once. siros-paso's injection fixture holds issuer text outside NFC in a plain label, a `mini_markdown` span and a template, and siros-ts12's in a label: each shows it as written. |
 | I33 | PaSO's locale follows View §4, and `format_entry` RFC 4647 (section 4.14). | PaSO's locale, a property over priority lists, display arrays, default entries and discarded template entries, against a selection the test writes from View §4: the first tag whose every array matches by RFC 4647 Lookup or its default entry, the credential excluded with none. Known answers from RFC 4647 §3.4: `de-CH` over `[de]` gives `de`; `en-US` over `[en]` gives `en`; `en` over `[en-GB]` gives none, and the default entry answers. WE BUILD's TS12 example, its `en-GB` claim labels converted to `en`, is presented to `[en-US, en]`, `[en-US]`, `[en-GB]` and `[en]` under the list's first tag, and excluded for `[de]`; an array of `en-GB` and `en-US` labels beside no `en` converts its first to `en` and keeps the second. Replaying `display_locale` by View §4's step 1 over the metadata and the payload gives the consent's entries: 0 differences. `format_entry`'s basic filtering, known answers from RFC 4647 §3.3.1 and the list's rule: `en` over `[en-GB]` gives `en-GB`, over `[en-US, en-GB]` gives `en-US`, over `[en-GB, en]` gives `en`; `en-US` over `[en]`, `en-US` over `[en-GB]` and `en-GB` over `[en]` give none. Over the corpus, the picker's and the consent's PaSO locales are equal: 0 differences. |
-| I34 | The shipped crates link no i18n crate (decision 19). | `cargo tree -e normal` of the shipped crates and the matcher lists no rust-mf2 or jiff crate, and no ICU4X crate outside `icu_properties`, which reads general categories, and idna's own dependency `idna_adapter` (with icu_normalizer and the crates they pull in), of which `HttpsUrl`, calling `idna::punycode` alone, links no item. siros-syntax's table answers as a second reading of `list-one.xml` for all 17,576 three-letter codes: 178 listed with their minor units, 17,398 refused. The matcher's tree, and that of siros-credman, siros-paso and siros-ts12 without default features, lists no unicode-normalization, which siros-i18n's `nfc` alone links. |
+| I34 | The shipped crates link no i18n crate (decision 19). | `cargo tree -e normal` of the shipped crates and the matcher lists no rust-mf2 or jiff crate, and no ICU4X crate outside `icu_properties`, which reads general categories, and idna's own dependency `idna_adapter` (with icu_normalizer and the crates they pull in), of which `HttpsUrl`, calling `idna::punycode` alone, links no item. siros-syntax's table answers as a second reading of `list-one.xml` for all 17,576 three-letter codes: 178 listed with their minor units, 17,398 refused. |
 | I35 | Dates and times resolve as ICU4X formats them. | For every locale the wallet ships, `:siros:date`, `:siros:time` and `:siros:datetime` over siros-syntax's ISO 8601 texts, at each length, with the options the CLDR tool writes, equal ICU4X 2.4's `DateTimeFormatter` over the same CLDR release, for each day of 2000 to 2030 at 00:00, 09:05, 12:00 and 23:59, and for 4 March and 31 December of every year 0 to 3000 and of 9999: 0 differences. Classed: German `full` dates before year 1000, where CLDR 49's pattern holds the field `Y` and ICU4X writes a literal `Y`. In the per-merge tier (`#[ignore]`). |
 | I36 | Numbers, plural categories and currencies resolve as ICU4X formats them. | For every locale the wallet ships: plural categories and number texts for the 153 values of the probe (integers, decimals with and without trailing zeros, negatives, large numbers), each given as its literal text; an amount in every currency of ISO 4217 List One, through `:currency`: each, with the options the CLDR tool writes, equal to ICU4X 2.4 over the same CLDR release: 0 differences. Classed: the German cells where CLDR 49 sets a symbol to its code and ICU4X's datagen falls back to root's symbol (PHP's symbol, SYP's narrow symbol, XXX's symbol and narrow symbol). In the per-merge tier (`#[ignore]`). |
-| I37 | The matcher reads the registration's base entries and the sources its request names, counted in bytes (section 4.14). | siros-credman's bytes-read test: over a registration of the test app's English sources and the types `t0` and `t1`, a request naming `t1` reads the header, the directory, the base entries and `t1`'s source, each byte once, and no byte of `t0`'s; the expected ranges come from the README's layout. Its context words `t1`'s message and the base's, and `t0`'s message is `ResolveError::Unknown`. One fixture per rule of the README's "Reading" refuses its blob with that rule's `Malformed`. Six fixtures refuse sources that do not load: `Base::load` a base source that does not load and sources of another locale; the writer a type's source that loads only after another type's, and two types' sources that word one id; the reader a blob whose base source, or whose named type's source, does not load. One fixture writes one source under two types, and a request naming both loads it. One fixture holds a variant key outside NFC: the writer refuses it in a base source (`RegisterError::Source`) and in a type's source (`RegisterError::Transaction`), each with `LoadError::Unnormalized`, and writes both with the key in NFC. An entry with ad-hoc PaSO metadata (Proof Metadata §5) is offered and resolved by the matcher, its texts equal to the wallet's for the verified JWT: 0 differences; phase 2 refuses it as incompatible when its JWT fails a §5.3 step, one fixture per step. An ad-hoc claim label with no visible character refuses its entry (`LabelViolation::Invisible`), and the matcher emits the request's next entry. |
-| I39 | A build compiles what it registers (section 4.11, decision 20). | `cargo tree -e normal,features` of each build of section 4.11's per-build table, the core and the plug-ins it registers, with the features its crates turn on: each lists none of the crates its row names, and siros-i18n with the features its row names alone, the wallet's with `nfc` beside them; the SD-JWT and the mdoc DC API builds each compile fewer crates than 96, the count at `a307cca`, and the two counts differ. `cargo xtask builds` holds the count clause per row (`fewer_than`, `differs_from`). |
+| I37 | The matcher reads the registration's base entries and the sources its request names, counted in bytes (section 4.14). | siros-credman's bytes-read test: over a registration of the test app's English sources and the types `t0` and `t1`, a request naming `t1` reads the header, the directory, the base entries and `t1`'s source, each byte once, and no byte of `t0`'s; the expected ranges come from the README's layout. Its context words `t1`'s message and the base's, and `t0`'s message is `ResolveError::Unknown`. One fixture per rule of the README's "Reading" refuses its blob with that rule's `Malformed`. Six fixtures refuse sources that do not load: `Base::load` a base source that does not load and sources of another locale; the writer a type's source that loads only after another type's, and two types' sources that word one id; the reader a blob whose base source, or whose named type's source, does not load. One fixture writes one source under two types, and a request naming both loads it. An entry with ad-hoc PaSO metadata (Proof Metadata §5) is offered and resolved by the matcher, its texts equal to the wallet's for the verified JWT: 0 differences; phase 2 refuses it as incompatible when its JWT fails a §5.3 step, one fixture per step. An ad-hoc claim label with no visible character refuses its entry (`LabelViolation::Invisible`), and the matcher emits the request's next entry. |
+| I39 | A build compiles what it registers (section 4.11, decision 20). | `cargo tree -e normal,features` of each build of section 4.11's per-build table, the core and the plug-ins it registers, with the features its crates turn on: each lists none of the crates its row names, and siros-i18n with the features its row names alone; the SD-JWT and the mdoc DC API builds each compile fewer crates than 96, the count at `a307cca`, and the two counts differ. `cargo xtask builds` holds the count clause per row (`fewer_than`, `differs_from`). |
 | I40 | The core's own cases are peers of an extension's. | The core's four modes, `vp_token` and its hash algorithms reach the core through its public API alone: `pub(crate)` items named in `modes.rs`, `hash.rs` and `VpToken`'s implementation: 0; the two files compiled outside the core raise no privacy error (E0603, E0624). Every registered mode passes I2's property, the core's and `TestMode`. Each extension point of section 4.12's table has its `# Implementing` section (I26), its test double, and one fixture per registry conflict (section 8.2): 0 missing. |
 
 ### 8.4 Litmus G2
@@ -5950,22 +5924,17 @@ design on 2026-11-09 ("go"). Decision 18 stands. Four rulings of decision 19 giv
 
 Decision 19's other rulings stand.
 
-The design's revision of 2026-11-10 settles three points. A credential's display metadata (SD-JWT VC
+The design's revision of 2026-11-10 settles two points. A credential's display metadata (SD-JWT VC
 Type Metadata, OpenID4VCI claims display) shows as written through `ClaimText::Label`, the entry
 `format_entry` picks over `Env.priority`: a converted source resolved to the same text. Only PaSO's
 and TS12's Views convert to MF2 source. The emission fails as a whole on the first choice that does
 not emit (`NotEmitted`): a `ResolveError` or a `NoName` there comes only from a defect in the
-wording or a converter, and a defect gets a local abort. The wallet holds MF2's names, variant keys
-and selector literals in NFC (siros-i18n's `nfc`), and the matcher holds them as written and links
-no unicode-normalization: siros-credman's writer refuses a source NFC would change, so both builds
-resolve a registration to the same texts.
+wording or a converter, and a defect gets a local abort.
 
 The code departs from the approved design in these points:
 
 - `LoadError::{Format, Call}` and `ResolveError::{Option, Argument}`: each refuses a state the
   engine would otherwise turn into a default, and no variant of the design fits it.
-- siros-i18n's `conformance` feature holds MF2's test functions: under `check`, a wording that
-  calls `:test:format` would pass the completeness test and fail to load in the shipping build.
 - siros-derive-internals holds the field rules both derives apply: a proc-macro crate exports only
   macros (serde_derive_internals' pattern).
 - siros-paso's converters call no `:number`, and siros-paso turns on `currency` and `date` alone:
@@ -6062,11 +6031,11 @@ proving/              the colleague's: the proof backends and the browser presen
 | siros-paso | wallet-rs | `resolve`, `sealed-signals`, `test-util` | the core (`transaction-data`, `sri`; `sealed-signals`: `cbor`); siros-explain; siros-syntax; siros-i18n with `derive`, `currency`, `date`; `resolve`: siros-x509 |
 | siros-ts12 | new (section 4.10.2) | `resolve` | the core (`transaction-data`); siros-paso; siros-explain; siros-syntax; siros-i18n |
 | siros-qes | wallet-rs | `resolve`, `sha3`, both default | the core (`sri`); siros-explain; siros-syntax; siros-i18n with `derive` |
-| siros-credman | new (section 6, commit 9) | `register` | the core (`match`); siros-explain; siros-syntax; siros-i18n; `register`: siros-i18n with `nfc` |
+| siros-credman | new (section 6, commit 9) | `register` | the core (`match`); siros-explain; siros-syntax; siros-i18n |
 | siros-webuild | new (section 6, commit 11) | | the core (`signed`, `uri`); siros-explain; siros-syntax |
 | siros-trust | the base, carried over (section 10.3) | | the core (`match`, `resolve`): the `Facts` it writes, `Timestamp` |
 | siros-wallet-state | the base, carried over | | none |
-| siros-i18n | wallet-rs | `derive`, `check`, `number`, `currency`, `offset`, `date`, `nfc`, `conformance` | siros-explain; `currency`, `date`: siros-syntax; `derive`: siros-i18n-derive |
+| siros-i18n | wallet-rs | `derive`, `check`, `number`, `currency`, `date` | siros-explain; `currency`, `date`: siros-syntax; `derive`: siros-i18n-derive |
 | siros-i18n-derive | new (section 4.14) | a proc-macro crate | siros-derive-internals |
 | siros-syntax | new (section 4.13) | | siros-explain |
 | siros-explain | wallet-rs | `derive`, `check` | `derive`: siros-explain-derive |
@@ -6589,7 +6558,7 @@ siros-i18n's `src/package/merkle.rs:52` (decision 21); the table fixes the rest.
 
 | Job | Runs |
 | :-- | :-- |
-| Test | `cargo test --locked --workspace --all-features`, engine-vectors beside the checkout; `cargo test --locked -p siros-paso -p siros-ts12 --all-features`, whose siros-i18n leaves `nfc` off (I31) |
+| Test | `cargo test --locked --workspace --all-features`, engine-vectors beside the checkout |
 | Format | `cargo fmt --all -- --check`; `cargo xtask layout`: test code under `src`; I27's counts of errors without `Explain` and of statements with `Display`; I28's counts of message sources outside a crate's `tests/` and siros-testkit and of statement fields given a string literal |
 | Clippy | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`; `python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml` |
 | Minimum supported Rust | `cargo check --locked --workspace` on 1.89 under `RUSTUP_TOOLCHAIN=1.89`, then each crate with its default features and with `--no-default-features`. The `continue-on-error` and its TODO leave. |
