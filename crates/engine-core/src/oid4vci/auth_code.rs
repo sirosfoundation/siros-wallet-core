@@ -354,6 +354,7 @@ pub fn build_authorization_url(
 pub async fn exchange_authorization_code(
     http: &dyn HttpClient,
     as_metadata: &AsMetadata,
+    client_id: &str,
     code: &str,
     redirect_uri: &str,
     code_verifier: &str,
@@ -362,6 +363,7 @@ pub async fn exchange_authorization_code(
     exchange_code_with_headers(
         http,
         as_metadata,
+        client_id,
         code,
         redirect_uri,
         code_verifier,
@@ -385,6 +387,7 @@ pub async fn exchange_authorization_code(
 async fn exchange_code_with_headers(
     http: &dyn HttpClient,
     as_metadata: &AsMetadata,
+    client_id: &str,
     code: &str,
     redirect_uri: &str,
     code_verifier: &str,
@@ -397,9 +400,10 @@ async fn exchange_code_with_headers(
     }
 
     let mut form = format!(
-        "grant_type=authorization_code&code={}&redirect_uri={}",
+        "grant_type=authorization_code&code={}&redirect_uri={}&client_id={}",
         url_encode(code),
         url_encode(redirect_uri),
+        url_encode(client_id),
     );
     if !code_verifier.is_empty() {
         form.push_str(&format!("&code_verifier={}", url_encode(code_verifier)));
@@ -586,6 +590,7 @@ pub async fn exchange_authorization_code_with_attestation(
         match exchange_code_with_headers(
             http,
             as_metadata,
+            spec.client_id,
             spec.code,
             spec.redirect_uri,
             spec.code_verifier,
@@ -1384,6 +1389,7 @@ mod tests {
         let token = exchange_authorization_code(
             &http,
             &test_as(),
+            "client-1",
             "code-1",
             "https://wallet.example/cb",
             "verifier-1",
@@ -1412,6 +1418,7 @@ mod tests {
         let err = exchange_authorization_code(
             &http,
             &test_as(),
+            "client-1",
             "code-1",
             "https://wallet.example/cb",
             "verifier-1",

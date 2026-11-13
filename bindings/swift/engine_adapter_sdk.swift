@@ -2256,6 +2256,14 @@ public struct EvaluationResponse {
      * The decision text, when there is one.
      */
     public var decision: String?
+    /**
+     * The PDP's response context, verbatim JSON text when it carried one
+     * (go-trust's `EvaluationResponseContext` - `display_name`, …). The
+     * recognised member today is `display_name` (a registry's own
+     * human-facing name for the subject), consumed by the wallet's consent
+     * surfaces; uninterpreted elsewhere.
+     */
+    public var context: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2265,9 +2273,17 @@ public struct EvaluationResponse {
          */trusted: Bool, 
         /**
          * The decision text, when there is one.
-         */decision: String?) {
+         */decision: String?, 
+        /**
+         * The PDP's response context, verbatim JSON text when it carried one
+         * (go-trust's `EvaluationResponseContext` - `display_name`, …). The
+         * recognised member today is `display_name` (a registry's own
+         * human-facing name for the subject), consumed by the wallet's consent
+         * surfaces; uninterpreted elsewhere.
+         */context: String?) {
         self.trusted = trusted
         self.decision = decision
+        self.context = context
     }
 }
 
@@ -2281,12 +2297,16 @@ extension EvaluationResponse: Equatable, Hashable {
         if lhs.decision != rhs.decision {
             return false
         }
+        if lhs.context != rhs.context {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(trusted)
         hasher.combine(decision)
+        hasher.combine(context)
     }
 }
 
@@ -2299,13 +2319,15 @@ public struct FfiConverterTypeEvaluationResponse: FfiConverterRustBuffer {
         return
             try EvaluationResponse(
                 trusted: FfiConverterBool.read(from: &buf), 
-                decision: FfiConverterOptionString.read(from: &buf)
+                decision: FfiConverterOptionString.read(from: &buf), 
+                context: FfiConverterOptionString.read(from: &buf)
         )
     }
 
     public static func write(_ value: EvaluationResponse, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.trusted, into: &buf)
         FfiConverterOptionString.write(value.decision, into: &buf)
+        FfiConverterOptionString.write(value.context, into: &buf)
     }
 }
 
@@ -3299,6 +3321,12 @@ public struct SigningKeyParams {
      * The key the engine will sign with, named when the flow knows it.
      */
     public var keyId: String?
+    /**
+     * Whether the host must answer with a FRESH key (the OID4VCI batch
+     * rule: each credential in a batch binds to its own key —
+     * SDJWT-10.1). Default false.
+     */
+    public var fresh: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -3308,9 +3336,15 @@ public struct SigningKeyParams {
          */flowId: String, 
         /**
          * The key the engine will sign with, named when the flow knows it.
-         */keyId: String?) {
+         */keyId: String?, 
+        /**
+         * Whether the host must answer with a FRESH key (the OID4VCI batch
+         * rule: each credential in a batch binds to its own key —
+         * SDJWT-10.1). Default false.
+         */fresh: Bool) {
         self.flowId = flowId
         self.keyId = keyId
+        self.fresh = fresh
     }
 }
 
@@ -3324,12 +3358,16 @@ extension SigningKeyParams: Equatable, Hashable {
         if lhs.keyId != rhs.keyId {
             return false
         }
+        if lhs.fresh != rhs.fresh {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(flowId)
         hasher.combine(keyId)
+        hasher.combine(fresh)
     }
 }
 
@@ -3342,13 +3380,15 @@ public struct FfiConverterTypeSigningKeyParams: FfiConverterRustBuffer {
         return
             try SigningKeyParams(
                 flowId: FfiConverterString.read(from: &buf), 
-                keyId: FfiConverterOptionString.read(from: &buf)
+                keyId: FfiConverterOptionString.read(from: &buf), 
+                fresh: FfiConverterBool.read(from: &buf)
         )
     }
 
     public static func write(_ value: SigningKeyParams, into buf: inout [UInt8]) {
         FfiConverterString.write(value.flowId, into: &buf)
         FfiConverterOptionString.write(value.keyId, into: &buf)
+        FfiConverterBool.write(value.fresh, into: &buf)
     }
 }
 

@@ -399,6 +399,28 @@ pub fn encrypt_jarm_response(
         .map_err(|err| JarmError::Encrypt(err.to_string()))
 }
 
+/// Builds the JWE-encrypted response for the Digital Credentials API
+/// channel (`dc_api.jwt`, OpenID4VP 1.0 §8.4): the same claims and key
+/// selection as the direct_post submission, but no POST — the host
+/// hands the JWE to the browser, and the verifier's page receives it
+/// through the API's promise.
+pub fn build_dc_api_jwe_response(
+    auth_req: &AuthorizationRequest,
+    vp_token: &str,
+    now_unix: i64,
+) -> Result<String, JarmError> {
+    let metadata = auth_req.client_metadata.clone();
+    let Some(metadata) = metadata else {
+        return Err(JarmError::NoEncryptionKey(
+            "no client_metadata for dc_api.jwt".to_owned(),
+        ));
+    };
+    let jwk = select_verifier_jwk(&metadata)?;
+    let (alg, enc) = resolve_algorithms(Some(&metadata), &jwk)?;
+    let claims = build_jarm_claims(vp_token, &auth_req.client_id, &auth_req.state, now_unix);
+    encrypt_jarm_response(&claims, &jwk, alg, enc)
+}
+
 /// Builds and submits the JARM response for a `direct_post.jwt`
 /// request: the claims, the encryption to the verifier's key, and the
 /// `response=<jwe>` form POST.

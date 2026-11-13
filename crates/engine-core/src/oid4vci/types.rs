@@ -95,6 +95,15 @@ impl MetadataType {
     }
 }
 
+/// Batch credential issuance configuration (OID4VCI §E.1), as the
+/// issuer advertises it: the `batch_size` member.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchCredentialIssuance {
+    /// How many credentials one credential request returns.
+    #[serde(default)]
+    pub batch_size: i64,
+}
+
 /// The parsed issuer metadata document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssuerMetadata {
@@ -127,9 +136,35 @@ pub struct IssuerMetadata {
     /// issuance, preferred over the constructed fallback path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deferred_credential_endpoint: Option<String>,
+    /// Batch credential issuance (OID4VCI §E.1): `batch_size`, the
+    /// number of credentials one request returns. The engine asks the
+    /// host for `batch_size` proofs (one per credential for the `jwt`
+    /// proof type; a single `attestation` proof covers the whole
+    /// batch) and sends `proofs: {jwt: [n proofs]}` — the suite's
+    /// batch-credential-issuance module requires exactly this (found
+    /// driving it: "The wallet only sent one proof in the credential
+    /// request, so batch issuance behavior cannot be evaluated").
+    /// Absent or ≤1 means 1 — no batch.
+    #[serde(
+        default,
+        alias = "batch_credential_issuance",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub batch_credential_issuance: Option<BatchCredentialIssuance>,
     /// The signed metadata JWT, when the document was served as a JWT.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signed_metadata: Option<String>,
+    /// The signed envelope's signer key material (go-wallet-backend #540's
+    /// class): when the document was served as `application/jwt`, the JWS
+    /// header's `x5c` chain (RFC 7515 §4.1.6) or its `jwk` — the material
+    /// a chain-deciding PDP reads. A JWT-served document's payload has no
+    /// `signed_metadata` member of its own and may carry no `jwks` either,
+    /// so without this the trust evaluation would send the PDP empty key
+    /// material and a chain-deciding PDP could never answer for the
+    /// issuer. Extracted at parse time; used by the trust evaluation only
+    /// when the payload's own members carry nothing (the body wins).
+    #[serde(default, skip_serializing)]
+    pub envelope_key_material: Option<Vec<u8>>,
     /// Whether the document was served in the signed form.
     #[serde(default, skip_serializing)]
     pub is_signed: bool,
@@ -186,7 +221,7 @@ pub struct AsMetadata {
     /// Whether the AS requires PAR (RFC 9126
     /// `require_pushed_authorization_requests`): no non-PAR /authorize
     /// path exists, so a PAR failure has no fallback.
-    #[serde(default)]
+    #[serde(default, alias = "require_pushed_authorization_requests")]
     pub require_par: bool,
     /// The token endpoint's client authentication methods
     /// (`token_endpoint_auth_methods_supported`). `private_key_jwt`
@@ -245,4 +280,61 @@ pub enum AsMetadataError {
     /// A non-404 status from a candidate (terminal, no fallback).
     #[error("oid4vci: AS metadata answered {0}")]
     Status(u16),
+}
+
+#[cfg(test)]
+mod tests {
+    //! The AS metadata's wire guarantees - one per drive-found gap.
+
+    use super::*;
+
+    /// RFC 9126's `require_pushed_authorization_requests` (the flag's ONLY
+    /// spelling on the wire) parses into `require_par` - drive-found
+    /// (2026-11-07, the GDC issuance): without the alias the flag never parsed,
+    /// a PAR-requiring AS served as "PAR optional", the engine's PAR push
+    /// failure silently fell back to the plain /authorize URL, and the AS
+    /// answered a browser-side validation_error the wallet could not read.
+    #[test]
+    fn require_pushed_authorization_requests_parses_into_require_par() {
+        let metadata: AsMetadata = serde_json::from_str(
+            r#"{
+                "issuer": "https://as.example",
+                "token_endpoint": "https://as.example/token",
+                "pushed_authorization_request_endpoint": "https://as.example/par",
+                "require_pushed_authorization_requests": true
+            }"#,
+        )
+        .expect("the AS metadata parses");
+        assert!(metadata.require_par, "the RFC 9126 spelling sets the flag");
+        assert_eq!(
+            metadata.par_endpoint, "https://as.example/par",
+            "the RFC 9126 endpoint spelling parses too"
+        );
+    }
+
+    /// An AS that does not require PAR: the flag defaults to false (the plain
+    /// /authorize path stays a legal fallback), and a PAR endpoint alone
+    /// advertises without requiring.
+    #[test]
+    fn require_par_defaults_false_and_a_bare_par_endpoint_advertises_without_requiring() {
+        let bare: AsMetadata = serde_json::from_str(
+            r#"{"issuer": "https://as.example", "token_endpoint": "https://as.example/token"}"#,
+        )
+        .expect("the minimal AS metadata parses");
+        assert!(!bare.require_par);
+        assert!(bare.par_endpoint.is_empty());
+
+        let advertised: AsMetadata = serde_json::from_str(
+            r#"{
+                "issuer": "https://as.example",
+                "token_endpoint": "https://as.example/token",
+                "pushed_authorization_request_endpoint": "https://as.example/par"
+            }"#,
+        )
+        .expect("the advertising AS parses");
+        assert!(
+            !advertised.require_par,
+            "an advertised PAR endpoint does not require PAR (RFC 9126 §5)"
+        );
+    }
 }

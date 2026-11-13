@@ -757,6 +757,7 @@ impl engine_ports::Pdp for ScriptedPdp {
         Ok(engine_ports::EvaluationResponse {
             trusted: self.trusted,
             decision: self.decision.clone(),
+            context: None,
         })
     }
 

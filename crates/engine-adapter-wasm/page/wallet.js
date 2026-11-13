@@ -87,10 +87,27 @@ async function engineConfig() {
   };
 
   window.__mini_debug = { clientKey: endpoints.clientKeyJwk ? 'present' : 'absent' };
+  // The engine's outgoing notifications (wmp.flow.progress, complete,
+  // error) as JSON text — the flow results the resolved start answer
+  // alone never carries (the Digital Credentials API response:
+  // OpenID4VP 1.0 §8.4) land on window.__last_flow_message.
+  const onNotification = (text) => {
+    window.__last_flow_message = text;
+    try {
+      const message = JSON.parse(text);
+      if (message.method === 'wmp.flow.complete') {
+        window.__flow_result = message.params?.result ?? null;
+      }
+      if (message.method === 'wmp.flow.error') {
+        window.__flow_error = message.params ?? null;
+      }
+    } catch (_) { /* not JSON */ }
+  };
   return {
     fetch: fetchImpl,
     host: 'mini',
     txCode: endpoints.txCode,
+    onNotification,
     // The user-agent navigations: the authorization-code flow's AS
     // login, and the direct_post answer's redirect_uri (OID4VP §8.2).
     openAuthorization,
@@ -245,14 +262,54 @@ async function startRequest(requestUrl) {
   });
   const sessionId = session.wmp.session_id;
   const flowId = 'flow-' + crypto.randomUUID();
+  // The request form: a JWT arrives by value (the Digital Credentials
+  // API carries the request object itself, OpenID4VP 1.0 §8.4) — a
+  // compact JWS or the multisigned general JWS's JSON text; a URL
+  // passes as the raw string — the engine extracts its request_uri
+  // and the §5 validations compare the request object against it.
+  const isJsonObject = requestUrl.trim().startsWith('{');
+  const looksLikeJwt =
+    isJsonObject || (requestUrl.split('.').length === 3 && !requestUrl.includes('://'));
+  // The Digital Credentials API caller's origin (OpenID4VP 1.0 §8.4):
+  // rides the params beside the by-value request — the binding the
+  // §8.4 check and the KB-JWT's aud name. Absent on the URL channel.
+  const origin = query('origin') || '';
+  const params = looksLikeJwt
+    ? (origin ? { request: requestUrl, origin } : { request: requestUrl })
+    : requestUrl;
   const result = await wmp('wmp.flow.start', {
     wmp: { session_id: sessionId, version: '0.1' },
     flow_id: flowId,
     flow_type: 'oid4vp',
-    // The engine's request parser: the raw openid4vp:// URL — the
-    // by-reference form extracts its request_uri itself, and the §5
-    // validations compare the request object against the outer URL.
-    params: requestUrl,
+    params,
+  });
+  window.__last_result = result;
+  document.body.setAttribute('data-flow-state', 'presented');
+  return result;
+}
+
+// The Digital Credentials API's unsigned request (the
+// openid4vp-v1-unsigned protocol): the request object itself is the
+// API payload's data — plain JSON, no signature, no client_id (the
+// caller's origin IS the client, the web-origin form). It arrives as
+// base64url JSON with the origin beside it.
+async function startUnsignedRequest(encoded) {
+  const session = await wmp('wmp.session.create', {
+    wmp: { version: '0.1', sender: 'mini-wallet' },
+    capabilities_offered: { flows: { max_concurrent: 16 } },
+    security: { mode: 'tls' },
+  });
+  const sessionId = session.wmp.session_id;
+  const flowId = 'flow-' + crypto.randomUUID();
+  const decoded = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
+  const data = JSON.parse(decoded);
+  const origin = query('origin') || '';
+  const params = { ...data, origin };
+  const result = await wmp('wmp.flow.start', {
+    wmp: { session_id: sessionId, version: '0.1' },
+    flow_id: flowId,
+    flow_type: 'oid4vp',
+    params,
   });
   window.__last_result = result;
   document.body.setAttribute('data-flow-state', 'presented');
@@ -265,6 +322,8 @@ window.addEventListener('load', async () => {
       await resumeAuthorizationCode();
     } else if (query('offer')) {
       await startOffer(query('offer'));
+    } else if (query('dcreq')) {
+      await startUnsignedRequest(query('dcreq'));
     } else if (query('request')) {
       await startRequest(query('request'));
     }
