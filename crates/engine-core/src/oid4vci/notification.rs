@@ -180,8 +180,8 @@ pub struct NotificationContext {
 
 impl NotificationContext {
     /// The context from its public members. The expiry, the notified
-    /// set and the sequence number are the store's — [`Self::put`]
-    /// (the store's) sets them at registration.
+    /// set and the sequence number are the store's — [`NotificationContexts::put`]
+    /// sets them at registration.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
