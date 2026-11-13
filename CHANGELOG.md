@@ -5,6 +5,22 @@ All notable changes to this workspace. The format follows
 
 ## Unreleased
 
+### Added
+
+- `siros-explain` is the error contract: `Explain` gives an error's stable id,
+  `err.<scope>.<id>`, and each named argument by its key: the field, which a
+  reader takes by its type or by its `Display`.
+  `#[derive(Explain)]` (`siros-explain-derive`) sits beside thiserror's derive:
+  each struct or variant carries `#[explain(id = "…")]` or
+  `#[error(transparent)]`, a named field is an argument, a cause is `#[source]`
+  or `#[explain(skip)]`, a tuple argument and a field spelled `r#source` are
+  refused, and an id given twice in a crate fails the build. `scope!` names a
+  crate's scope once, at its root. Under `check`, each derived id registers a
+  row that `check::rows` reads.
+- `siros-derive-internals`: the derives' field rules, which
+  siros-explain-derive calls through its `Derive` trait.
+- Each is edition 2024 and unpublished.
+
 ### Changed
 
 - Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
