@@ -495,7 +495,7 @@ impl Pdp for BackendProxyPdp {
             )));
         }
         // The AuthZEN response: {decision, context} — the engine's
-        // EvaluationResponse {trusted, decision}.
+        // EvaluationResponse {trusted, decision, context}.
         let answer: serde_json::Value = response
             .json()
             .await
@@ -510,6 +510,9 @@ impl Pdp for BackendProxyPdp {
                 .or_else(|| answer.pointer("/context/reason/message"))
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned),
+            // The PDP's context, verbatim — display_name (the registry's own
+            // name for the subject) rides it to the verifier info.
+            context: answer.get("context").cloned(),
         })
     }
 
@@ -571,11 +574,21 @@ fn key_material_type(key_material: &[u8]) -> &'static str {
     "x5c"
 }
 
-/// The resource key the proxy forwards: the JWK object, the JWS's x5c
-/// chain, or the DID subject for a kid resource.
+/// The resource key the proxy forwards — the AuthZEN Trust Registry Profile's
+/// shape: an ARRAY (go-trust's golden testdata: `key: [ {...the JWK...} ]`,
+/// `key: ["<x5c cert>", ...]`; the backend proxy binds `[]interface{}` and a
+/// bare object fails it with a 400, found driving a JWK-keyed issuer through
+/// the same route the app-side adapter hit on-device). Empty/unparseable
+/// material stays null — go-trust treats a null key as a resolution-only
+/// request (the registry question), which is the adapter's own answer for
+/// material it could not extract.
 fn key_material_value(key_material: &[u8]) -> serde_json::Value {
     match serde_json::from_slice::<serde_json::Value>(key_material) {
-        Ok(value) => value,
+        Ok(serde_json::Value::Array(items)) => serde_json::Value::Array(items),
+        Ok(value @ (serde_json::Value::Object(_) | serde_json::Value::String(_))) => {
+            serde_json::Value::Array(vec![value])
+        }
+        Ok(_) => serde_json::Value::Null,
         Err(_) => serde_json::Value::Null,
     }
 }
@@ -626,4 +639,58 @@ pub struct NoopTelemetry;
 
 impl Telemetry for NoopTelemetry {
     fn event(&self, _event: TelemetryEvent) {}
+}
+
+// ─── Tests: the AuthZEN key shapes ────────────────────────────────────────
+
+#[cfg(test)]
+mod key_shape_tests {
+    use super::key_material_type;
+    use super::key_material_value;
+    use serde_json::json;
+
+    /// The profile's array contract (go-trust's golden testdata), found
+    /// driving a JWK-keyed issuer through the backend proxy: the bare
+    /// object failed the `[]interface{}` bind with a 400 and every
+    /// evaluate fail-closed untrusted.
+    #[test]
+    fn a_jwk_rides_one_element_wrapped() {
+        let jwk = json!({"kty": "EC", "crv": "P-256", "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU"});
+        assert_eq!(
+            key_material_value(jwk.to_string().as_bytes()),
+            json!([{"kty": "EC", "crv": "P-256", "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU"}]),
+        );
+        assert_eq!(key_material_type(jwk.to_string().as_bytes()), "jwk");
+    }
+
+    #[test]
+    fn an_x5c_chain_rides_as_the_array_it_is() {
+        let chain = json!(["MIIBxxx", "MIIByyy"]);
+        assert_eq!(
+            key_material_value(chain.to_string().as_bytes()),
+            json!(["MIIBxxx", "MIIByyy"]),
+        );
+        assert_eq!(key_material_type(chain.to_string().as_bytes()), "x5c");
+    }
+
+    #[test]
+    fn a_did_kid_rides_one_element_wrapped() {
+        // The engine hands a kid's material as a JSON string (quoted); an
+        // unquoted raw string is unparseable and rides null.
+        assert_eq!(
+            key_material_value(br#""did:example:123""#),
+            json!(["did:example:123"]),
+        );
+        assert_eq!(key_material_value(b"did:example:123"), json!(null));
+    }
+
+    /// Empty/unparseable material is null — go-trust's resolution-only
+    /// request (the registry question), the shape an mdoc issuer with no
+    /// inline JWKs needs.
+    #[test]
+    fn empty_or_unparseable_material_is_null() {
+        assert_eq!(key_material_value(b""), json!(null));
+        assert_eq!(key_material_value(b"not json at all"), json!(null));
+        assert_eq!(key_material_value(br#"34"#), json!(null));
+    }
 }

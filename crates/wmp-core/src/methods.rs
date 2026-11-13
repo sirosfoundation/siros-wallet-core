@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
-use crate::types::{Capabilities, Metadata, SecurityMode};
+use crate::types::{null_default, Capabilities, Metadata, SecurityMode};
 
 // --- Method names ---
 
@@ -58,12 +58,17 @@ pub struct SessionCreateParams {
     /// The `wmp` envelope.
     pub wmp: Metadata,
     /// The session participants.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub participants: Vec<String>,
     /// The capabilities the caller offers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities_offered: Option<Capabilities>,
     /// The session security configuration.
+    #[serde(default, deserialize_with = "null_default")]
     pub security: SecurityMode,
     /// The session's time to live, in seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -102,11 +107,17 @@ pub struct SessionResumeParams {
     /// The `wmp` envelope.
     pub wmp: Metadata,
     /// The session to resume.
+    #[serde(default, deserialize_with = "null_default")]
     pub session_id: String,
     /// The session's current resumption token.
+    #[serde(default, deserialize_with = "null_default")]
     pub resumption_token: String,
     /// The last message identifier the caller received.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub last_received_id: String,
 }
 
@@ -135,6 +146,7 @@ pub struct SessionCloseParams {
     /// The `wmp` envelope.
     pub wmp: Metadata,
     /// Why the session is closing.
+    #[serde(default, deserialize_with = "null_default")]
     pub reason: String,
 }
 
@@ -283,8 +295,10 @@ pub struct FlowStartParams {
     /// The `wmp` envelope.
     pub wmp: Metadata,
     /// The flow type.
+    #[serde(default, deserialize_with = "null_default")]
     pub flow_type: String,
     /// The caller's identifier for the flow.
+    #[serde(default, deserialize_with = "null_default")]
     pub flow_id: String,
     /// The flow-type-specific parameters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -325,8 +339,10 @@ pub struct FlowActionParams {
     /// The `wmp` envelope.
     pub wmp: Metadata,
     /// The flow.
+    #[serde(default, deserialize_with = "null_default")]
     pub flow_id: String,
     /// The action the caller takes.
+    #[serde(default, deserialize_with = "null_default")]
     pub action: String,
     /// The action's parameters.
     #[serde(default, skip_serializing_if = "Option::is_none")]

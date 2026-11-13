@@ -45,6 +45,7 @@ fn the_engine_variables_over_the_defaults() {
         "ENGINE_ALLOW_PLAINTEXT",
         "ENGINE_METADATA_TYPE",
         "ENGINE_MAX_CONCURRENT_FLOWS",
+        "ENGINE_PRINCIPAL_MODE",
     ];
     clear(&vars);
 
@@ -101,6 +102,21 @@ fn the_engine_variables_over_the_defaults() {
     with_var("ENGINE_MAX_CONCURRENT_FLOWS", "32", |c| {
         c.max_concurrent_flows == 32
     });
+    // The ownership mode (engine-parity.md §8): `user` is the historic
+    // shape, `tenant` the tenant-bound one; anything else is the
+    // default `user`, like the container's other variables.
+    with_var("ENGINE_PRINCIPAL_MODE", "tenant", |c| {
+        c.principal_mode == wmp_core::principal::PrincipalMode::Tenant
+    });
+    with_var("ENGINE_PRINCIPAL_MODE", "user", |c| {
+        c.principal_mode == wmp_core::principal::PrincipalMode::User
+    });
+    with_var("ENGINE_PRINCIPAL_MODE", "TENANT", |c| {
+        c.principal_mode == wmp_core::principal::PrincipalMode::Tenant
+    });
+    with_var("ENGINE_PRINCIPAL_MODE", "federation", |c| {
+        c.principal_mode == wmp_core::principal::PrincipalMode::User
+    });
 
     clear(&vars);
 }
@@ -124,6 +140,7 @@ fn the_defaults_with_nothing_set() {
         "ENGINE_ALLOW_PLAINTEXT",
         "ENGINE_METADATA_TYPE",
         "ENGINE_MAX_CONCURRENT_FLOWS",
+        "ENGINE_PRINCIPAL_MODE",
         "ENGINE_CONFIG",
     ];
     clear(&vars);
@@ -139,6 +156,10 @@ fn the_defaults_with_nothing_set() {
     assert!(!config.allow_plaintext);
     assert_eq!(config.metadata_type, "prefer-signed");
     assert_eq!(config.max_concurrent_flows, 16);
+    assert_eq!(
+        config.principal_mode,
+        wmp_core::principal::PrincipalMode::User
+    );
 }
 
 /// An unparseable number is the default, not a refusal: a

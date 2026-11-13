@@ -196,6 +196,7 @@ pub fn build_verifier_info(
         trusted: false,
         framework: String::new(),
         reason: String::new(),
+        trust_context: None,
     };
     if let Some(metadata) = client_metadata {
         if !metadata.client_name.is_empty() {
@@ -264,6 +265,29 @@ pub async fn evaluate_verifier_trust(
 
     verifier.trusted = response.trusted;
     verifier.reason = response.decision.clone().unwrap_or_default();
+    // The PDP's context, verbatim: the wallet's own policy machinery
+    // reads it (the verifier-id sources scope a nym_auth pseudonym by
+    // `context.verifier_ids`), so the engine relays rather than
+    // interprets — the display_name pick below is the ONE member the
+    // engine itself consumes.
+    verifier.trust_context = response.context.clone();
+
+    // A registry's own human-facing name for the subject (go-trust's
+    // response `context.display_name`, when a registry carries one - most
+    // do not, which is why the member is optional): it overrides the
+    // verifier's display name, the label a consent UI renders. Rides
+    // VerifierInfo.name to the wallet's match ask - the SDK's label chain
+    // (client_name → domain → client_id) prefers whatever arrives here
+    // when the metadata carried no client_name.
+    if let Some(display_name) = response
+        .context
+        .as_ref()
+        .and_then(|c| c.get("display_name"))
+        .and_then(|v| v.as_str())
+        .filter(|n| !n.is_empty())
+    {
+        verifier.name = display_name.to_owned();
+    }
 
     if !response.trusted {
         let reason = if verifier.reason.is_empty() {

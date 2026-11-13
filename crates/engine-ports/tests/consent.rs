@@ -136,7 +136,10 @@ fn the_handle_rides_the_wire_as_an_absent_member_when_there_is_none() {
         verifier_jwk_thumbprint: String::new(),
         verifier_session_id: String::new(),
         transaction_data: Vec::new(),
+        origin: String::new(),
         selection_handle: answer.handle,
+        verified_request: None,
+        response_encryption: None,
     };
     let wire: serde_json::Value = serde_json::to_value(&params).expect("the ask serialises");
     assert!(
@@ -147,5 +150,141 @@ fn the_handle_rides_the_wire_as_an_absent_member_when_there_is_none() {
         wire.get("selections"),
         Some(&json!([{"credential_query_id": "q", "credential_id": "c", "disclosed_claims": []}])),
         "the selections ride unchanged"
+    );
+}
+
+/// The PDP's context, verbatim: go-trust's `verifier_ids` (the wallet's
+/// pseudonym sources read them), `display_name`, `display_name_l10n`
+/// when the policy sends it — relayed, never interpreted. Absent when
+/// the PDP answered with no context (found on-device: without this
+/// relay every zkp_req sign ask refused at step=verifier-id).
+#[test]
+fn the_verifier_info_relays_the_pdp_context_verbatim() {
+    let with_context = engine_ports::VerifierInfo {
+        name: "verifier.example".to_owned(),
+        client_id: "x509_san_dns:verifier.example".to_owned(),
+        client_id_scheme: engine_ports::ClientIdScheme::X509SanDns,
+        domain: "verifier.example".to_owned(),
+        logo_uri: String::new(),
+        trusted: true,
+        framework: "etsi-tl".to_owned(),
+        reason: String::new(),
+        trust_context: Some(json!({
+            "verifier_ids": [
+                {"verifier_id_type": "x509_san_dns", "verifier_id": "verifier.example", "basis": "test"}
+            ],
+            "display_name": "Verifier Example"
+        })),
+    };
+    let wire: serde_json::Value =
+        serde_json::to_value(&with_context).expect("the verifier info serialises");
+    assert_eq!(
+        wire.get("trust_context")
+            .and_then(|c| c.get("verifier_ids")),
+        Some(
+            &json!([{"verifier_id_type": "x509_san_dns", "verifier_id": "verifier.example", "basis": "test"}])
+        ),
+        "the context rides verbatim — the wallet's sources read its members"
+    );
+
+    let without = engine_ports::VerifierInfo {
+        trust_context: None,
+        ..with_context
+    };
+    let wire: serde_json::Value =
+        serde_json::to_value(&without).expect("the verifier info serialises");
+    assert!(
+        wire.get("trust_context").is_none(),
+        "no context, no member — the wire an old host sees is unchanged"
+    );
+}
+
+/// The verified request and the response encryption carry the exact member
+/// set the wallets' `VerifiedRequest`/`ResponseEncryptionRequest` readers
+/// expect (go-wallet-backend#471's shape — the Kotlin transport's
+/// `@SerialName`s). The ZK policy gate reads `signed` AND
+/// `signature_verification == "verified"` — an absent member reads as not
+/// verified and every zkp_req sign ask refuses at step=unsigned-request
+/// (found on-device 2026-11-13: the first cut of the struct omitted it).
+/// This test is the drift guard: a renamed or missing member fails here,
+/// not on a device.
+#[test]
+fn the_verified_request_carries_the_wallets_gate_members() {
+    let params = engine_ports::VpParams {
+        flow_id: "flow-1".to_owned(),
+        audience: "x509_san_dns:verifier.example".to_owned(),
+        nonce: "n".to_owned(),
+        selections: Vec::new(),
+        response_uri: "https://verifier.example/response".to_owned(),
+        verifier_jwk_thumbprint: "thumbprint".to_owned(),
+        verifier_session_id: String::new(),
+        transaction_data: Vec::new(),
+        origin: String::new(),
+        selection_handle: None,
+        verified_request: Some(engine_ports::VpVerifiedRequest {
+            client_id: "x509_san_dns:verifier.example".to_owned(),
+            client_id_scheme: "x509_san_dns".to_owned(),
+            response_mode: "direct_post.jwt".to_owned(),
+            response_uri: "https://verifier.example/response".to_owned(),
+            signed: true,
+            signature_verification: "verified".to_owned(),
+            request_jwt: Some("header.payload.signature".to_owned()),
+        }),
+        response_encryption: Some(engine_ports::VpResponseEncryption {
+            jwk: json!({"kty": "EC", "crv": "P-256", "x": "AA", "y": "AA"}),
+            alg: "ECDH-ES".to_owned(),
+            enc: "A256GCM".to_owned(),
+        }),
+    };
+    let wire: serde_json::Value = serde_json::to_value(&params).expect("the ask serialises");
+
+    let verified = wire
+        .get("verified_request")
+        .expect("the verified request rides the ask");
+    let members: std::collections::BTreeSet<String> = verified
+        .as_object()
+        .expect("an object")
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(
+        members,
+        [
+            "client_id",
+            "client_id_scheme",
+            "request_jwt",
+            "response_mode",
+            "response_uri",
+            "signature_verification",
+            "signed"
+        ]
+        .map(str::to_owned)
+        .into(),
+        "the member set matches the wallet's VerifiedRequest readers"
+    );
+    assert_eq!(
+        verified.get("signature_verification"),
+        Some(&json!("verified")),
+        "the gate's required value"
+    );
+    assert_eq!(
+        verified.get("signed"),
+        Some(&json!(true)),
+        "the convenience mirror the gate also reads"
+    );
+
+    let encryption = wire
+        .get("response_encryption")
+        .expect("the response encryption rides the ask");
+    let members: std::collections::BTreeSet<String> = encryption
+        .as_object()
+        .expect("an object")
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(
+        members,
+        ["alg", "enc", "jwk"].map(str::to_owned).into(),
+        "the member set matches the wallet's ResponseEncryptionRequest readers"
     );
 }

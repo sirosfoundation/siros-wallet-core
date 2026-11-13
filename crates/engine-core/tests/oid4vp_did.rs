@@ -37,6 +37,7 @@ impl Pdp for RecordingPdp {
         Ok(EvaluationResponse {
             trusted: true,
             decision: Some("in the registry".to_owned()),
+            context: None,
         })
     }
 
@@ -84,6 +85,8 @@ fn did_request(client_id: &str, request_jwt: Option<String>) -> AuthorizationReq
         request_jwt,
         x5c: None,
         attestation_jwt: None,
+        expected_origins: Vec::new(),
+        dc_api_origin: String::new(),
     }
 }
 
@@ -135,6 +138,7 @@ async fn run(pdp: &RecordingPdp, request: &AuthorizationRequest) -> Result<bool,
         trusted: false,
         framework: String::new(),
         reason: String::new(),
+        trust_context: None,
     };
     evaluate_verifier_trust(pdp, request, None, &mut verifier).await?;
     Ok(verifier.trusted)

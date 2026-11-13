@@ -164,8 +164,19 @@ impl WasmEngine {
 
         let entropy: wmp_core::sessionservice::EntropyFn =
             std::sync::Arc::new(|bytes: &mut [u8]| js_rng_fill(bytes));
-        let dispatcher =
-            Dispatcher::new(ports, clock, entropy).map_err(|err| JsValue::from_str(&err))?;
+
+        // The outgoing notifications — `wmp.flow.progress`, `complete`,
+        // `error` — forwarded to the page's `onNotification` callback
+        // as JSON text. The flow results the resolved start answer
+        // alone never carries (the Digital Credentials API response:
+        // OpenID4VP 1.0 §8.4) reach the page this way; a config without
+        // the callback drops them (the legacy behaviour).
+        let outgoing = optional(&config, "onNotification").map(|sink| {
+            std::sync::Arc::new(OutgoingTransport::new(sink))
+                as std::sync::Arc<dyn wmp_core::transport::Transport>
+        });
+        let dispatcher = Dispatcher::new(ports, clock, entropy, outgoing)
+            .map_err(|err| JsValue::from_str(&err))?;
 
         Ok(WasmEngine {
             dispatcher,
@@ -238,6 +249,45 @@ fn optional(object: &JsValue, name: &str) -> Option<js_sys::Function> {
     js_sys::Reflect::get(object, &JsValue::from_str(name))
         .ok()
         .and_then(|value| value.dyn_into::<js_sys::Function>().ok())
+}
+
+/// The peer-transport forwarder: the engine's outgoing notifications —
+/// `wmp.flow.progress`, `wmp.flow.complete`, `wmp.flow.error` — handed
+/// to the page's `onNotification` callback as JSON text, so the page
+/// sees the flow results the resolved `wmp.flow.start` answer alone
+/// never carries (the Digital Credentials API response is one:
+/// OpenID4VP 1.0 §8.4's data returns through the host, not an HTTP
+/// POST).
+///
+/// The read side refuses — the page never feeds peer messages back
+/// through this surface; its requests go through [`WasmEngine::request`].
+struct OutgoingTransport {
+    /// The page's callback: `(jsonText) => void`.
+    sink: js_sys::Function,
+}
+
+impl OutgoingTransport {
+    /// The forwarder over the page's callback.
+    fn new(sink: js_sys::Function) -> Self {
+        Self { sink }
+    }
+}
+
+impl wmp_core::transport::Transport for OutgoingTransport {
+    fn read_message(&self) -> Result<Vec<u8>, wmp_core::transport::TransportError> {
+        // Never read: the page's messages arrive through `request`.
+        Err(wmp_core::transport::TransportError::Closed)
+    }
+
+    fn write_message(&self, data: &[u8]) -> Result<(), wmp_core::transport::TransportError> {
+        let text = String::from_utf8_lossy(data).into_owned();
+        let _ = self.sink.call1(&JsValue::NULL, &JsValue::from_str(&text));
+        Ok(())
+    }
+
+    fn close(&self) -> Result<(), wmp_core::transport::TransportError> {
+        Ok(())
+    }
 }
 
 /// A function that never answers — the refusal shape for the host

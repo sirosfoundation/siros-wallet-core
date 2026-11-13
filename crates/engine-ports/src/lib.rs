@@ -219,6 +219,15 @@ pub struct SigningKeyParams {
     /// it — a renewal's reissuance kid; the device key when unnamed.
     #[serde(default)]
     pub key_id: Option<String>,
+    /// Whether the host must answer with a FRESH key (generated for
+    /// this ask, never returned before): the OID4VCI batch rule —
+    /// each credential in a batch binds to its own key so verifiers
+    /// cannot link them (SDJWT-10.1, the suite's
+    /// VCIEnsureProofKeysAreDistinct). Default false — the named (or
+    /// default) key, the historic shape; a host that does not
+    /// implement freshness keeps answering its named key.
+    #[serde(default)]
+    pub fresh: bool,
 }
 
 /// The public JWK answer. Keys always live in the app; the engine
@@ -333,6 +342,17 @@ pub struct VerifierInfo {
     /// Why the decision was made (the PDP's reason).
     #[serde(default)]
     pub reason: String,
+    /// The PDP's response context, verbatim (go-trust's
+    /// `EvaluationResponseContext`): the trust `verifier_ids` (the
+    /// wallet's verifier-id sources read them — a `nym_auth`
+    /// pseudonym is scoped by the resolved verifier id), the
+    /// registry `display_name`, and any other member the policy
+    /// sends. Absent when the PDP answered with no context — found
+    /// on-device: without this relay the wallet refused every
+    /// zkp_req sign ask at step=verifier-id because the engine's
+    /// own evaluation was the ONLY place the context existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_context: Option<serde_json::Value>,
 }
 
 /// One credential the host selected to present, as the match answer
@@ -395,6 +415,66 @@ pub struct MatchResult {
     pub handle: Option<String>,
 }
 
+/// The OpenID4VP request as the engine VERIFIED it (the wallet's
+/// `verified_request` on a sign ask — go-wallet-backend#471's shape): the
+/// client_id the certificate authenticated, the scheme, the response
+/// mode. The wallet's ZK policy gate reads `signed` + `response_mode` to
+/// decide whether the request's identity is proven before a proof is
+/// generated, and the JARM `aud` comes from `client_id`, never the sign
+/// ask's `audience`. Absent for a request the engine did not verify.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VpVerifiedRequest {
+    /// The client_id the request object's certificate authenticated (the
+    /// first VERIFIED signature's, for a multi-signed object).
+    #[serde(default)]
+    pub client_id: String,
+    /// The client_id scheme (x509_san_dns, x509_san_uri, x509_hash,
+    /// redirect_uri, did, …) as the engine inferred it.
+    #[serde(default)]
+    pub client_id_scheme: String,
+    /// The response mode (direct_post, direct_post.jwt, …).
+    #[serde(default)]
+    pub response_mode: String,
+    /// The response URI the engine validated (the JARM POST endpoint).
+    #[serde(default)]
+    pub response_uri: String,
+    /// Whether the request object's signature was verified (an x5c chain
+    /// whose leaf's key verified the request's RFC 9052 Sig_structure).
+    #[serde(default)]
+    pub signed: bool,
+    /// `verified`, `deferred` or `none` — the wallet's ZK policy gate
+    /// (go-wallet-backend#471's shape) reads this alongside `signed`:
+    /// `deferred` is never treated as verified. The engine verifies the
+    /// request object synchronously at parse (an unverified signature
+    /// refuses the request outright), so it sends `verified` when there
+    /// was a signed request object and `none` when there was not — it
+    /// never defers. Found on-device: the member was absent from the
+    /// first cut of this struct and every zkp_req sign ask refused at
+    /// step=unsigned-request because the gate reads the null as not
+    /// verified, whatever `signed` said.
+    #[serde(default)]
+    pub signature_verification: String,
+    /// The raw request JWT (the signed request object, when present).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_jwt: Option<String>,
+}
+
+/// The verifier's response encryption parameters (the wallet's
+/// `response_encryption` on a sign ask): the JWK for direct_post.jwt's
+/// JARM, the wrapping algorithm and the content encryption algorithm.
+/// Absent for a plain (unencrypted) response mode.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VpResponseEncryption {
+    /// The verifier's JWK (the `jwks` the request's metadata carried).
+    pub jwk: serde_json::Value,
+    /// The JARM key wrapping algorithm (RSA-OAEP, ECDH-ES, …).
+    #[serde(default)]
+    pub alg: String,
+    /// The content encryption algorithm (A128GCM, A256GCM, …).
+    #[serde(default)]
+    pub enc: String,
+}
+
 /// The presentation the engine asks the host to construct and sign:
 /// the VP token for the selected credentials. The wallet's
 /// presentation formats (mdoc, SD-JWT, ZK) and its key custody live in
@@ -427,11 +507,30 @@ pub struct VpParams {
     /// the KB-JWT (TS12).
     #[serde(default)]
     pub transaction_data: Vec<String>,
+    /// The Digital Credentials API channel's origin (OpenID4VP 1.0
+    /// §8.4): the request's `expected_origins` first entry — the
+    /// KB-JWT's `aud` and the mdoc DCAPIHandover origin (B.2.6.2).
+    /// Empty for the redirect response modes.
+    #[serde(default)]
+    pub origin: String,
     /// The transport's selection handle, as the match answer carried
     /// it (WMP OpenID4x 3.2.3.1): passed through unchanged, never
     /// interpreted. Absent when the transport has no handle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selection_handle: Option<String>,
+    /// The request as the engine verified it — the wallet's ZK policy
+    /// gate and JARM `aud` need the CERTIFICATE-authenticated client_id,
+    /// the scheme, the response mode, and whether the signature was
+    /// verified. Absent for a request the engine did not verify (the
+    /// wallet's ZK policy refuses — found on-device: every zkp_req
+    /// presentation on the WMP transport died at unsigned-request).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_request: Option<VpVerifiedRequest>,
+    /// The response encryption parameters (the verifier's JWK for
+    /// direct_post.jwt). Absent for a plain response mode — the wallet
+    /// then builds an unencrypted VP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_encryption: Option<VpResponseEncryption>,
 }
 
 /// The presentation answer.
@@ -747,6 +846,16 @@ pub struct EvaluationResponse {
     pub trusted: bool,
     /// The PDP's decision text, when there is one.
     pub decision: Option<String>,
+    /// The PDP's response `context` object, verbatim as JSON, when it
+    /// carried one (go-trust's `EvaluationResponseContext`: trust_metadata,
+    /// verifier_ids, …). Absent otherwise - NOT a default, so a PDP that
+    /// never sends one needs no change. The recognised member today is
+    /// `display_name` (a registry's own human-facing name for the
+    /// subject - see sirosfoundation/go-trust#N and trust.rs's consumer):
+    /// it overrides the verifier's display name. Uninterpreted
+    /// everywhere else - the SDK reads what it needs.
+    #[serde(default)]
+    pub context: Option<serde_json::Value>,
 }
 
 /// The resolve request (the `/v1/resolve` shape).

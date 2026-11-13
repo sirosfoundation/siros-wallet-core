@@ -143,32 +143,46 @@ fn parse_metadata(body: &[u8], headers: &[(String, String)]) -> Result<IssuerMet
     let is_signed = content_type.contains("openid-credential-issuer+jwt")
         || content_type.contains("application/jwt");
 
-    // Parse the JSON.
-    let value: serde_json::Value = serde_json::from_slice(body).map_err(|_| ())?;
-
-    // If the document is a JWT (three dot-separated parts), the metadata
-    // is in the payload. For S1, we parse the payload as the metadata;
-    // the signature verification is S3 (trust through the PDP).
+    // The signed form first: a JWT body is compact serialization, not
+    // JSON - parsing the whole body as JSON here (the original order)
+    // refused every application/jwt document with NotAnObject before the
+    // JWT branch could run: the signed path was dead code from birth,
+    // found auditing go-wallet-backend #540 into this engine.
     if is_signed {
-        // The JWT payload is the second segment.
         let text = String::from_utf8_lossy(body);
         let parts: Vec<&str> = text.split('.').collect();
-        if parts.len() >= 2 {
-            let payload_segment = parts.get(1).copied().ok_or(())?;
-            let payload = decode_base64url(payload_segment).ok_or(())?;
-            let metadata: IssuerMetadata = serde_json::from_slice(&payload).map_err(|_| ())?;
-            return Ok(IssuerMetadata {
-                is_signed: true,
-                // The raw document is the verified payload: the evaluator
-                // reads the members this type does not model from it.
-                raw: payload,
-                ..metadata
-            });
+        if parts.len() < 2 {
+            return Err(());
         }
-        return Err(());
+        // The signer's key material from the JWS header (RFC 7515 §4.1.6):
+        // the x5c chain, else the jwk — go-wallet-backend #540's fix
+        // class. The payload of a JWT-served document has no
+        // `signed_metadata` member and may carry no `jwks` either; the
+        // header's chain is what a chain-deciding PDP needs, and it
+        // reaches the trust evaluation only if it is carried here.
+        let envelope_key_material = parts
+            .first()
+            .copied()
+            .and_then(decode_base64url)
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|header| header.get("x5c").or_else(|| header.get("jwk")).cloned())
+            .and_then(|material| serde_json::to_vec(&material).ok());
+        // The JWT payload is the second segment.
+        let payload_segment = parts.get(1).copied().ok_or(())?;
+        let payload = decode_base64url(payload_segment).ok_or(())?;
+        let metadata: IssuerMetadata = serde_json::from_slice(&payload).map_err(|_| ())?;
+        return Ok(IssuerMetadata {
+            is_signed: true,
+            envelope_key_material,
+            // The raw document is the verified payload: the evaluator
+            // reads the members this type does not model from it.
+            raw: payload,
+            ..metadata
+        });
     }
 
     // The unsigned form: the body IS the metadata.
+    let value: serde_json::Value = serde_json::from_slice(body).map_err(|_| ())?;
     let mut metadata: IssuerMetadata = serde_json::from_value(value).map_err(|_| ())?;
     metadata.is_signed = false;
     // The raw document is the body as fetched.

@@ -1,0 +1,52 @@
+# Dependabot: the conformance stack's images.
+#
+# The OIDF suite images are pinned to a VERSIONED release tag
+# (conformance/suite-version — never `latest`, see its doc comment), so
+# upstream suite releases arrive as dependabot PRs that bump the tag
+# explicitly: the release notes ride the PR, the conformance workflows
+# re-run against the new release before it merges, and a bad release is
+# a revert of one commit — not a silent overnight verdict change.
+#
+# The other conformance-stack images (the wasm page is built in-workflow;
+# the SIROS services are pinned by the conformance repo's
+# golden-releases.yaml, which that repo's own automation manages) do not
+# need entries here.
+
+version: 2
+
+updates:
+  # The OIDF suite images (server + nginx): the docker-compose manager
+  # proposes the tag bumps for the compose file's image: lines. The
+  # compose file lives in siros-conformance, but the RUN that matters
+  # (the engine repo's PR conformance) pins the tag through
+  # conformance/suite-version — so this entry covers the compose lines,
+  # and the suite-version bump lands in the same PR (the hash below ties
+  # the two: bump one without the other and the run is not green).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Only the suite images: a broad "allow any image" would propose
+    # bumps for the whole stack (mongo, nginx:alpine for the wasm page)
+    # which are covered elsewhere or deliberately pinned.
+    allow:
+      - dependency-name: "registry.gitlab.com/openid/conformance-suite"
+      - dependency-name: "registry.gitlab.com/openid/conformance-suite/nginx"
+    # The suites are the reference — a bump PR is a REAL event, worth
+    # its own review, not noise inside a release PR.
+    commit-message:
+      prefix: "conformance:"
+    labels:
+      - conformance
+      - dependencies
+
+  # The workflow's own actions (the checkout pins, the cache) — the
+  # standard github-actions manager, alongside the image bumps.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
