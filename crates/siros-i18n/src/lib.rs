@@ -5,12 +5,16 @@
 //! options of the format functions. [`Context::resolve`] resolves a message into a [`Text`], its
 //! spans styled by the wording's markup (`{#strong}`, `{#emphasis}`, `{#underline}`).
 //!
-//! Every argument is text: its value's `Display`. A placeholder without a function writes it as
-//! given; the functions parse it. `:number` and `:integer` take a number literal and show the
-//! fraction digits it is written with; `:currency` takes a number and a `currency` option, an
-//! ISO 4217 code of siros-syntax's table; `:siros:date`, `:siros:time` and `:siros:datetime`
-//! take siros-syntax's ISO 8601 literals. Each function family is a feature: `number`
-//! (`:number`, `:integer`), `currency` (`:currency`, `:percent`), `offset` (`:offset`) and
+//! An argument takes the functions its type registers in the context's [`Formatters`]:
+//! [`Formatters::formatter`] lets a call name a function on the type, and
+//! [`Formatters::default_formatter`] also makes the function that of a placeholder `{$x}`, a
+//! declaration `.input {$x}` and a selector `.match $x` that name none. Every type takes
+//! `:string`, which writes its value's `Display`, and takes it by default where it registers no
+//! other. A function reads the value's `Display`: `:number` and `:integer` take a number literal
+//! and show the fraction digits it is written with; `:currency` takes a number and a `currency`
+//! option, an ISO 4217 code of siros-syntax's table; `:siros:date`, `:siros:time` and
+//! `:siros:datetime` take siros-syntax's ISO 8601 literals. Each function family is a feature:
+//! `number` (`:number`, `:integer`), `currency` (`:currency`, `:percent`), `offset` (`:offset`) and
 //! `date`; `:string` is always in. `siros-cldr` writes the format sections of a language from
 //! CLDR 49.0.0.
 //!
@@ -107,6 +111,7 @@ mod mf2;
 mod normal;
 #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
 mod numeric;
+mod registry;
 mod resource;
 mod scope;
 mod seen;
@@ -116,10 +121,13 @@ mod test_functions;
 mod text;
 
 pub use context::{Bidi, Context};
-pub use error::{CheckError, FormatRule, LoadError, Refusal, ResolveError, SyntaxRule};
+pub use error::{
+    CheckError, FormatRule, LoadError, Refusal, RegisterError, ResolveError, SyntaxRule,
+};
 pub use escape::escape;
 pub use locale::{InvalidTag, LocaleTag};
 pub use message::Message;
+pub use registry::Formatters;
 pub use siros_explain::{Arg, scope};
 #[cfg(feature = "derive")]
 pub use siros_i18n_derive::Message;

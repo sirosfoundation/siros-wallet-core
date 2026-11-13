@@ -13,13 +13,16 @@ use std::borrow::Cow;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 use crate::args::Args;
-use crate::chain::{Call, Declared, Dir, Link, Name, Operand, Opt, Site, Use, Value};
+use crate::chain::{
+    Call, Chain, Declared, Dir, Failure, Link, Name, Operand, Opt, Site, Use, Value,
+};
 use crate::context::Bidi;
 use crate::error::{Fault, Refusal, ResolveError};
 use crate::format::{Direction, Formats, Function, Selected, Selecting};
 use crate::mf2::ast::{self, MarkupKind};
 use crate::mf2::valid::{Shape, Valid};
 use crate::normal::Hold;
+use crate::registry::Formatters;
 use crate::scope::Scope;
 use crate::text::{Style, Text, Writer};
 
@@ -51,11 +54,13 @@ struct Select {
     fallback: Pattern,
 }
 
-/// A selector: the variable of its declared call, and how the call's function selects.
+/// A selector: its variable, and how its declared call's function selects; `None` for an
+/// argument whose call the wording leaves unwritten, which selects by its type's default
+/// formatter.
 #[derive(Debug, Clone)]
 struct Selector {
     variable: Box<str>,
-    selecting: Selecting,
+    selecting: Option<Selecting>,
 }
 
 /// A variant with a literal key: one key per selector, and its pattern.
@@ -324,19 +329,28 @@ impl<'a> Compiler<'_, 'a> {
         Ok(site)
     }
 
-    /// The selector of the variable `name`: its declared call, checked to select.
-    fn selector(&self, name: &'a str) -> Result<Selector, Fault> {
-        let unannotated = || Fault::MissingSelectorAnnotation(name.to_owned());
-        let Some(Bound::Variable(variable)) = self.bound.get(name).copied() else {
-            return Err(unannotated());
+    /// The selector of the variable `name`: its declared call, checked to select, else an
+    /// argument. A variable bound to a literal has no function to select by.
+    fn selector(&mut self, name: &'a str) -> Result<Selector, Fault> {
+        let variable = match self.bound.get(name).copied() {
+            Some(Bound::Variable(variable)) => variable,
+            Some(Bound::Literal(_)) => {
+                return Err(Fault::MissingSelectorAnnotation(name.to_owned()));
+            }
+            None => {
+                self.argument(name);
+                name
+            }
         };
-        let chain = self
-            .declared
-            .call(variable)
-            .map(|link| self.declared.chain(link))
-            .ok_or_else(unannotated)?;
-        let selecting = Selecting::of(&chain, self.formats, self.hold)
-            .map_err(|refused| refused.fault(chain.outer.function))?;
+        let selecting = match self.declared.call(variable) {
+            Some(link) => {
+                let chain = self.declared.chain(link);
+                let selecting = Selecting::of(&chain, self.formats, self.hold)
+                    .map_err(|refused| refused.fault(chain.outer.function))?;
+                Some(selecting)
+            }
+            None => None,
+        };
         Ok(Selector {
             variable: variable.into(),
             selecting,
@@ -364,7 +378,10 @@ impl<'a> Compiler<'_, 'a> {
                     .zip(&variant.keys)
                     .map(|(selector, key)| match key {
                         ast::Key::CatchAll => Ok(Key::CatchAll),
-                        ast::Key::Literal(key) => match selector.selecting.reads(key) {
+                        ast::Key::Literal(key) => match selector
+                            .selecting
+                            .map_or(Ok(()), |selecting| selecting.reads(key))
+                        {
                             Ok(()) => Ok(Key::Literal(key.as_ref().into())),
                             Err(refusal) => {
                                 let chain = self.declared.variable(&selector.variable);
@@ -457,26 +474,17 @@ impl Compiled {
         id: &str,
         args: &Args<'_>,
         formats: &Formats,
+        formatters: &Formatters,
         bidi: Bidi,
     ) -> Result<Text, ResolveError> {
-        let mut scope = Scope::new(args, formats, &self.declared);
+        let mut scope = Scope::new(args, formats, formatters, &self.declared);
         for variable in &self.read {
             scope.hold(variable);
         }
         let pattern = match &self.body {
             Body::Pattern(pattern) => pattern,
             Body::Select(select) => {
-                let selected = select
-                    .selectors
-                    .iter()
-                    .map(|selector| {
-                        let chain = self.declared.variable(&selector.variable);
-                        chain
-                            .texts(&scope)
-                            .and_then(|texts| selector.selecting.selected(&chain, &texts, &scope))
-                            .map_err(|failure| chain.error(id, failure))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                let selected = select.selected(&self.declared, &scope, id)?;
                 select
                     .variants
                     .iter()
@@ -492,14 +500,7 @@ impl Compiled {
                 Part::Open(style) => writer.open(*style),
                 Part::Close(style) => writer.close(*style),
                 Part::Placeholder(site) => {
-                    let chain = self.declared.site(site);
-                    let (text, value, dir) = chain
-                        .texts(&scope)
-                        .and_then(|texts| {
-                            let (text, value) = crate::format::format(&chain, &texts, &scope)?;
-                            Ok((text, value, texts.dir()))
-                        })
-                        .map_err(|failure| chain.error(id, failure))?;
+                    let (text, value, dir) = self.placeholder(site, &scope, id)?;
                     match isolation(bidi, dir, value, self.direction) {
                         Some(open) => {
                             writer.text(open);
@@ -514,9 +515,92 @@ impl Compiled {
         Ok(writer.finish())
     }
 
+    /// The text of the placeholder `site`, its value's direction and its `u:dir`.
+    ///
+    /// # Errors
+    ///
+    /// [`ResolveError`] as [`Compiled::resolve`].
+    fn placeholder<'m>(
+        &'m self,
+        site: &'m Site,
+        scope: &Scope<'m>,
+        id: &str,
+    ) -> Result<(String, Direction, Dir), ResolveError> {
+        let chain = scope
+            .typed(self.declared.site(site))
+            .map_err(|failure| self.declared.site(site).error(id, failure))?;
+        chain
+            .texts(scope)
+            .and_then(|texts| {
+                let (text, value) = crate::format::format(&chain, &texts, scope)?;
+                Ok((text, value, texts.dir()))
+            })
+            .map_err(|failure| chain.error(id, failure))
+    }
+
     /// The keys of the arguments the message names: each `.input` declaration's, and each
     /// variable no declaration binds.
     pub(crate) fn arguments(&self) -> impl Iterator<Item = &str> {
         self.arguments.iter().map(|key| &**key)
+    }
+}
+
+impl Select {
+    /// What each selector's value selects with.
+    ///
+    /// # Errors
+    ///
+    /// [`ResolveError`] as [`Compiled::resolve`].
+    fn selected<'m>(
+        &'m self,
+        declared: &'m Declared,
+        scope: &Scope<'m>,
+        id: &str,
+    ) -> Result<Vec<Selected<'m>>, ResolveError> {
+        self.selectors
+            .iter()
+            .enumerate()
+            .map(|(column, selector)| {
+                let chain = scope
+                    .typed(declared.variable(&selector.variable))
+                    .map_err(|failure| declared.variable(&selector.variable).error(id, failure))?;
+                self.selecting(column, selector, &chain, scope)
+                    .and_then(|selecting| {
+                        let texts = chain.texts(scope)?;
+                        selecting.selected(&chain, &texts, scope)
+                    })
+                    .map_err(|failure| chain.error(id, failure))
+            })
+            .collect()
+    }
+
+    /// How the selector in `column` selects: by its declared call's function, else by the
+    /// default formatter of its argument's type, which reads each key of the column.
+    ///
+    /// # Errors
+    ///
+    /// [`Failure::Selector`] for a default formatter that refuses the selector or a key, and
+    /// [`Failure::Operand`] for one whose options no module defines.
+    fn selecting(
+        &self,
+        column: usize,
+        selector: &Selector,
+        chain: &Chain<'_>,
+        scope: &Scope<'_>,
+    ) -> Result<Selecting, Failure> {
+        if let Some(selecting) = selector.selecting {
+            return Ok(selecting);
+        }
+        let function = chain.outer.function;
+        let selecting = Selecting::of(chain, scope.formats, Hold::Normal)
+            .map_err(|refused| refused.failure(function))?;
+        for variant in &self.variants {
+            if let Some(Key::Literal(key)) = variant.keys.get(column) {
+                selecting
+                    .reads(key)
+                    .map_err(|refusal| Failure::Selector(function, refusal))?;
+            }
+        }
+        Ok(selecting)
     }
 }

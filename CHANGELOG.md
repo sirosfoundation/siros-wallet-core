@@ -32,8 +32,13 @@ All notable changes to this workspace. The format follows
   MessageFormat 2 sources of one locale, each loaded whole and checked
   (`LoadError`); `Context::resolve` makes a `Text`, styled spans, from an error
   or a statement (`ResolveError`), and no other code makes one. A statement
-  derives `Message` (`siros-i18n-derive`). Every argument is text: `:string`
-  writes it as given; `:number` and `:integer` parse an MF2 number literal and
+  derives `Message` (`siros-i18n-derive`). Every argument is typed: the
+  context's `Formatters` give each type the functions a call may name on it and
+  at most one default, which a placeholder, a declaration and a selector that
+  name no function take (`ResolveError::Unformatted`, `ResolveError::Selector`,
+  `RegisterError`). Every type takes `:string`, which writes its `Display` as
+  given, by default where it registers no other. The functions read the
+  argument's text: `:number` and `:integer` parse an MF2 number literal and
   show its fraction digits as written; `:offset`, `:currency` (its `currency`
   option literal or variable), `:percent`, `:siros:date`, `:siros:time` and
   `:siros:datetime` parse their operand. An option's value is a literal or a
@@ -53,8 +58,8 @@ All notable changes to this workspace. The format follows
   message-format-wg test suite and ICU4X 2.4 over CLDR 49.0.0 are its oracles.
 - siros-i18n's `check` feature is the wallet's one completeness test: each
   derive registers its id and argument names, and `Context::check` refuses an
-  id two crates share, an id no source words and a message that names an
-  argument its row lacks.
+  id two crates share, an id no source words, a message that names an
+  argument its row lacks, and a formatter whose options no module defines.
 - `siros-i18n-derive`: `#[derive(Message)]` on a statement, its id under the
   crate's scope and its named fields as arguments. A repeated id fails the
   build; under `check` each id registers a row for `Context::check`.

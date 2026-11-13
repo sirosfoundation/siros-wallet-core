@@ -11,9 +11,9 @@ pub struct Skip {
 const MARKUP: &str =
     "markup names a style the context applies, `strong`, `emphasis` or `underline`";
 
-/// The argument rule.
-const ARGUMENTS: &str = "an argument is text: a placeholder without a function writes the text \
-     as given, and a number takes its language's form through `:number` alone";
+/// The default formatter rule.
+const DEFAULT: &str = "a selector without a function over an argument selects by the default \
+     formatter of the argument's type";
 
 pub const SKIPS: &[Skip] = &[
     Skip {
@@ -27,9 +27,19 @@ pub const SKIPS: &[Skip] = &[
         reason: MARKUP,
     },
     Skip {
-        suite: "syntax.json",
-        src: "{$one} et {$two}",
-        reason: ARGUMENTS,
+        suite: "data-model-errors.json",
+        src: ".input {$foo} .match $foo one {{one}} * {{other}}",
+        reason: DEFAULT,
+    },
+    Skip {
+        suite: "data-model-errors.json",
+        src: ".local $foo = {$bar} .match $foo one {{one}} * {{other}}",
+        reason: DEFAULT,
+    },
+    Skip {
+        suite: "data-model-errors.json",
+        src: ".input {$bar} .local $foo = {$bar} .match $foo one {{one}} * {{other}}",
+        reason: DEFAULT,
     },
     Skip {
         suite: "syntax.json",

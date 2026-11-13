@@ -1,11 +1,13 @@
-//! The context's rules: each load and resolution refusal names its fixture's rule, MF2's Default
-//! Bidi Strategy isolates by the message's and the value's direction, markup styles the spans, an
+//! The context's rules: each load and resolution refusal names its fixture's rule, an argument
+//! takes its type's formatters, MF2's Default Bidi Strategy isolates by the message's and the
+//! value's direction, markup styles the spans, an
 //! option takes its variable's value, a derived statement gives its named fields, an escaped text
 //! resolves to itself, and a language tag takes RFC 5646's case.
 
 #[path = "../support/cldr.rs"]
 mod cldr;
 mod escape;
+mod formatters;
 mod locale;
 mod options;
 mod refusals;

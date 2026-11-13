@@ -1,6 +1,37 @@
 //! The CLDR tool's output as a context's format module.
 
-use siros_i18n::{Bidi, Context, LoadError};
+use siros_i18n::{Bidi, Context, Formatters, LoadError};
+
+/// The format functions of the build.
+const FUNCTIONS: &[&str] = &[
+    #[cfg(feature = "number")]
+    "number",
+    #[cfg(feature = "number")]
+    "integer",
+    #[cfg(feature = "offset")]
+    "offset",
+    #[cfg(feature = "currency")]
+    "currency",
+    #[cfg(feature = "currency")]
+    "percent",
+    #[cfg(feature = "date")]
+    "siros:date",
+    #[cfg(feature = "date")]
+    "siros:time",
+    #[cfg(feature = "date")]
+    "siros:datetime",
+];
+
+/// A `String` argument taking each format function of the build by name: the fixtures give
+/// each argument as text.
+pub fn strings() -> Formatters {
+    FUNCTIONS
+        .iter()
+        .try_fold(Formatters::new(), |formatters, name| {
+            formatters.formatter::<String>(name)
+        })
+        .expect("the build has each function")
+}
 
 /// The tool's output for `locale`'s language, one of the fixtures in `tests/cldr`, under
 /// `@locale {locale}`: a module of format sections alone. `None` for a language without a
@@ -22,10 +53,10 @@ pub fn formats(locale: &str) -> Option<String> {
     Some(module)
 }
 
-/// A context in `locale` with `bidi`: the fixture's formats when the language has one, then a
-/// module of `messages` under the fixture's `@dir`.
+/// A context in `locale` with `bidi` and [`strings`]' formatters: the fixture's formats when the
+/// language has one, then a module of `messages` under the fixture's `@dir`.
 pub fn context(locale: &str, bidi: Bidi, messages: &str) -> Result<Context, LoadError> {
-    let mut context = Context::new().bidi(bidi);
+    let mut context = Context::new().bidi(bidi).formatters(strings());
     let mut head = format!("@locale {locale}\n");
     if let Some(formats) = formats(locale) {
         if let Some(dir) = formats.lines().find(|line| line.starts_with("@dir")) {

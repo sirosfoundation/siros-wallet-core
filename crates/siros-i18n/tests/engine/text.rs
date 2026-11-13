@@ -22,6 +22,7 @@ string_auto = {$x :string u:dir=auto}";
     let formats = cldr::formats("en").expect("the en fixture");
     let context = |dir: &str, bidi: Bidi| {
         Context::new()
+            .formatters(cldr::strings())
             .bidi(bidi)
             .module(&formats)
             .and_then(|context| context.module(&format!("@locale en\n{dir}---\n{body}\n")))

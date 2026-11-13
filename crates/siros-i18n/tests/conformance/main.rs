@@ -5,8 +5,11 @@
 //! `tests/mf2` under the Unicode License beside them.
 //!
 //! Each test's message is the one message of a module in the test's locale, after the module
-//! of the CLDR tool's format sections for its language, and resolves over the test's params,
-//! each given as text: a JSON string as it is, a JSON number as written. A test with errors
+//! of the CLDR tool's format sections for its language, and resolves over the test's params: a
+//! JSON string as a `String`, which takes each function by name, and a JSON number as a number
+//! type whose `Display` is the number as written and whose default formatter is `:number`, as
+//! an implementation formats a number type (spec/formatting.md, "Expression Resolution"). A
+//! test with errors
 //! passes when the context refuses the message, at load or at resolution, with one of the test's
 //! error types: the context shows no fallback value. A test without errors passes when the
 //! resolved text equals `exp`, or resolves when it has none. A test skips only under an entry of

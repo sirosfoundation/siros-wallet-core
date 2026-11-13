@@ -1,8 +1,12 @@
 //! One suite test: its message loaded as the one message of a module in the test's locale, after
 //! the CLDR tool's format module of its language, and resolved over its params.
 
+use std::fmt;
+
 use serde_json::Value as Json;
-use siros_i18n::{Arg, Bidi, LoadError, Message, Refusal, ResolveError, SyntaxRule};
+use siros_i18n::{
+    Arg, Bidi, Formatters, LoadError, Message, Refusal, RegisterError, ResolveError, SyntaxRule,
+};
 use unicode_normalization::UnicodeNormalization as _;
 
 use crate::cldr;
@@ -15,9 +19,23 @@ pub enum Outcome {
 
 const ID: &str = "conformance.message";
 
-/// The test's params: each name in NFC, as a message by hand names its keys, and its value's
-/// text, a JSON number as written.
-struct Params(Vec<(String, String)>);
+/// The test's params: each name in NFC, as a message by hand names its keys, and its value.
+struct Params(Vec<(String, Param)>);
+
+/// A param's value: a JSON string, or a JSON number.
+enum Param {
+    Text(String),
+    Number(Number),
+}
+
+/// A JSON number, its `Display` as written.
+struct Number(String);
+
+impl fmt::Display for Number {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 impl Message for Params {
     fn id(&self) -> &str {
@@ -28,18 +46,48 @@ impl Message for Params {
         self.0
             .iter()
             .find(|(name, _)| name == key)
-            .map(|(_, text)| text as &dyn Arg)
+            .map(|(_, param)| match param {
+                Param::Text(text) => text as &dyn Arg,
+                Param::Number(number) => number as &dyn Arg,
+            })
     }
 }
 
-fn param(json: &Json) -> Result<(String, String), String> {
+fn param(json: &Json) -> Result<(String, Param), String> {
     let name = json["name"].as_str().ok_or("a param without a name")?;
-    let text = match &json["value"] {
-        Json::String(text) => text.clone(),
-        Json::Number(number) => number.to_string(),
+    let value = match &json["value"] {
+        Json::String(text) => Param::Text(text.clone()),
+        Json::Number(number) => Param::Number(Number(number.to_string())),
         other => return Err(format!("a param of JSON {other}")),
     };
-    Ok((name.nfc().collect(), text))
+    Ok((name.nfc().collect(), value))
+}
+
+/// The functions other than `:string` the suite calls on a param.
+const FUNCTIONS: [&str; 8] = [
+    "number",
+    "integer",
+    "offset",
+    "currency",
+    "percent",
+    "test:function",
+    "test:select",
+    "test:format",
+];
+
+/// The suite's formatters: a string takes each function by name, a number each function and
+/// `:number` by default, as an implementation formats a number type (spec/formatting.md,
+/// "Expression Resolution").
+fn formatters() -> Result<Formatters, RegisterError> {
+    FUNCTIONS
+        .iter()
+        .try_fold(Formatters::new(), |formatters, name| {
+            let formatters = formatters.formatter::<String>(name)?;
+            match *name {
+                "number" => formatters.default_formatter::<Number>(name),
+                _ => formatters.formatter::<Number>(name),
+            }
+        })
 }
 
 /// The resource entry of a message: every character the resource format would trim or read as
@@ -113,7 +161,7 @@ fn resolve(
     params: Params,
 ) -> Result<Result<String, &'static str>, String> {
     let context = match cldr::context(locale, bidi, &resource(src)) {
-        Ok(context) => context,
+        Ok(context) => context.formatters(formatters().map_err(|error| error.to_string())?),
         Err(error) => {
             return load_error(&error)
                 .map(Err)
