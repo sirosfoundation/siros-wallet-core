@@ -397,9 +397,9 @@ All notable changes to this workspace. The format follows
   and its currency through `:currency`, a frequency and a boolean as their
   statements' resolved texts. Every issuer text goes through `escape`. A
   template value of an inner text or `mini_markdown` kind sets each referenced
-  value of a typed kind as its typed text (View §3 step 3). A `mini_markdown` value shows its text
-  without its styles. A time of day holds seconds 00 to 59; a date-time's second
-  60 is RFC 3339's leap second. A value's refusal names the rule it breaks
+  value of a typed kind as its typed text (View §3 step 3). A `mini_markdown`
+  value shows its text without its styles. A time of day holds seconds 00 to
+  59; a date-time's second 60 is RFC 3339's leap second. A value's refusal names the rule it breaks
   (`value::Breach`).
 - PaSO View's vocabulary is `siros-paso`'s: its value types (`value`:
   `ValueKind`, `FormattedKind`, `Parsed`, `Written`, `BadValue`,

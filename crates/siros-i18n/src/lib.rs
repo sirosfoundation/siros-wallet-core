@@ -15,8 +15,7 @@
 //! option, an ISO 4217 code of siros-syntax's table; `:siros:date`, `:siros:time` and
 //! `:siros:datetime` take siros-syntax's ISO 8601 literals. Each function family is a feature:
 //! `number` (`:number`, `:integer`), `currency` (`:currency`) and `date`; `:string` is always
-//! in. `siros-cldr` writes the format sections of a language from
-//! CLDR 49.0.0.
+//! in. `siros-cldr` writes the format sections of a language from CLDR 49.0.0.
 //!
 //! An option's value is a literal or a variable's value (MF2's Option Resolution): an argument's
 //! text, a literal, or the value of the call a declaration binds, which is the operand's text for
