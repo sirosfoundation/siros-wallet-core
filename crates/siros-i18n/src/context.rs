@@ -2,22 +2,18 @@
 
 use rustc_hash::FxHashMap;
 
-use std::any::TypeId;
-
-use siros_explain::Arg;
-
 use crate::args::Args;
 use crate::compile;
 #[cfg(feature = "check")]
 use crate::error::CheckError;
-use crate::error::{LoadError, RegisterError, ResolveError};
+use crate::error::{LoadError, ResolveError};
 use crate::format::Formats;
 use crate::locale::LocaleTag;
 use crate::message::Message;
 use crate::messages::{Messages, Prefix};
 use crate::mf2;
 use crate::normal::Hold;
-use crate::registry::Registry;
+use crate::registry::Formatters;
 use crate::resource::{self, Entry};
 use crate::text::Text;
 
@@ -42,7 +38,7 @@ pub struct Context {
     locale: Option<LocaleTag>,
     bidi: Bidi,
     formats: Formats,
-    registry: Registry,
+    formatters: Formatters,
     messages: Messages,
 }
 
@@ -59,34 +55,11 @@ impl Context {
         Self { bidi, ..self }
     }
 
-    /// The context, with an argument of the type `T` taking the function `name`, without its
-    /// colon, where a call names it. Every type takes `:string`, its value's `Display`.
-    ///
-    /// # Errors
-    ///
-    /// [`RegisterError::Function`] for a function the build lacks, and
-    /// [`RegisterError::Repeated`] for a function `T` takes already.
-    pub fn formatter<T: Arg>(self, name: &str) -> Result<Self, RegisterError> {
-        self.register::<T>(name, false)
-    }
-
-    /// The context, with an argument of the type `T` taking the function `name` where a call
-    /// names it and where the wording names none: a placeholder `{$x}`, a declaration
-    /// `.input {$x}` and a selector `.match $x`. A type without a default takes `:string`.
-    ///
-    /// # Errors
-    ///
-    /// The [`RegisterError`] of [`Context::formatter`], and [`RegisterError::Default`] for a
-    /// second default of `T`.
-    pub fn default_formatter<T: Arg>(self, name: &str) -> Result<Self, RegisterError> {
-        self.register::<T>(name, true)
-    }
-
-    /// The context, with `T` taking `name`, by default when `default`.
-    fn register<T: Arg>(mut self, name: &str, default: bool) -> Result<Self, RegisterError> {
-        self.registry
-            .register(TypeId::of::<T>(), std::any::type_name::<T>(), name, default)?;
-        Ok(self)
+    /// The context, its arguments taking `formatters` in place of its own.
+    #[must_use]
+    pub fn formatters(mut self, formatters: Formatters) -> Self {
+        self.formatters = formatters;
+        self
     }
 
     /// The context with the resource `source` loaded whole: its `@locale`, which the first
@@ -200,7 +173,7 @@ impl Context {
             id: id.to_owned(),
             key: key.to_owned(),
         })?;
-        worded.resolve(id, &args, &self.formats, &self.registry, self.bidi)
+        worded.resolve(id, &args, &self.formats, &self.formatters, self.bidi)
     }
 
     /// The wallet's completeness test: every formatter a type takes has its options, and every
@@ -218,7 +191,7 @@ impl Context {
     #[cfg(feature = "check")]
     pub fn check(&self) -> Result<(), CheckError> {
         let mut undefined: Vec<(&'static str, &'static str)> = self
-            .registry
+            .formatters
             .functions()
             .filter(|(function, _)| !self.formats.defines(*function))
             .map(|(function, of)| (of, function.name()))

@@ -19,7 +19,7 @@ use siros_openid4vp::rows::{ClaimText, Env, Icon, IconReference, ImageMedia, Row
 use siros_openid4vp::wallet::Wallet;
 use siros_syntax::{AllOf, Keyed};
 use siros_testkit::fixtures::{Held, parameters, request_of, unsigned};
-use siros_testkit::render::{ENGLISH_OPENID4VP, Language};
+use siros_testkit::render::{self, ENGLISH_OPENID4VP, Language};
 use siros_testkit::{Binds, TestFormat, TestHost, TestProfile};
 
 const QUERY: &str = r#"{"credentials":[{"id":"q","format":"test"}]}"#;
@@ -182,11 +182,16 @@ fn registered(sources: Vec<String>, bidi: Bidi) -> Registration<Cursor<Vec<u8>>>
         tag("en"),
         AllOf::one(tag("en")),
         bidi,
+        render::formatters().expect("the test app's formatters"),
         AllOf::new(sources).expect("sources"),
     )
     .expect("the sources load");
     let blob = write(&base, &Keyed::empty()).expect("written");
-    Registration::open(Cursor::new(blob)).expect("opened")
+    Registration::open(
+        Cursor::new(blob),
+        render::formatters().expect("the test app's formatters"),
+    )
+    .expect("opened")
 }
 
 /// The test app's English sources.
@@ -215,11 +220,8 @@ fn env_of(registration: &Registration<Cursor<Vec<u8>>>) -> Env {
 fn the_matcher_emits_the_wallets_display() {
     let mut nothing = 0;
     for bidi in [Bidi::Default, Bidi::None] {
-        let wallet_context = Language::English
-            .sources()
-            .into_iter()
-            .try_fold(Context::new().bidi(bidi), Context::module)
-            .expect("the wallet's context");
+        let wallet_context =
+            render::loaded(bidi, Language::English.sources()).expect("the wallet's context");
         for case in cases() {
             let mut registration = registered(english(), bidi);
             let env = env_of(&registration);

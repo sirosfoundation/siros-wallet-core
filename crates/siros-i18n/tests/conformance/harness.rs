@@ -4,7 +4,9 @@
 use std::fmt;
 
 use serde_json::Value as Json;
-use siros_i18n::{Arg, Bidi, Context, LoadError, Message, Refusal, ResolveError, SyntaxRule};
+use siros_i18n::{
+    Arg, Bidi, Formatters, LoadError, Message, Refusal, RegisterError, ResolveError, SyntaxRule,
+};
 use unicode_normalization::UnicodeNormalization as _;
 
 use crate::cldr;
@@ -73,25 +75,19 @@ const FUNCTIONS: [&str; 8] = [
     "test:format",
 ];
 
-/// The test functions, which a `String` takes beside the format functions of
-/// [`cldr::strings`].
-const TESTS: [&str; 3] = ["test:function", "test:select", "test:format"];
-
-/// The context with the suite's formatters: a string takes each function by name, a number
-/// each function and `:number` by default, as an implementation formats a number type
-/// (spec/formatting.md, "Expression Resolution").
-fn formatters(context: Context) -> Result<Context, String> {
-    let context = TESTS
-        .iter()
-        .try_fold(context, |context, name| context.formatter::<String>(name))
-        .map_err(|error| error.to_string())?;
+/// The suite's formatters: a string takes each function by name, a number each function and
+/// `:number` by default, as an implementation formats a number type (spec/formatting.md,
+/// "Expression Resolution").
+fn formatters() -> Result<Formatters, RegisterError> {
     FUNCTIONS
         .iter()
-        .try_fold(context, |context, name| match *name {
-            "number" => context.default_formatter::<Number>(name),
-            _ => context.formatter::<Number>(name),
+        .try_fold(Formatters::new(), |formatters, name| {
+            let formatters = formatters.formatter::<String>(name)?;
+            match *name {
+                "number" => formatters.default_formatter::<Number>(name),
+                _ => formatters.formatter::<Number>(name),
+            }
         })
-        .map_err(|error| error.to_string())
 }
 
 /// The resource entry of a message: every character the resource format would trim or read as
@@ -165,7 +161,7 @@ fn resolve(
     params: Params,
 ) -> Result<Result<String, &'static str>, String> {
     let context = match cldr::context(locale, bidi, &resource(src)) {
-        Ok(context) => formatters(context)?,
+        Ok(context) => context.formatters(formatters().map_err(|error| error.to_string())?),
         Err(error) => {
             return load_error(&error)
                 .map(Err)

@@ -5,8 +5,9 @@ builds its wording from, the entries it adds for the core's consent display, and
 each set (A9, K4).
 
 - [`Base::load`]: the entries every request reads, made by loading the wallet's MF2 sources into
-  the matcher's `siros_i18n::Context` in the registration's locale. The context resolves every
-  text on the wallet's code path.
+  the matcher's `siros_i18n::Context` in the registration's locale, its arguments taking the
+  build's `siros_i18n::Formatters`. The context resolves every text on the wallet's code path when
+  the matcher's formatters are the wallet's.
 - `register::write` (feature `register`): the wallet's writer of the registration. It writes once
   the source of each transaction type loads beside the base's, so every request's context loads.
 - [`Registration`]: the matcher's reader of the registration, through `std::io::Read + Seek`. It
@@ -30,21 +31,24 @@ The wallet writes the registration; the matcher opens it and builds its context 
 use std::io::Cursor;
 
 use siros_credman::{Base, Registration};
-use siros_i18n::{Bidi, LocaleTag};
-use siros_syntax::{AllOf, Keyed};
+use siros_i18n::{Bidi, Formatters, LocaleTag};
+use siros_syntax::{AllOf, Date, Keyed};
 
 let english = LocaleTag::parse("en")?;
+// The build's formatters, the wallet's and the matcher's alike.
+let formatters = || Formatters::new().default_formatter::<Date>("siros:date");
 // The wallet loads its sources, then writes the registration (feature `register`).
 let base = Base::load(
     english.clone(),
     AllOf::one(english),
     Bidi::Default,
+    formatters()?,
     AllOf::one("@locale en\n---\n".to_owned()),
 )?;
 let blob = siros_credman::register::write(&base, &Keyed::empty())?;
 
 // The matcher opens it: it reads what every request reads and loads the base's context.
-let registration = Registration::open(Cursor::new(blob))?;
+let registration = Registration::open(Cursor::new(blob), formatters()?)?;
 assert_eq!(registration.base(), &base);
 assert_eq!(registration.transactions().len(), 0);
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -147,7 +151,9 @@ A reader refuses a registration at the first rule it breaks, checked in this ord
 
 [`Registration::open`] reads the header, the directory and the base entries (locale, priority,
 bidi and every source), checks every rule but a transaction source's, and loads the base sources
-in their order into one context under the bidi choice ([`Base::load`]).
+in their order into one context under the bidi choice, its arguments taking the matcher's
+formatters ([`Base::load`]). The registration holds no formatter: the matcher's build registers
+the wallet's.
 [`Registration::context`] reads the source of each registered type a request's `transaction_data`
 names, and no other entry, and loads each into a clone of that context, ascending by type. It
 loads a source byte-equal to one it loaded once: types whose metadata is one object convert to one

@@ -23,7 +23,7 @@ use siros_paso::labels::LabelViolation;
 use siros_paso::outcome::{Outcome, Unsupported};
 use siros_syntax::{AllOf, Keyed};
 use siros_testkit::fixtures::{Held, ORIGIN, parameters};
-use siros_testkit::render::Language;
+use siros_testkit::render::{self, Language};
 use siros_testkit::verifier::{self, ISSUER, secret_key};
 
 use crate::common::{HaipHost, loaded, placement, registry};
@@ -56,11 +56,16 @@ pub fn registered(language: Language, env: &Env) -> Registration<Cursor<Vec<u8>>
         LocaleTag::parse(language.tag()).expect("a tag"),
         AllOf::new(env.priority().to_vec()).expect("a priority list"),
         Bidi::None,
+        render::formatters().expect("the test app's formatters"),
         AllOf::new(sources).expect("the test app's sources"),
     )
     .expect("the base loads");
     let blob = write(&base, &Keyed::empty()).expect("the registration");
-    let registration = Registration::open(Cursor::new(blob)).expect("the matcher reads it");
+    let registration = Registration::open(
+        Cursor::new(blob),
+        render::formatters().expect("the test app's formatters"),
+    )
+    .expect("the matcher reads it");
     assert_eq!(registration.base(), &base);
     registration
 }

@@ -3561,6 +3561,7 @@ dependencies = [
  "siros-explain",
  "siros-i18n",
  "siros-openid4vp",
+ "siros-qes",
  "siros-syntax",
  "thiserror 2.0.21",
 ]

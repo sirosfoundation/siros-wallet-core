@@ -7,14 +7,14 @@ use rustc_hash::FxHashMap;
 use crate::args::Args;
 use crate::chain::{Chain, Declared, Failure, Value};
 use crate::format::Formats;
-use crate::registry::Registry;
+use crate::registry::Formatters;
 
 /// What one resolution of a message reads beside the message: the arguments' texts and types,
 /// the context's format sections and formatters, the declared calls, and the value of each
 /// variable an option reads.
 pub(crate) struct Scope<'m> {
     args: &'m Args<'m>,
-    registry: &'m Registry,
+    formatters: &'m Formatters,
     pub(crate) formats: &'m Formats,
     pub(crate) declared: &'m Declared,
     values: FxHashMap<&'m str, Result<Cow<'m, str>, Failure>>,
@@ -22,16 +22,16 @@ pub(crate) struct Scope<'m> {
 
 impl<'m> Scope<'m> {
     /// The resolution over `args` of a message whose declared calls are `declared`, in a
-    /// context whose format sections are `formats` and whose formatters are `registry`.
+    /// context whose format sections are `formats` and whose formatters are `formatters`.
     pub(crate) fn new(
         args: &'m Args<'m>,
         formats: &'m Formats,
-        registry: &'m Registry,
+        formatters: &'m Formatters,
         declared: &'m Declared,
     ) -> Self {
         Self {
             args,
-            registry,
+            formatters,
             formats,
             declared,
             values: FxHashMap::default(),
@@ -62,14 +62,14 @@ impl<'m> Scope<'m> {
             .type_of(key)
             .ok_or_else(|| Failure::Unresolved(key.to_owned()))?;
         let chain = if unwritten {
-            chain.written(self.registry.default(of).bare())
+            chain.written(self.formatters.default(of).bare())
         } else {
             chain
         };
         let refused = chain
             .calls()
             .map(|call| call.function)
-            .find(|function| !self.registry.takes(of, *function));
+            .find(|function| !self.formatters.takes(of, *function));
         match refused {
             Some(function) => Err(Failure::Unformatted(key.to_owned(), function)),
             None => Ok(chain),

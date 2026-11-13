@@ -802,6 +802,7 @@
       "name": "siros-testkit",
       "names": [
         "siros-openid4vp",
+        "siros-qes",
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",

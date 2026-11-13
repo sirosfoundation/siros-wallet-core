@@ -1,8 +1,12 @@
 //! The test app's texts, as a wallet app loads them: per language, siros-cldr's options of its
 //! formats, then its wording of every crate's statements and of the errors a test shows, each
-//! module a resource whose keys are full ids.
+//! module a resource whose keys are full ids, its arguments taking the app's [`formatters`].
 
-use siros_i18n::{Bidi, Context, LoadError};
+use siros_explain::Explain;
+use siros_i18n::{Bidi, Context, Formatters, LoadError, RegisterError};
+use siros_openid4vp::rows::ExactNumber;
+use siros_qes::DocumentNumber;
+use siros_syntax::{Count, Date, DateTime, Decimal, OffsetTime};
 
 /// siros-cldr's en options.
 const CLDR_EN: &str = include_str!("../locales/cldr/en.mf2");
@@ -28,9 +32,54 @@ pub const GERMAN_TESTKIT: &str = include_str!("../locales/de/testkit.mf2");
 
 thread_local! {
     /// The English context, loaded once per thread.
-    static ENGLISH: Result<&'static Context, LoadError> = Language::English.context().map(leak);
+    static ENGLISH: Result<&'static Context, AppError> = Language::English.context().map(leak);
     /// The German context, loaded once per thread.
-    static GERMAN: Result<&'static Context, LoadError> = Language::German.context().map(leak);
+    static GERMAN: Result<&'static Context, AppError> = Language::German.context().map(leak);
+}
+
+/// Why the test app's context does not load.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+pub enum AppError {
+    /// A formatter the build refuses.
+    #[error(transparent)]
+    Register(#[from] RegisterError),
+    /// A source the context refuses.
+    #[error(transparent)]
+    Load(#[from] LoadError),
+}
+
+/// The test app's formatters: a date, a time and a date and time take `:siros:date`,
+/// `:siros:time` and `:siros:datetime`, an exact number `:number` and a count `:integer`, each
+/// by default; an amount's number takes `:currency`, and a document number `:integer`.
+///
+/// # Errors
+///
+/// The [`RegisterError`] of a function the build lacks.
+pub fn formatters() -> Result<Formatters, RegisterError> {
+    Formatters::new()
+        .default_formatter::<Date>("siros:date")?
+        .default_formatter::<OffsetTime>("siros:time")?
+        .default_formatter::<DateTime>("siros:datetime")?
+        .default_formatter::<ExactNumber>("number")?
+        .default_formatter::<Count>("integer")?
+        .formatter::<Decimal>("currency")?
+        .formatter::<DocumentNumber>("integer")
+}
+
+/// The test app's context of `sources`, loaded in their order under `bidi`.
+///
+/// # Errors
+///
+/// [`AppError::Register`] for the app's formatters, and the [`LoadError`] of the first source
+/// the context refuses.
+pub fn loaded<S: AsRef<str>>(
+    bidi: Bidi,
+    sources: impl IntoIterator<Item = S>,
+) -> Result<Context, AppError> {
+    let context = Context::new().bidi(bidi).formatters(formatters()?);
+    Ok(sources
+        .into_iter()
+        .try_fold(context, |context, source| context.module(source.as_ref()))?)
 }
 
 /// The context, for the rest of the thread's tests.
@@ -82,24 +131,22 @@ impl Language {
         }
     }
 
-    /// The test app's context in the language: its [`sources`](Self::sources), each placeholder's
-    /// text as formatted.
+    /// The test app's context in the language: its [`sources`](Self::sources) [`loaded`] without
+    /// bidi isolation.
     ///
     /// # Errors
     ///
-    /// The [`LoadError`] of the first source the context refuses.
-    pub fn context(self) -> Result<Context, LoadError> {
-        self.sources()
-            .into_iter()
-            .try_fold(Context::new().bidi(Bidi::None), Context::module)
+    /// The [`AppError`] of [`loaded`].
+    pub fn context(self) -> Result<Context, AppError> {
+        loaded(Bidi::None, self.sources())
     }
 
     /// The test app's context in the language, loaded once per thread.
     ///
     /// # Errors
     ///
-    /// The [`LoadError`] of the first source the context refuses.
-    pub fn shared(self) -> Result<&'static Context, LoadError> {
+    /// The [`AppError`] of [`loaded`].
+    pub fn shared(self) -> Result<&'static Context, AppError> {
         match self {
             Self::English => ENGLISH.with(Clone::clone),
             Self::German => GERMAN.with(Clone::clone),
@@ -119,8 +166,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// The [`LoadError`] of the first source a context refuses.
-    pub fn new() -> Result<Self, LoadError> {
+    /// The [`AppError`] of [`loaded`].
+    pub fn new() -> Result<Self, AppError> {
         Ok(Self {
             english: Language::English.context()?,
             german: Language::German.context()?,

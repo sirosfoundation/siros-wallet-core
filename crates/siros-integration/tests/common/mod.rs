@@ -33,7 +33,7 @@ use siros_paso::{
 use siros_qes::QesProfile;
 use siros_sdjwt::SdJwtVc;
 use siros_syntax::AllOf;
-use siros_testkit::render::{ENGLISH_PASO, GERMAN_PASO, Language};
+use siros_testkit::render::{self, ENGLISH_PASO, GERMAN_PASO, Language};
 use siros_testkit::{TestHaip, TestPlatform, TestRequestDecryption};
 use siros_ts12::{AttestationType, Ts12Document, Ts12Profile, Ts12Type};
 
@@ -224,20 +224,20 @@ thread_local! {
             Language::German => GERMAN_PASO,
         };
         assert!(paso.contains(AMOUNT_FORMATTED), "the test app's amount wording");
-        let context = language
-            .sources()
-            .into_iter()
-            .map(|source| {
-                if source == paso {
-                    source.replace(AMOUNT_FORMATTED, AMOUNT_WRITTEN)
-                } else {
-                    source.to_owned()
-                }
-            })
-            .try_fold(Context::new().bidi(Bidi::None), |context, source| {
-                context.module(&source)
-            })
-            .expect("the test app's sources");
+        let context = render::loaded(
+            Bidi::None,
+            language
+                .sources()
+                .into_iter()
+                .map(|source| {
+                    if source == paso {
+                        source.replace(AMOUNT_FORMATTED, AMOUNT_WRITTEN)
+                    } else {
+                        source.to_owned()
+                    }
+                }),
+        )
+        .expect("the test app's sources");
         &*Box::leak(Box::new(context))
     });
 }

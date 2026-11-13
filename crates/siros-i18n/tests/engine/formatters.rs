@@ -6,7 +6,7 @@
 use std::any::type_name;
 use std::fmt;
 
-use siros_i18n::{Arg, Bidi, Context, Message, Refusal, RegisterError, ResolveError};
+use siros_i18n::{Arg, Bidi, Context, Formatters, Message, Refusal, RegisterError, ResolveError};
 
 use crate::{cldr, english};
 
@@ -74,12 +74,14 @@ key = .match $n |x| {{x}} * {{other}}";
 
 fn context() -> Context {
     let formats = cldr::formats("en").expect("the en fixture");
+    let formatters = Formatters::new()
+        .default_formatter::<Count>("number")
+        .and_then(|formatters| formatters.formatter::<Count>("integer"))
+        .and_then(|formatters| formatters.default_formatter::<Day>("siros:date"))
+        .expect("the build has the functions");
     Context::new()
         .bidi(Bidi::None)
-        .default_formatter::<Count>("number")
-        .and_then(|context| context.formatter::<Count>("integer"))
-        .and_then(|context| context.default_formatter::<Day>("siros:date"))
-        .expect("the build has the functions")
+        .formatters(formatters)
         .module(&formats)
         .and_then(|context| context.module(&english(BODY)))
         .expect("the modules load")
@@ -156,24 +158,24 @@ fn each_registration_rule_refuses_its_fixture() {
     let count = type_name::<Count>();
     let cases = [
         (
-            Context::new().formatter::<Count>("nothing"),
+            Formatters::new().formatter::<Count>("nothing"),
             RegisterError::Function {
                 name: "nothing".to_owned(),
             },
         ),
         (
-            Context::new()
+            Formatters::new()
                 .formatter::<Count>("integer")
-                .and_then(|context| context.default_formatter::<Count>("integer")),
+                .and_then(|formatters| formatters.default_formatter::<Count>("integer")),
             RegisterError::Repeated {
                 of: count,
                 name: "integer".to_owned(),
             },
         ),
         (
-            Context::new()
+            Formatters::new()
                 .default_formatter::<Count>("number")
-                .and_then(|context| context.default_formatter::<Count>("integer")),
+                .and_then(|formatters| formatters.default_formatter::<Count>("integer")),
             RegisterError::Default { of: count },
         ),
     ];

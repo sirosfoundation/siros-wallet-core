@@ -9,7 +9,7 @@ use std::io::{self, Cursor, Read, Seek, SeekFrom};
 
 use siros_credman::register::{RegisterError, write};
 use siros_credman::{Base, ContextError, Kind, Malformed, ReadError, Registration};
-use siros_i18n::{Bidi, Context, LoadError, LocaleTag, ResolveError};
+use siros_i18n::{Bidi, Context, Formatters, LoadError, LocaleTag, ResolveError};
 use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::request::Request;
 use siros_syntax::{AllOf, Entry, Keyed};
@@ -103,6 +103,7 @@ fn honest_base() -> Base {
         tag("en"),
         AllOf::new(vec![tag("en"), tag("de-CH")]).expect("tags"),
         Bidi::Default,
+        Formatters::new(),
         AllOf::one(SOURCE.to_owned()),
     )
     .expect("the honest base loads")
@@ -149,6 +150,7 @@ fn the_reader_gives_back_what_the_writer_writes() {
             tag("zh-Hant-TW"),
             AllOf::new(vec![tag("zh-Hant-TW"), tag("en"), tag("de-CH-x-phonebk")]).expect("tags"),
             Bidi::None,
+            Formatters::new(),
             AllOf::new(vec![
                 "@locale zh-Hant-TW\n---\n".to_owned(),
                 "@locale zh-Hant-TW\n---\n[first]\nlabel = first\n".to_owned(),
@@ -187,7 +189,8 @@ fn the_reader_gives_back_what_the_writer_writes() {
             .map(|(name, source)| (*name, source.as_str()))
             .collect();
         let blob = write(&base, &types(&keyed)).expect("written");
-        let mut registration = Registration::open(Cursor::new(blob)).expect("opened");
+        let mut registration =
+            Registration::open(Cursor::new(blob), Formatters::new()).expect("opened");
         assert_eq!(registration.base(), &base);
         let listed: Vec<&str> = registration
             .transactions()
@@ -221,7 +224,8 @@ fn a_type_longer_than_a_name_holds_is_not_written() {
     let written = |name: &str| write(&honest_base(), &types(&[(name, SOURCE)]));
     let longest = "t".repeat(65_535);
     let blob = written(&longest).expect("written");
-    let mut registration = Registration::open(Cursor::new(blob)).expect("opened");
+    let mut registration =
+        Registration::open(Cursor::new(blob), Formatters::new()).expect("opened");
     assert_eq!(
         registration.transaction(&kind(&longest)).expect("read"),
         Some(SOURCE.to_owned())
@@ -257,7 +261,7 @@ impl Seek for Huge {
 
 /// The rule a blob breaks: the error of opening it, else of reading `t1`'s source.
 fn broken(blob: Vec<u8>) -> Malformed {
-    let mut registration = match Registration::open(Cursor::new(blob)) {
+    let mut registration = match Registration::open(Cursor::new(blob), Formatters::new()) {
         Ok(registration) => registration,
         Err(ReadError::Malformed(rule)) => return rule,
         Err(other) => panic!("no rule of the format: {other:?}"),
@@ -275,7 +279,7 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
     let honest_blob = laid_out(&honest(), &[]);
     let size = u32::try_from(honest_blob.len()).expect("a u32");
     assert!(
-        Registration::open(Cursor::new(honest_blob.clone())).is_ok(),
+        Registration::open(Cursor::new(honest_blob.clone()), Formatters::new()).is_ok(),
         "the honest registration opens"
     );
     let changed = |position: usize, bytes: &[u8]| {
@@ -450,7 +454,7 @@ fn a_registration_that_breaks_a_rule_is_refused_with_the_rule() {
     let past = 1_u64 << 32;
     assert!(
         matches!(
-            Registration::open(Huge { size: past, at: 0 }),
+            Registration::open(Huge { size: past, at: 0 }, Formatters::new()),
             Err(ReadError::Malformed(Malformed::Size { size })) if size == past
         ),
         "a blob past 4294967295 bytes"
@@ -468,6 +472,7 @@ fn sources_that_do_not_load_are_refused() {
             tag(locale),
             AllOf::one(tag("en")),
             Bidi::Default,
+            Formatters::new(),
             AllOf::new(sources.iter().map(|source| (*source).to_owned()).collect())
                 .expect("sources"),
         )
@@ -524,7 +529,7 @@ fn sources_that_do_not_load_are_refused() {
     records[3].bytes = broken.as_bytes().to_vec();
     assert!(
         matches!(
-            Registration::open(Cursor::new(laid_out(&records, &[]))),
+            Registration::open(Cursor::new(laid_out(&records, &[])), Formatters::new()),
             Err(ReadError::Context(ContextError::Source {
                 at: 0,
                 cause: LoadError::Syntax { .. }
@@ -538,7 +543,8 @@ fn sources_that_do_not_load_are_refused() {
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
     let mut registration =
-        Registration::open(Cursor::new(laid_out(&records, &[]))).expect("the base loads");
+        Registration::open(Cursor::new(laid_out(&records, &[])), Formatters::new())
+            .expect("the base loads");
     assert!(
         matches!(
             registration.context(&request),
@@ -557,7 +563,8 @@ fn sources_that_do_not_load_are_refused() {
 fn one_source_under_two_types_is_written_and_loads() {
     let one = "@locale en\n---\n[gate]\nlabel = One\n";
     let blob = write(&honest_base(), &types(&[("t0", one), ("t1", one)])).expect("written");
-    let mut registration = Registration::open(Cursor::new(blob)).expect("opened");
+    let mut registration =
+        Registration::open(Cursor::new(blob), Formatters::new()).expect("opened");
     for name in ["t0", "t1"] {
         assert_eq!(
             registration.transaction(&kind(name)).expect("read"),
@@ -596,6 +603,7 @@ fn a_key_outside_nfc_is_not_written() {
             tag("en"),
             AllOf::one(tag("en")),
             Bidi::Default,
+            Formatters::new(),
             AllOf::new(vec![SOURCE.to_owned(), second]).expect("sources"),
         )
         .expect("the reader's load takes it")
@@ -690,6 +698,7 @@ fn a_request_reads_the_base_and_the_source_of_the_type_it_names() {
         tag("en"),
         AllOf::new(vec![tag("en"), tag("de")]).expect("tags"),
         Bidi::None,
+        Formatters::new(),
         AllOf::new(sources.iter().map(|s| (*s).to_owned()).collect()).expect("sources"),
     )
     .expect("the base loads");
@@ -723,7 +732,7 @@ fn a_request_reads_the_base_and_the_source_of_the_type_it_names() {
         at: 0,
         reads: Vec::new(),
     };
-    let context: Context = Registration::open(&mut counting)
+    let context: Context = Registration::open(&mut counting, Formatters::new())
         .expect("opened")
         .context(&request)
         .expect("the context");

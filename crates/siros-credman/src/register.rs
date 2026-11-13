@@ -117,6 +117,7 @@ fn priority(base: &Base) -> String {
 fn loads(base: &Base, types: &[&Entry<TransactionType<'_>, String>]) -> Result<(), RegisterError> {
     let context = loaded(
         base.bidi(),
+        base.formatters(),
         base.sources(),
         Context::module_in_nfc,
         |at, cause| RegisterError::Source { at, cause },

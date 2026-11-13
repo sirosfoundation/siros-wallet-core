@@ -107,8 +107,13 @@ All notable changes to this workspace. The format follows
   MessageFormat 2 sources of one locale, each loaded whole and checked
   (`LoadError`); `Context::resolve` makes a `Text`, styled spans, from an error
   or a statement (`ResolveError`), and no other code makes one. A statement
-  derives `Message` (`siros-i18n-derive`). Every argument is text: `:string`
-  writes it as given; `:number` and `:integer` parse an MF2 number literal and
+  derives `Message` (`siros-i18n-derive`). Every argument is typed: the
+  context's `Formatters` give each type the functions a call may name on it and
+  at most one default, which a placeholder, a declaration and a selector that
+  name no function take (`ResolveError::Unformatted`, `ResolveError::Selector`,
+  `RegisterError`). Every type takes `:string`, which writes its `Display` as
+  given, by default where it registers no other. The functions read the
+  argument's text: `:number` and `:integer` parse an MF2 number literal and
   show its fraction digits as written; `:offset`, `:currency` (its `currency`
   option literal or variable), `:percent`, `:siros:date`, `:siros:time` and
   `:siros:datetime` parse their operand. An option's value is a literal or a
@@ -127,8 +132,8 @@ All notable changes to this workspace. The format follows
   to a given text, and `Context::bidi` takes the app's bidi strategy.
 - siros-i18n's `check` feature is the wallet's one completeness test: each
   derive registers its id and argument names, and `Context::check` refuses an
-  id two crates share, an id no source words and a message that names an
-  argument its row lacks.
+  id two crates share, an id no source words, a message that names an
+  argument its row lacks, and a formatter whose options no module defines.
 - `siros-i18n-derive`: `#[derive(Message)]` on a statement, its id under the crate's scope and
   its named fields as arguments. A repeated id fails the build; under `check` each id registers a
   row for `Context::check`.
@@ -165,7 +170,8 @@ All notable changes to this workspace. The format follows
   of entries each checked against the blob's size, then the entries: the locale it was written in,
   the End-User's ranked locale tags, the wallet's bidi choice, the wallet's sources for the matcher,
   formats first, and each registered transaction type's converted View source. `Base::load` loads
-  the base sources into one context in that locale. Under `register`, which turns on siros-i18n's
+  the base sources into one context in that locale, its arguments taking the build's `Formatters`,
+  which `Registration::open` takes from the matcher. Under `register`, which turns on siros-i18n's
   `nfc`, `register::write` takes a `Base`, loads its sources again, then each transaction source
   into a clone of its context and all of them into one clone, each through `Context::module_in_nfc`,
   before it writes. It refuses a base source (`RegisterError::Source`) or a transaction source
@@ -393,9 +399,9 @@ All notable changes to this workspace. The format follows
   entries View §4 tries for the selected tag, a template entry an absent claim
   discards selected by its argument `e<j>`. A `mini_markdown` label is its MF2
   markup, and a template label's `{n}` the argument `c<n>`, `""` when the claim
-  is absent. A claim's value enters as its literal text: a date or a time
-  through `:siros:date`, `:siros:time` or `:siros:datetime`, an amount as its
-  value and its currency through `:currency`, a frequency and a boolean as their
+  is absent. A claim's value enters typed: a date, a time, a date and time and
+  a currency through their types' default formatters, an amount as its number
+  and its currency through `:currency`, a frequency and a boolean as their
   statements' resolved texts. Every issuer text goes through `escape`, and the
   source's ids, names and variant keys are ASCII, so a matcher built without
   siros-i18n's `nfc` loads it into the wallet's messages. A template value of an

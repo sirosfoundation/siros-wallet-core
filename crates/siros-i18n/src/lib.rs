@@ -5,9 +5,9 @@
 //! options of the format functions. [`Context::resolve`] resolves a message into a [`Text`], its
 //! spans styled by the wording's markup (`{#strong}`, `{#emphasis}`, `{#underline}`).
 //!
-//! An argument takes the formatters its type registers with the context:
-//! [`Context::formatter`] lets a call name a function on the type, and
-//! [`Context::default_formatter`] also makes the function that of a placeholder `{$x}`, a
+//! An argument takes the functions its type registers in the context's [`Formatters`]:
+//! [`Formatters::formatter`] lets a call name a function on the type, and
+//! [`Formatters::default_formatter`] also makes the function that of a placeholder `{$x}`, a
 //! declaration `.input {$x}` and a selector `.match $x` that name none. Every type takes
 //! `:string`, which writes its value's `Display`, and takes it by default where it registers no
 //! other. A function reads the value's `Display`: `:number` and `:integer` take a number literal
@@ -127,6 +127,7 @@ pub use error::{
 pub use escape::escape;
 pub use locale::{InvalidTag, LocaleTag};
 pub use message::Message;
+pub use registry::Formatters;
 pub use siros_explain::{Arg, scope};
 #[cfg(feature = "derive")]
 pub use siros_i18n_derive::Message;

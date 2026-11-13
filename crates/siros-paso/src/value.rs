@@ -229,9 +229,9 @@ impl Parsed {
     }
 }
 
-/// A value shown alone whose kind siros-openid4vp's statements lack, carrying its literal: the
-/// wallet's wording formats it (`{$value :siros:time}`,
-/// `{$value :currency currency=$currency}`) or writes it as given.
+/// A value shown alone whose kind siros-openid4vp's statements lack, carrying it typed: the
+/// wallet's formatters give each type its default (`{$value}`), and its wording names another
+/// function where it chooses one (`{$value :currency currency=$currency}`).
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub enum ValueText {
     /// A time of day (`12:30:15+02:00`), unzoned without an offset.

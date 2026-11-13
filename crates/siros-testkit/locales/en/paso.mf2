@@ -56,7 +56,7 @@ year = yearly
 tyea = every two years
 
 [paso.value]
-time = {$value :siros:time}
+time = {$value}
 currency = {$code}
 amount = {$value :currency currency=$currency}
 

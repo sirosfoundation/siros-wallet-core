@@ -3,7 +3,7 @@
 use std::fmt;
 
 use siros_explain::Explain;
-use siros_i18n::{Bidi, Context, LoadError, LocaleTag};
+use siros_i18n::{Bidi, Context, Formatters, LoadError, LocaleTag};
 use siros_openid4vp::ids::TransactionType;
 use siros_syntax::AllOf;
 
@@ -108,12 +108,15 @@ pub struct Base {
     priority: AllOf<LocaleTag>,
     bidi: Bidi,
     sources: AllOf<String>,
+    formatters: Formatters,
     context: Context,
 }
 
 impl Base {
     /// The base whose context loads `sources` in their order under `bidi`, in the locale
-    /// `locale`. The wallet registers anew when its language changes.
+    /// `locale`, its arguments taking `formatters`: the build's, the wallet's when it writes the
+    /// registration and the matcher's when it reads it. The wallet registers anew when its
+    /// language changes.
     ///
     /// # Errors
     ///
@@ -123,9 +126,10 @@ impl Base {
         locale: LocaleTag,
         priority: AllOf<LocaleTag>,
         bidi: Bidi,
+        formatters: Formatters,
         sources: AllOf<String>,
     ) -> Result<Self, ContextError> {
-        let context = loaded(bidi, &sources, Context::module, |at, cause| {
+        let context = loaded(bidi, &formatters, &sources, Context::module, |at, cause| {
             ContextError::Source { at, cause }
         })?;
         if context.locale() != Some(&locale) {
@@ -139,6 +143,7 @@ impl Base {
             priority,
             bidi,
             sources,
+            formatters,
             context,
         })
     }
@@ -168,6 +173,12 @@ impl Base {
         &self.sources
     }
 
+    /// The formatters the context's arguments take.
+    #[must_use]
+    pub const fn formatters(&self) -> &Formatters {
+        &self.formatters
+    }
+
     /// The matcher's context before a request: the sources loaded.
     #[must_use]
     pub const fn context(&self) -> &Context {
@@ -175,8 +186,8 @@ impl Base {
     }
 }
 
-/// The context a base's sources load into: under `bidi`, each source through `load`, in their
-/// order.
+/// The context a base's sources load into: under `bidi`, its arguments taking `formatters`, each
+/// source through `load`, in their order.
 ///
 /// # Errors
 ///
@@ -184,20 +195,19 @@ impl Base {
 /// refusal.
 pub(crate) fn loaded<E>(
     bidi: Bidi,
+    formatters: &Formatters,
     sources: &AllOf<String>,
     load: impl Fn(Context, &str) -> Result<Context, LoadError>,
     refused: impl Fn(usize, LoadError) -> E,
 ) -> Result<Context, E> {
-    sources
-        .items()
-        .iter()
-        .enumerate()
-        .try_fold(Context::new().bidi(bidi), |context, (at, source)| {
-            load(context, source).map_err(|cause| refused(at, cause))
-        })
+    sources.items().iter().enumerate().try_fold(
+        Context::new().bidi(bidi).formatters(formatters.clone()),
+        |context, (at, source)| load(context, source).map_err(|cause| refused(at, cause)),
+    )
 }
 
-/// Bases are equal when their entries are: each loads its context from them.
+/// Bases are equal when their entries are: each loads its context from them, its arguments
+/// taking the build's formatters.
 impl PartialEq for Base {
     fn eq(&self, other: &Self) -> bool {
         self.locale == other.locale

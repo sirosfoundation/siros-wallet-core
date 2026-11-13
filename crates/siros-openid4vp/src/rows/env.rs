@@ -37,8 +37,9 @@ pub enum WalletText {
     Null,
 }
 
-/// A value shown alone, a credential's or a request's, carrying its literal text: the wallet's
-/// wording formats it (`{$value :number}`, `{$value :siros:date}`) or writes it as given.
+/// A value shown alone, a credential's or a request's, carrying it typed: the wallet's formatters
+/// give each type its default (`{$value}`), and its wording names another function where it
+/// chooses one.
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub enum ClaimText {
     /// A string value, as the credential wrote it.

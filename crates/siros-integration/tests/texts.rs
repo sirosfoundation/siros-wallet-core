@@ -105,8 +105,9 @@ fn the_rows_are_the_linked_crates_derives_and_the_test_app_words_each_statement(
     for language in Language::ALL {
         let context: Context = language
             .context()
-            .and_then(|context| context.module(&errors_worded(language)))
-            .expect("the test app's context");
+            .expect("the test app's context")
+            .module(&errors_worded(language))
+            .expect("the errors' wording");
         assert_eq!(context.check(), Ok(()), "{}", language.tag());
     }
 }

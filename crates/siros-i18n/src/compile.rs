@@ -22,7 +22,7 @@ use crate::format::{Direction, Formats, Function, Selected, Selecting};
 use crate::mf2::ast::{self, MarkupKind};
 use crate::mf2::valid::{Shape, Valid};
 use crate::normal::Hold;
-use crate::registry::Registry;
+use crate::registry::Formatters;
 use crate::scope::Scope;
 use crate::text::{Style, Text, Writer};
 
@@ -474,10 +474,10 @@ impl Compiled {
         id: &str,
         args: &Args<'_>,
         formats: &Formats,
-        registry: &Registry,
+        formatters: &Formatters,
         bidi: Bidi,
     ) -> Result<Text, ResolveError> {
-        let mut scope = Scope::new(args, formats, registry, &self.declared);
+        let mut scope = Scope::new(args, formats, formatters, &self.declared);
         for variable in &self.read {
             scope.hold(variable);
         }

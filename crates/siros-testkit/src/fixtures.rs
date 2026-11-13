@@ -138,7 +138,7 @@ pub enum FixtureError {
     Fault(#[from] Fault),
     /// The test app's wording does not load.
     #[error(transparent)]
-    Wording(#[from] siros_i18n::LoadError),
+    Wording(#[from] crate::render::AppError),
     /// The kit's registry cannot exist.
     #[error(transparent)]
     Registry(#[from] RegistryError),

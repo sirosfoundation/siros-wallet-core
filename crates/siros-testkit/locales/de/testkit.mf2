@@ -6,9 +6,9 @@
 [testkit.format]
 monthly = monatlich
 written = {$text}
-date = {$value :siros:date}
-time = {$value :siros:time}
-date_time = {$value :siros:datetime}
+date = {$value}
+time = {$value}
+date_time = {$value}
 currency = {$code}
 amount = {$value :currency currency=$currency}
 

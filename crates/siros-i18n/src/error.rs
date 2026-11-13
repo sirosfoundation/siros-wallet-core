@@ -436,8 +436,8 @@ pub enum ResolveError {
     },
 }
 
-/// Why [`Context::formatter`](crate::Context::formatter) or
-/// [`Context::default_formatter`](crate::Context::default_formatter) refused a formatter.
+/// Why [`Formatters::formatter`](crate::Formatters::formatter) or
+/// [`Formatters::default_formatter`](crate::Formatters::default_formatter) refused a function.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum RegisterError {
     /// The build has no function of the name.

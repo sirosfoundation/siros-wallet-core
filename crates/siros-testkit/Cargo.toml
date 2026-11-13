@@ -32,6 +32,8 @@ siros-explain = { workspace = true }
 siros-syntax = { workspace = true }
 # The test app's contexts, with the functions its wording calls.
 siros-i18n = { workspace = true, features = ["number", "currency", "date", "derive"] }
+# The type of a document number, which the test app's formatters take.
+siros-qes = { path = "../siros-qes" }
 p256 = { workspace = true, features = ["ecdsa", "ecdh"] }
 aes-gcm = { workspace = true }
 miniz_oxide = { workspace = true }

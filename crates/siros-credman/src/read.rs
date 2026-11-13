@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 
 use rustc_hash::FxHashSet;
 use siros_explain::Explain;
-use siros_i18n::{Bidi, Context, LocaleTag};
+use siros_i18n::{Bidi, Context, Formatters, LocaleTag};
 use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::request::{Entry, Request};
 use siros_syntax::AllOf;
@@ -630,7 +630,8 @@ impl<R> Registration<R> {
 
 impl<R: Read + Seek> Registration<R> {
     /// The registration `reader` holds from its start to its end: the header, the directory and
-    /// the base entries read, the base's sources loaded ([`Base::load`]), and every rule of the
+    /// the base entries read, the base's sources loaded ([`Base::load`]) with the matcher's
+    /// `formatters`, and every rule of the
     /// crate README's "Format" checked but those of a transaction source, which
     /// [`Registration::transaction`] and [`Registration::context`] check.
     ///
@@ -638,7 +639,7 @@ impl<R: Read + Seek> Registration<R> {
     ///
     /// [`ReadError::Malformed`] for the first rule the registration breaks,
     /// [`ReadError::Context`] for base sources that do not load, and the reader's failure.
-    pub fn open(mut reader: R) -> Result<Self, ReadError> {
+    pub fn open(mut reader: R, formatters: Formatters) -> Result<Self, ReadError> {
         let size = reader.seek(SeekFrom::End(0))?;
         let size = u32::try_from(size).map_err(|_| Malformed::Size { size })?;
         if size < HEADER {
@@ -666,6 +667,7 @@ impl<R: Read + Seek> Registration<R> {
             read(&mut reader, directory.locale)?,
             read(&mut reader, directory.priority)?,
             read(&mut reader, directory.bidi)?,
+            formatters,
             directory.sources.try_map(|span| read(&mut reader, *span))?,
         )?;
         Ok(Self {

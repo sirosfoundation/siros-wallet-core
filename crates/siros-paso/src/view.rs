@@ -11,9 +11,9 @@
 //! over each such entry's argument `e<j>` (`live` or `dead`, by its position) whose fallback is
 //! the last entry tried. A plain label is literal text, a `mini_markdown` label its emphasis,
 //! strong and underline spans as markup (`strong`, `emphasis`, `underline`), a template label its
-//! spans with each `{n}` naming a claim as the argument `c<n>`, formatted by claim n's value type:
-//! `:siros:date`, `:siros:time` and `:siros:datetime` over the value's literal, `:currency` over
-//! an amount's number `c<n>` with its code `c<n>_currency`, any other value as given. Every text
+//! spans with each `{n}` naming a claim as the argument `c<n>`: `:currency` over an amount's
+//! number `c<n>` with its code `c<n>_currency`, any other value as its type's default formatter
+//! shows it (a `siros_syntax::Date`, `OffsetTime`, `DateTime` or `Currency`, a text as `String`). Every text
 //! the metadata writes reaches the source through [`siros_i18n::escape`]. A message's format
 //! options are the wallet's modules' in the same context.
 //!
@@ -97,38 +97,6 @@ pub(crate) fn liveness(position: usize) -> String {
 pub(crate) const LIVE: &str = "live";
 /// The value of a liveness argument for an entry an absent claim discards.
 pub(crate) const DEAD: &str = "dead";
-
-/// How a template's `{n}` shows claim n's value, by the claim's value type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Shows {
-    /// As given: a text, a boolean or a frequency as the wallet words it, a currency's code.
-    Given,
-    /// Through a function of the value's literal.
-    Function(&'static str),
-    /// Through `:currency`: the amount's number with its code as the `currency` option.
-    Amount,
-}
-
-const fn shows(value_type: ValueType) -> Shows {
-    match value_type {
-        ValueType::Kind(ValueKind::Formatted(kind)) => match kind {
-            FormattedKind::Date => Shows::Function("siros:date"),
-            FormattedKind::Time => Shows::Function("siros:time"),
-            FormattedKind::DateTime => Shows::Function("siros:datetime"),
-            FormattedKind::CurrencyAmount => Shows::Amount,
-            FormattedKind::Text
-            | FormattedKind::Boolean
-            | FormattedKind::Frequency
-            | FormattedKind::Currency
-            | FormattedKind::MiniMarkdown
-            | FormattedKind::Url => Shows::Given,
-        },
-        ValueType::Plain
-        | ValueType::Kind(ValueKind::Image)
-        | ValueType::LabelOnly
-        | ValueType::Template(_) => Shows::Given,
-    }
-}
 
 /// Why a type's metadata does not convert.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -347,11 +315,7 @@ fn message_in(
         .take(before.len())
         .map(|(position, _)| liveness(*position))
         .collect();
-    let mut message = String::new();
-    for selector in &selectors {
-        message.push_str(&format!(".input {{${selector} :string}} "));
-    }
-    message.push_str(".match");
+    let mut message = ".match".to_owned();
     for selector in &selectors {
         message.push_str(&format!(" ${selector}"));
     }
@@ -465,12 +429,16 @@ fn value_type(claims: &[ClaimMeta<'_>], claim: ClaimIndex) -> ValueType {
         .map_or(ValueType::Plain, |display| display.value)
 }
 
-/// The placeholder of claim n's argument, as its value type shows it.
+/// The placeholder of claim n's argument: an amount's number through `:currency` with its
+/// code as the `currency` option, any other value as its type's default formatter shows it.
 fn placeholder(claim: ClaimIndex, value_type: ValueType) -> String {
     let name = argument(claim);
-    match shows(value_type) {
-        Shows::Given => format!("{{${name}}}"),
-        Shows::Function(function) => format!("{{${name} :{function}}}"),
-        Shows::Amount => format!("{{${name} :currency currency=${}}}", currency(claim)),
+    match value_type {
+        ValueType::Kind(ValueKind::Formatted(FormattedKind::CurrencyAmount)) => {
+            format!("{{${name} :currency currency=${}}}", currency(claim))
+        }
+        ValueType::Plain | ValueType::Kind(_) | ValueType::LabelOnly | ValueType::Template(_) => {
+            format!("{{${name}}}")
+        }
     }
 }

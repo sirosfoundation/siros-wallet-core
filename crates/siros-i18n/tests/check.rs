@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use siros_i18n::{CheckError, Context};
+use siros_i18n::{CheckError, Context, Formatters};
 
 siros_i18n::scope!("checked");
 
@@ -107,9 +107,11 @@ fn check_refuses_an_unworded_row_and_an_unknown_key() {
 
 #[test]
 fn check_refuses_a_formatter_without_its_options() {
-    let context = Context::new()
-        .default_formatter::<u32>("siros:date")
-        .expect("the build has :siros:date");
+    let context = Context::new().formatters(
+        Formatters::new()
+            .default_formatter::<u32>("siros:date")
+            .expect("the build has :siros:date"),
+    );
     assert_eq!(
         context.check(),
         Err(CheckError::Undefined {

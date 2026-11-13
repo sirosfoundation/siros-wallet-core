@@ -25,7 +25,7 @@ use siros_paso::render::{Registered, TransactionView, ViewRow};
 use siros_paso::rulebook::PasoType;
 use siros_paso::rules::BindExcluded;
 use siros_paso::value::ValueKind;
-use siros_testkit::render::{ENGLISH_PASO, GERMAN_PASO, Language};
+use siros_testkit::render::{self, ENGLISH_PASO, GERMAN_PASO, Language};
 use siros_testkit::verifier;
 
 /// The rule that excluded a credential, read from its type.
@@ -177,20 +177,20 @@ thread_local! {
             Language::German => GERMAN_PASO,
         };
         assert!(source.contains(AMOUNT_FORMATTED), "the test app's amount wording");
-        let context = language
-            .sources()
-            .into_iter()
-            .map(|module| {
-                if module == source {
-                    module.replace(AMOUNT_FORMATTED, AMOUNT_WRITTEN)
-                } else {
-                    module.to_owned()
-                }
-            })
-            .try_fold(Context::new().bidi(Bidi::None), |context, module| {
-                context.module(&module)
-            })
-            .expect("the test app's sources");
+        let context = render::loaded(
+            Bidi::None,
+            language
+                .sources()
+                .into_iter()
+                .map(|module| {
+                    if module == source {
+                        module.replace(AMOUNT_FORMATTED, AMOUNT_WRITTEN)
+                    } else {
+                        module.to_owned()
+                    }
+                }),
+        )
+        .expect("the test app's sources");
         &*Box::leak(Box::new(context))
     });
 }

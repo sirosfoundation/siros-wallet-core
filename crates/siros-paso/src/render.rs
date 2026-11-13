@@ -18,6 +18,7 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::refusal::ReprItem;
 use siros_openid4vp::rows::{ClaimText, Env, Image, Row, Value, WalletText};
+use siros_syntax::{Currency, Date, DateTime, Decimal, OffsetTime};
 
 use crate::conform::{ClaimIndex, Instance, NullIndices, Placement, conform, instances, written};
 use crate::entry::Payload;
@@ -670,32 +671,32 @@ impl Planned {
 
 impl Label {
     /// The message with its arguments: each liveness as `live` or `dead`; each referenced value
-    /// as its literal, an amount as its number and its currency's code, a boolean and a
-    /// frequency as the context words them, a text as shown.
+    /// as its value, an amount as its number and its currency, a boolean and a frequency as the
+    /// context words them, a text as shown.
     fn worded(self, context: &Context) -> Result<Worded, Fault> {
-        let mut args: Vec<(String, String)> = self
+        let mut args: Vec<(String, Given)> = self
             .liveness
             .into_iter()
             .map(|(position, live)| {
                 let state = if live { view::LIVE } else { view::DEAD };
-                (view::liveness(position), state.to_owned())
+                (view::liveness(position), Given::Text(state.to_owned()))
             })
             .collect();
         for (claim, value) in self.values {
             let name = view::argument(claim);
             match value {
-                Parsed::Text(text) => args.push((name, text)),
-                Parsed::Date(date) => args.push((name, date.to_string())),
-                Parsed::Time(time) => args.push((name, time.to_string())),
-                Parsed::DateTime(at) => args.push((name, at.to_string())),
-                Parsed::Currency(code) => args.push((name, code.to_string())),
+                Parsed::Text(text) => args.push((name, Given::Text(text))),
+                Parsed::Date(date) => args.push((name, Given::Date(date))),
+                Parsed::Time(time) => args.push((name, Given::Time(time))),
+                Parsed::DateTime(at) => args.push((name, Given::DateTime(at))),
+                Parsed::Currency(code) => args.push((name, Given::Currency(code))),
                 Parsed::Amount(amount) => {
-                    args.push((name, amount.value().to_string()));
-                    args.push((view::currency(claim), amount.currency().to_string()));
+                    args.push((name, Given::Number(amount.value())));
+                    args.push((view::currency(claim), Given::Currency(amount.currency())));
                 }
                 stated @ (Parsed::Boolean(_) | Parsed::Frequency(_)) => {
                     let text = resolved(context, stated.shown().as_ref())?;
-                    args.push((name, text.to_string()));
+                    args.push((name, Given::Text(text.to_string())));
                 }
             }
         }
@@ -703,10 +704,21 @@ impl Label {
     }
 }
 
-/// A converted label's message with its arguments' texts.
+/// A converted label's message with its arguments.
 struct Worded {
     id: String,
-    args: Vec<(String, String)>,
+    args: Vec<(String, Given)>,
+}
+
+/// A converted label's argument, of the type whose formatters show it.
+enum Given {
+    Text(String),
+    Date(Date),
+    Time(OffsetTime),
+    DateTime(DateTime),
+    Currency(Currency),
+    /// An amount's number.
+    Number(Decimal),
 }
 
 impl Message for Worded {
@@ -718,7 +730,14 @@ impl Message for Worded {
         self.args
             .iter()
             .find(|(name, _)| name == key)
-            .map(|(_, text)| text as &dyn Arg)
+            .map(|(_, given)| match given {
+                Given::Text(text) => text as &dyn Arg,
+                Given::Date(date) => date,
+                Given::Time(time) => time,
+                Given::DateTime(at) => at,
+                Given::Currency(code) => code,
+                Given::Number(number) => number,
+            })
     }
 }
 

@@ -3352,7 +3352,7 @@ siros-matcher       siros-dc-matcher: the core and the plug-ins without resolve,
 | siros-syntax | siros-explain | the contract of its errors `Malformed` and `Repeated` |
 | siros-explain | siros-explain-derive under `derive` | `#[derive(Explain)]` |
 | siros-explain-derive, siros-i18n-derive | siros-derive-internals | the field rules both derives share |
-| siros-testkit | the core; siros-explain; siros-syntax; siros-i18n with `derive`, `number`, `currency` and `date` | the traits its doubles implement; its errors' contract; `DoubleText`; the test app's sources and the functions they call |
+| siros-testkit | the core; siros-explain; siros-syntax; siros-i18n with `derive`, `number`, `currency` and `date`; siros-qes | the traits its doubles implement; its errors' contract; `DoubleText`; the test app's sources and the functions they call; `DocumentNumber`, which the test app's formatters take |
 | siros-integration | every crate, as dev-dependencies, siros-i18n with `derive` and `check` | the builds; the wallet's completeness test (section 4.14) |
 | siros-cldr (`publish = false`) | siros-explain; siros-syntax | the tool that writes CLDR's format options (section 4.14); `Currency` |
 
@@ -3893,9 +3893,9 @@ pub enum ClaimText {
   Its field rules are `#[derive(Explain)]`'s for named fields, `Option` and `Arg`, with
   `#[message(skip)]`. A tuple field must carry `#[message(skip)]`. The derive fails the build on an
   id used twice in a crate (`__siros_message_id_<text>`, E0428) and registers rows under `check`.
-- **A value shown alone** travels in a statement that carries its literal text, a credential's or
-  a request's: `ClaimText`. The wallet's wording applies `:number`, `:siros:date` or nothing to
-  it. Every displayed string goes through a statement.
+- **A value shown alone** travels in a statement that carries it typed, a credential's or a
+  request's: `ClaimText`. The wallet's formatters give each type its default, and its wording
+  names another function where it chooses one. Every displayed string goes through a statement.
 - **The statements.** The core's `WalletText`, `ClaimText` and `BooleanText`; siros-paso's
   `Title`, `Confirm`, `Section`, `MandateLabel`, `Frequency`, `ArrayAt`, `RenderedAt` and
   `ValueText`; siros-qes's `QesTitle` and `QesText`; siros-testkit's `DoubleText`. siros-x509
@@ -4017,8 +4017,19 @@ bytes =
 c5 = The service asks for an answer by {$mode}, which this wallet cannot send
 ```
 
-**Arguments are text.** Every argument reaches the context as its `Display` text, and `{$x}` is
-`:string`, which takes it as given. `:number` and `:integer` parse a number literal and show its
+**Arguments are typed.** Every argument reaches the context as its value: its `Display` text and
+its type. The context's `Formatters` give each type the functions a call may name on it
+(`formatter::<T>(name)`) and at most one default (`default_formatter::<T>(name)`), which a
+placeholder `{$x}`, a declaration `.input {$x}` and a selector `.match $x` that name no function
+take. Every type takes `:string`, which writes the text as given, and takes it by default where it
+registers no other. A call of a function the argument's type does not take gives
+`ResolveError::Unformatted`; a selector whose type's default does not select, or a variant key it
+refuses, gives `ResolveError::Selector`. Missing Selector Annotation stays for a selector over a
+literal without a function. The wallet builds its formatters once and hands them to each context it
+builds, the matcher's included: a registration holds no formatter. `Context::check` refuses a
+formatter whose options no module defines (`CheckError::Undefined`).
+
+The functions read the argument's text. `:number` and `:integer` parse a number literal and show its
 fraction digits as written, so an argument's digits are exact: `42.50 EUR` shows `42.50`. A literal
 operand in a message takes the pattern's defaults (ECMA-402). `:currency` takes the number operand
 and a `currency` option, literal or variable (`{$amount :currency currency=$code}`), checked against
@@ -4125,7 +4136,7 @@ siros-ts12's view (`siros_ts12::view::convert`, over siros-paso's).
   `claim_<k>`, the UI labels' names, `c<n>`, `c<n>_currency`, `e<j>`, `live`, and the functions'
   and the markup's names. A matcher built without siros-i18n's `nfc` loads the source into the
   messages the wallet loads.
-- A typed value calls its function explicitly: `:siros:date`, `:siros:time`, `:siros:datetime`,
+- A typed value names no function, so its type's default formatter shows it; an amount calls
   `:currency`. Its format options come from the wallet's modules in the same context.
 - `view::convert` checks that the source loads into a clone of the context (`ConvertError::Load`).
 - **PaSO's rules.** Each display array is one message of a tag's section, under a claim's
@@ -4133,10 +4144,12 @@ siros-ts12's view (`siros_ts12::view::convert`, over siros-paso's).
   or, for a template an absent claim discards, a selection over each entry's argument `e<j>` (`live`
   or `dead`) whose fallback is the last entry tried. A `mini_markdown` label becomes markup of the
   styles it opens, and a `{n}` placeholder the argument `c<n>`, `""` when the claim is absent. A
-  claim's value enters as its literal text: `date`, `time` and `date_time` through `:siros:date`,
-  `:siros:time` and `:siros:datetime`; a `currency_amount` as two arguments, its value `c<n>` and
-  its currency `c<n>_currency`, through `:currency`; `frequency` and `boolean` as the resolved texts
-  of `Frequency` and `BooleanText`; `currency`, `text` and `url` through `:string`. A template label
+  claim's value enters typed: `date`, `time` and `date_time` as siros-syntax's `Date`,
+  `OffsetTime` and `DateTime`, and `currency` as its `Currency`, each through its type's default;
+  a `currency_amount` as two arguments, its number `c<n>` (`Decimal`) and its currency
+  `c<n>_currency`, through `:currency`; `frequency` and `boolean` as the resolved texts of
+  `Frequency` and `BooleanText`, and `text` and `url`, as `String`. A selection over the arguments
+  `e<j>` takes `:string`, a `String`'s default. A template label
   holding U+FDD0, the converter's placeholder mark, or U+0000 is unsupported
   (`Unsupported::Reserved`). A label shows a visible character. A fixed label without one leaves
   the metadata unsupported (`Unsupported::ClaimLabel` or `Unsupported::UiLabel` with
@@ -4171,8 +4184,9 @@ siros-credman's README (`## Format`) states the layout and the reader's rules in
 | 4 | source | 1 or more | the wallet's sources its matcher needs, in load order, its formats first |
 | 5 | transaction | 0 or more, each named by its type, ascending | the type's converted View source |
 
-- **Writing.** Only `Base::load(locale, priority, bidi, sources)` makes a `Base`: it loads the
-  sources into one context under the bidi choice, and refuses a source the context refuses
+- **Writing.** Only `Base::load(locale, priority, bidi, formatters, sources)` makes a `Base`: it
+  loads the sources into one context under the bidi choice, its arguments taking the build's
+  `Formatters`, and refuses a source the context refuses
   (`ContextError::Source`) and sources of another locale (`ContextError::Locale`).
   `register::write(&Base, &Keyed<TransactionType, String>)`, under feature `register`, loads the
   base's sources again in their order, then each transaction source into a clone of that context,
@@ -6059,7 +6073,7 @@ proving/              the colleague's: the proof backends and the browser presen
 | siros-explain-derive | wallet-rs | a proc-macro crate | siros-derive-internals |
 | siros-derive-internals | new (section 4.13) | | none |
 | siros-cldr | wallet-rs, `publish = false` | | siros-explain; siros-syntax |
-| siros-testkit | wallet-rs | | the core (`resolve`); siros-explain; siros-syntax; siros-i18n with `derive`, `number`, `currency`, `date` |
+| siros-testkit | wallet-rs | | the core (`resolve`); siros-explain; siros-syntax; siros-i18n with `derive`, `number`, `currency`, `date`; siros-qes |
 | siros-integration | wallet-rs, `publish = false` | | every crate, as dev-dependencies; siros-i18n with `derive`, `check` |
 | xtask | new, `publish = false` (section 10.7) | | none |
 

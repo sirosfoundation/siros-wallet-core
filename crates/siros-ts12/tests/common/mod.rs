@@ -16,7 +16,7 @@ use siros_openid4vp::wallet_metadata::Placement;
 use siros_paso::view::ConvertError;
 use siros_syntax::{AllOf, Keyed, checked};
 use siros_testkit::fixtures::{request_of, signed, signed_data, unsigned};
-use siros_testkit::render::{ENGLISH_PASO, GERMAN_PASO, Language};
+use siros_testkit::render::{self, ENGLISH_PASO, GERMAN_PASO, Language};
 use siros_testkit::verifier;
 use siros_ts12::{AttestationType, Ts12Document, Ts12Profile, Ts12Type, view};
 
@@ -100,20 +100,20 @@ thread_local! {
             Language::German => GERMAN_PASO,
         };
         assert!(source.contains(AMOUNT_FORMATTED), "the test app's amount wording");
-        let context = language
-            .sources()
-            .into_iter()
-            .map(|module| {
-                if module == source {
-                    module.replace(AMOUNT_FORMATTED, AMOUNT_WRITTEN)
-                } else {
-                    module.to_owned()
-                }
-            })
-            .try_fold(Context::new().bidi(Bidi::None), |context, module| {
-                context.module(&module)
-            })
-            .expect("the test app's sources");
+        let context = render::loaded(
+            Bidi::None,
+            language
+                .sources()
+                .into_iter()
+                .map(|module| {
+                    if module == source {
+                        module.replace(AMOUNT_FORMATTED, AMOUNT_WRITTEN)
+                    } else {
+                        module.to_owned()
+                    }
+                }),
+        )
+        .expect("the test app's sources");
         &*Box::leak(Box::new(context))
     });
 }
