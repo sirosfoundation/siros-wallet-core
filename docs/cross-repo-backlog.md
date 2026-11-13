@@ -102,6 +102,43 @@ re-rank freely; the tiers are proposals.
 
 ## P1 — next two weeks
 
+4. **The FAPI `iss` (RFC 9207) validation — the new engine's twin of
+   go-wallet-backend#551.** The OpenID Foundation's
+   `fapi2-security-profile-final-client-test-remove-authorization-response-iss`
+   (run against the legacy WS engine) strips `iss` from the authorization
+   response and expects the wallet to refuse BEFORE the token exchange; #551
+   fixes the legacy path (its bulk is the stateless-resumption machinery —
+   a signed HMAC `authorization_context` — the Go engine needs because it
+   has no per-transaction server-side storage).
+   **The new Rust engine has the same gap** (traced 2026-11-13, the
+   morning's four-gate nym_auth debugging, `resume_authorization_code` in
+   `crates/engine-core/src/oid4vci/mod.rs`): the resume reads only `code` +
+   `state` from the action params — the CSRF state match, then straight to
+   `exchange_authorization_code`. No `iss` is read, required, or compared;
+   `AsMetadata` (`oid4vci/types.rs`) does not even model
+   `authorization_response_iss_parameter_supported`, so the engine CANNOT
+   enforce it when an AS advertises it; there is no
+   `require_authorization_response_issuer` knob.
+   **Why it has not come up:** the wallet-core conformance runs cover
+   OID4VCI/OID4VP core, not the FAPI2 security-profile suite that does the
+   `iss`-removal test — the gap is real but unexercised, not absent. **Do
+   not run the FAPI2 suite against the new engine until this is fixed** or
+   it will produce the identical finding.
+   **The Rust fix is much smaller than #551** (the engine already stashes
+   per-flow state server-side — `AuthorizationStash`, the KV store, 600s
+   TTL — so the stateless-resumption machinery is already built):
+   1. model `authorization_response_iss_parameter_supported` in `AsMetadata`;
+   2. read `iss` in the resume (typed — reject null/non-string);
+   3. require it when advertised; compare exactly against the stashed AS
+      (the stash gains `as_url`/`as_issuer`); refuse BEFORE the exchange;
+   4. a `require_authorization_response_issuer` knob for FAPI deployments.
+   The #551 client-rollout caveats (duplicate-`iss` URL parameters before
+   reducing to the JSON message; preserving the decoded callback `iss`)
+   do NOT apply to the engine path — the resume arrives as typed JSON, and
+   the duplicate-parameter guard belongs in the wallet-frontend/SDK callback
+   parser (the legacy path's concern).
+   https://github.com/sirosfoundation/go-wallet-backend/pull/551
+
 5. **The parity sweep** — one cross-SDK push through the 2026-11-11 audit's
    remaining set: zkp_req match planning, the WMP REAUTH surface, Swift's
    local disconnect + attestation ask, Kotlin's WMP match UX.
