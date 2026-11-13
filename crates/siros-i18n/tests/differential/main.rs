@@ -8,6 +8,7 @@ mod dates;
 mod numbers;
 
 use siros_i18n::{Bidi, Context, Message};
+use siros_syntax::{Date, DateTime, OffsetTime};
 
 siros_i18n::scope!("probe");
 
@@ -15,9 +16,16 @@ siros_i18n::scope!("probe");
 pub const LANGUAGES: [&str; 2] = ["en", "de"];
 
 /// A context of `language` with the tool's formats and a module of `messages`, without bidi
-/// isolation.
+/// isolation, a date, a time and a date and time taking the date functions.
 pub fn context(language: &str, messages: &str) -> Context {
-    cldr::context(language, Bidi::None, messages).expect("the modules load")
+    let formatters = cldr::strings()
+        .default_formatter::<Date>("siros:date")
+        .and_then(|formatters| formatters.default_formatter::<OffsetTime>("siros:time"))
+        .and_then(|formatters| formatters.default_formatter::<DateTime>("siros:datetime"))
+        .expect("the build has the date functions");
+    cldr::context(language, Bidi::None, messages)
+        .expect("the modules load")
+        .formatters(formatters)
 }
 
 /// A message resolved as plain text.
