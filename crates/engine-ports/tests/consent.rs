@@ -152,3 +152,93 @@ fn the_handle_rides_the_wire_as_an_absent_member_when_there_is_none() {
         "the selections ride unchanged"
     );
 }
+
+/// The verified request and the response encryption carry the exact member
+/// set the wallets' `VerifiedRequest`/`ResponseEncryptionRequest` readers
+/// expect (go-wallet-backend#471's shape — the Kotlin transport's
+/// `@SerialName`s). The ZK policy gate reads `signed` AND
+/// `signature_verification == "verified"` — an absent member reads as not
+/// verified and every zkp_req sign ask refuses at step=unsigned-request
+/// (found on-device 2026-11-13: the first cut of the struct omitted it).
+/// This test is the drift guard: a renamed or missing member fails here,
+/// not on a device.
+#[test]
+fn the_verified_request_carries_the_wallets_gate_members() {
+    let params = engine_ports::VpParams {
+        flow_id: "flow-1".to_owned(),
+        audience: "x509_san_dns:verifier.example".to_owned(),
+        nonce: "n".to_owned(),
+        selections: Vec::new(),
+        response_uri: "https://verifier.example/response".to_owned(),
+        verifier_jwk_thumbprint: "thumbprint".to_owned(),
+        verifier_session_id: String::new(),
+        transaction_data: Vec::new(),
+        origin: String::new(),
+        selection_handle: None,
+        verified_request: Some(engine_ports::VpVerifiedRequest {
+            client_id: "x509_san_dns:verifier.example".to_owned(),
+            client_id_scheme: "x509_san_dns".to_owned(),
+            response_mode: "direct_post.jwt".to_owned(),
+            response_uri: "https://verifier.example/response".to_owned(),
+            signed: true,
+            signature_verification: "verified".to_owned(),
+            request_jwt: Some("header.payload.signature".to_owned()),
+        }),
+        response_encryption: Some(engine_ports::VpResponseEncryption {
+            jwk: json!({"kty": "EC", "crv": "P-256", "x": "AA", "y": "AA"}),
+            alg: "ECDH-ES".to_owned(),
+            enc: "A256GCM".to_owned(),
+        }),
+    };
+    let wire: serde_json::Value = serde_json::to_value(&params).expect("the ask serialises");
+
+    let verified = wire
+        .get("verified_request")
+        .expect("the verified request rides the ask");
+    let members: std::collections::BTreeSet<String> = verified
+        .as_object()
+        .expect("an object")
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(
+        members,
+        [
+            "client_id",
+            "client_id_scheme",
+            "request_jwt",
+            "response_mode",
+            "response_uri",
+            "signature_verification",
+            "signed"
+        ]
+        .map(str::to_owned)
+        .into(),
+        "the member set matches the wallet's VerifiedRequest readers"
+    );
+    assert_eq!(
+        verified.get("signature_verification"),
+        Some(&json!("verified")),
+        "the gate's required value"
+    );
+    assert_eq!(
+        verified.get("signed"),
+        Some(&json!(true)),
+        "the convenience mirror the gate also reads"
+    );
+
+    let encryption = wire
+        .get("response_encryption")
+        .expect("the response encryption rides the ask");
+    let members: std::collections::BTreeSet<String> = encryption
+        .as_object()
+        .expect("an object")
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(
+        members,
+        ["alg", "enc", "jwk"].map(str::to_owned).into(),
+        "the member set matches the wallet's ResponseEncryptionRequest readers"
+    );
+}
