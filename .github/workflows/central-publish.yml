@@ -1,0 +1,59 @@
+name: Publish AAR to Maven Central
+
+# The engine's Android artifact on Maven Central - the consumer-facing
+# registry that needs no token to read (GitHub Packages authenticates
+# every read, even on public packages, which is why the SDK's builds
+# carried GITHUB_ACTOR/GITHUB_TOKEN mappings for it). The AAR + POM
+# are the release's own assets (built by release.yml's android job at
+# the tag), so this publishes an already-released version without
+# rebuilding: checkout the tag for the sources jar, download the
+# release's artifacts, push the bundle through the central-publish
+# action (siros-sdk-kotlin's - the same one the SDK's native crates
+# publish through).
+#
+# Central rejects a version that already exists, so running this twice
+# for one version fails at the upload and changes nothing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag (e.g. v0.2.2) whose AAR to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish siros-wallet-core AAR to Maven Central
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Download the released AAR and POM
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" \
+            -p 'siros-wallet-core-*.aar' -p 'siros-wallet-core-*.pom' -D target/
+          echo "AAR_VERSION=${{ inputs.tag }}" | sed 's/^AAR_VERSION=v/AAR_VERSION=/' >> "$GITHUB_ENV"
+
+      - uses: sirosfoundation/siros-sdk-kotlin/.github/actions/central-publish@734063a7d874bb1cb79ebca7e7f642143694ee40
+        with:
+          artifact-id: siros-wallet-core
+          version: ${{ env.AAR_VERSION }}
+          file: target/siros-wallet-core-${{ env.AAR_VERSION }}.aar
+          pom: target/siros-wallet-core-${{ env.AAR_VERSION }}.pom
+          sources-dir: .
+          name: siros-wallet-core
+          description: The SIROS wallet engine - UniFFI bindings and the native library for Android
+          url: https://github.com/sirosfoundation/siros-wallet-core
+          central-username: ${{ secrets.CENTRAL_USERNAME }}
+          central-password: ${{ secrets.CENTRAL_PASSWORD }}
+          signing-key: ${{ secrets.SIGNING_KEY }}
+          signing-password: ${{ secrets.SIGNING_PASSWORD }}

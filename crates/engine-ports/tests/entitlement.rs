@@ -208,6 +208,7 @@ async fn a_pdp_without_the_operation_answers_not_implemented() {
             Ok(EvaluationResponse {
                 trusted: true,
                 decision: None,
+                context: None,
             })
         }
 

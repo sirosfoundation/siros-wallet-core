@@ -400,6 +400,7 @@ mod tests {
 
         let credential_response = CredentialResponse {
             credential: Some("credential-jwt-1".to_owned()),
+            credentials: Vec::new(),
             format_specific: None,
             transaction_id: None,
             interval: None,

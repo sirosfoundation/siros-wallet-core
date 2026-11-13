@@ -61,6 +61,10 @@ pub async fn submit_response(
         }
         ResponseMode::Fragment => Ok(build_fragment_redirect(&endpoint, auth_req, vp_token)),
         ResponseMode::Query => Ok(build_query_redirect(&endpoint, auth_req, vp_token)),
+        // The Digital Credentials API channel never submits over HTTP:
+        // the flow hands the response to the host (OpenID4VP 1.0
+        // §8.4). Reaching this arm is an internal routing fault.
+        ResponseMode::DcApi | ResponseMode::DcApiJwt => Err(ResponseError::NoEndpoint),
     }
 }
 
@@ -120,6 +124,10 @@ pub async fn submit_error_response(
         ResponseMode::DirectPost => {
             submit_plain_error(http, &endpoint, auth_req, error_code, error_description).await
         }
+        // The Digital Credentials API channel never submits over HTTP
+        // (OpenID4VP 1.0 §8.4) — the decline reaches the verifier
+        // through the browser API, the host's business.
+        ResponseMode::DcApi | ResponseMode::DcApiJwt => Err(ResponseError::NoEndpoint),
     }
 }
 
