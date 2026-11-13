@@ -93,9 +93,6 @@ pub(crate) fn resource(cldr: &Cldr, release: &str) -> Result<String, CldrError> 
     out.section("number");
     numbers.write(&mut out)?;
     out.option("pattern", &numbers.decimal)?;
-    out.section("offset");
-    numbers.write(&mut out)?;
-    out.option("pattern", &numbers.decimal)?;
     out.section("currency");
     numbers.write(&mut out)?;
     currency(cldr, &numbers, &mut out)?;
@@ -214,13 +211,6 @@ fn listed(code: &str) -> bool {
 
 fn currency(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrError> {
     let language = numbers.language.as_str();
-    let percent_key = format!("percentFormats-numberSystem-{}", numbers.system);
-    out.option("percent-sign", numbers.symbol("percentSign")?)?;
-    let [a, b, c, d] = numbers.numbers(&percent_key);
-    out.option(
-        "percent-pattern",
-        numbers.file.text(&[a, b, c, d, "standard"])?,
-    )?;
     out.option("pattern", &numbers.decimal)?;
     let formats_key = format!("currencyFormats-numberSystem-{}", numbers.system);
     let formats_at = numbers.numbers(&formats_key);

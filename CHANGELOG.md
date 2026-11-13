@@ -39,23 +39,18 @@ All notable changes to this workspace. The format follows
   `RegisterError`). Every type takes `:string`, which writes its `Display` as
   given, by default where it registers no other. The functions read the
   argument's text: `:number` and `:integer` parse an MF2 number literal and
-  show its fraction digits as written; `:offset`, `:currency` (its `currency`
-  option literal or variable), `:percent`, `:siros:date`, `:siros:time` and
-  `:siros:datetime` parse their operand. An option's value is a literal or a
-  variable's value: an argument's text, a literal, or the value of a declared
-  call. `u:dir` takes `ltr`, `rtl`, `auto` or `inherit`; another value from a
-  variable refuses the resolution (`ResolveError::Option`). A load takes
-  memory in proportion to its source, and time in proportion to its source and,
-  for each use of a call, to the calls its operand's value applies. Each
-  function sits behind its feature: `number`, `currency`, `offset` and `date`,
-  the defaults with `derive` and `nfc`. `nfc` holds names,
-  variant keys and selector literals in NFC, as MF2 compares them, and adds
-  `Context::module_in_nfc`, which refuses a source NFC would change
-  (`LoadError::Unnormalized`); without it they stay as written. `check` holds
-  `Context::check`, and `conformance` MF2's test functions for siros-i18n's
-  conformance tests. `escape` writes a resource value that resolves to a given
-  text, and `Context::bidi` takes the app's bidi strategy. The
-  message-format-wg test suite and ICU4X 2.4 over CLDR 49.0.0 are its oracles.
+  show its fraction digits as written; `:currency` (its `currency` option
+  literal or variable), `:siros:date`, `:siros:time` and `:siros:datetime`
+  parse their operand. An option's value is a literal or a variable's value: an
+  argument's text, a literal, or the value of a declared call. The load refuses
+  an option of the `u:` namespace. Names, variant keys and selector literals
+  compare as written. A load takes memory in proportion to its source, and time
+  in proportion to its source and, for each use of a call, to the calls its
+  operand's value applies. Each function sits behind its feature: `number`,
+  `currency` and `date`, the defaults with `derive`. `check` holds
+  `Context::check`. `escape` writes a resource value that resolves to a given
+  text, and `Context::bidi` takes the app's bidi strategy. ICU4X 2.4 over CLDR
+  49.0.0 is its oracle.
 - siros-i18n's `check` feature is the wallet's one completeness test: each
   derive registers its id and argument names, and `Context::check` refuses an
   id two crates share, an id no source words, a message that names an

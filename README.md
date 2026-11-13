@@ -66,17 +66,10 @@ a socket, a clock, or a keystore.
 | `siros-cldr` | Writes a language's CLDR format options as MF2 source |
 
 siros-i18n's format functions are features, which an app turns on as its
-wording calls them: `number` (`:number`, `:integer`), `currency` (`:currency`,
-`:percent`), `offset` (`:offset`) and `date` (`:siros:date`, `:siros:time`,
-`:siros:datetime`). `derive` gives `#[derive(Message)]`. `nfc` holds
-MessageFormat 2's names, variant keys and selector literals in Unicode
-Normalization Form C, as MF2 compares them, and adds `Context::module_in_nfc`,
-which refuses a source normalization would change. A build without `nfc` links
-no unicode-normalization and holds them as written, and resolves a source that
-`module_in_nfc` loads to the same texts. The wallet turns `nfc` on; the
-Credential Manager matcher leaves it off. All six are defaults. `check` adds
-`Context::check`, the wallet's completeness test, and `conformance` MF2's test
-functions for siros-i18n's conformance tests.
+wording calls them: `number` (`:number`, `:integer`), `currency` (`:currency`)
+and `date` (`:siros:date`, `:siros:time`, `:siros:datetime`). `derive` gives
+`#[derive(Message)]`. All four are defaults. `check` adds `Context::check`, the
+wallet's completeness test.
 
 Rust 1.89 is the floor of every crate (`rust-version` in `Cargo.toml`).
 

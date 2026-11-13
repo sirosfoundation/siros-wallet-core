@@ -17,12 +17,7 @@ pub(crate) enum Digit {
 
 impl Digit {
     /// The digit `c` writes; `None` for a character other than `0` to `9`.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "conformance"
-    ))]
+    #[cfg(any(feature = "number", feature = "currency"))]
     pub(crate) const fn of(c: char) -> Option<Self> {
         Some(match c {
             '0' => Self::Zero,
@@ -40,12 +35,7 @@ impl Digit {
     }
 
     /// The last decimal digit of `n`.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "date"
-    ))]
+    #[cfg(any(feature = "number", feature = "currency", feature = "date"))]
     pub(crate) const fn last(n: u128) -> Self {
         match n % 10 {
             0 => Self::Zero,
@@ -62,12 +52,7 @@ impl Digit {
     }
 
     /// The digits of `n`, most significant first, without leading zeros: `0` for zero.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "date"
-    ))]
+    #[cfg(any(feature = "number", feature = "currency", feature = "date"))]
     pub(crate) fn of_integer(n: u128) -> Vec<Self> {
         let mut digits = vec![Self::last(n)];
         let mut rest = n / 10;
@@ -80,31 +65,21 @@ impl Digit {
     }
 
     /// The number it writes, 0 to 9.
-    #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+    #[cfg(any(feature = "number", feature = "currency"))]
     pub(crate) const fn value(self) -> u8 {
         self as u8
     }
 }
 
 /// The characters of the ten digits, from zero.
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "date"
-))]
+#[cfg(any(feature = "number", feature = "currency", feature = "date"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Numerals([char; 10]);
 
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "date"
-))]
+#[cfg(any(feature = "number", feature = "currency", feature = "date"))]
 impl Numerals {
     /// `0` to `9`.
-    #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
+    #[cfg(any(feature = "number", feature = "currency"))]
     pub(crate) const ASCII: Self = Self(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
 
     /// The numerals whose zero is `text`, one character; the nine characters after it in Unicode

@@ -8,19 +8,16 @@ use super::ast::{
     Pattern, Variant,
 };
 use crate::error::Fault;
-use crate::normal::Hold;
 
-/// Parses a message, its names and variant keys held by `hold`.
+/// Parses a message.
 ///
 /// # Errors
 ///
-/// [`Fault::Syntax`] where the message leaves MF2's grammar, and [`Fault::Unnormalized`] for a
-/// name or a variant key `hold` refuses.
-pub(crate) fn parse(source: &str, hold: Hold) -> Result<Message<'_>, Fault> {
+/// [`Fault::Syntax`] where the message leaves MF2's grammar.
+pub(crate) fn parse(source: &str) -> Result<Message<'_>, Fault> {
     let mut parser = Parser {
         source,
         rest: source,
-        hold,
     };
     parser.o();
     let message = if parser.rest.starts_with('.') || parser.rest.starts_with("{{") {
@@ -39,12 +36,10 @@ pub(crate) fn parse(source: &str, hold: Hold) -> Result<Message<'_>, Fault> {
     }
 }
 
-/// A parser of `source`; `rest` is the suffix of `source` it has yet to read, and `hold` holds
-/// its names and variant keys.
+/// A parser of `source`; `rest` is the suffix of `source` it has yet to read.
 struct Parser<'s> {
     source: &'s str,
     rest: &'s str,
-    hold: Hold,
 }
 
 impl<'s> Parser<'s> {
@@ -104,18 +99,6 @@ impl<'s> Parser<'s> {
     /// An error at the start of `rest`.
     const fn fail<T>(&self) -> Result<T, Fault> {
         Err(Fault::Syntax(self.source.len() - self.rest.len()))
-    }
-
-    /// `text`, a name or a variant key, as the parse holds it.
-    fn held(&self, text: Cow<'s, str>) -> Result<Cow<'s, str>, Fault> {
-        match text {
-            Cow::Borrowed(text) => self.hold.hold(text),
-            Cow::Owned(text) => self
-                .hold
-                .hold(&text)
-                .map(|held| Cow::Owned(held.into_owned())),
-        }
-        .map_err(|refused| Fault::Unnormalized(refused.written()))
     }
 
     /// `o`: optional whitespace and bidi marks.
@@ -234,8 +217,7 @@ impl<'s> Parser<'s> {
         if self.eat('*') {
             Ok(Key::CatchAll)
         } else {
-            let literal = self.literal()?;
-            Ok(Key::Literal(self.held(literal)?))
+            Ok(Key::Literal(self.literal()?))
         }
     }
 
@@ -403,16 +385,15 @@ impl<'s> Parser<'s> {
         Ok(Cow::Owned(identifier))
     }
 
-    /// `[bidi] name-start *name-char [bidi]`, held as the parse holds names.
+    /// `[bidi] name-start *name-char [bidi]`.
     fn name(&mut self) -> Result<Cow<'s, str>, Fault> {
         self.skip_bidi();
         if !self.peek().is_some_and(name_start) {
             return self.fail();
         }
-        let written = self.run(name_char);
-        let name = self.held(Cow::Borrowed(written))?;
+        let name = self.run(name_char);
         self.skip_bidi();
-        Ok(name)
+        Ok(Cow::Borrowed(name))
     }
 
     /// A quoted or an unquoted literal's string value.

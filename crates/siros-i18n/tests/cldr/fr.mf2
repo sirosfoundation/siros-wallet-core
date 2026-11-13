@@ -17,20 +17,6 @@ ordinal =
   one: n = 1
 pattern = #,##0.###
 
-[formats.offset]
-zero = 0
-decimal = ,
-group =  
-minus = -
-plus = +
-grouping = 1
-cardinal =
-  one: i = 0..1
-  many: e = 0 and i != 0 and i % 1000000 = 0 and v = 0 or e != 0..5
-ordinal =
-  one: n = 1
-pattern = #,##0.###
-
 [formats.currency]
 zero = 0
 decimal = ,
@@ -43,8 +29,6 @@ cardinal =
   many: e = 0 and i != 0 and i % 1000000 = 0 and v = 0 or e != 0..5
 ordinal =
   one: n = 1
-percent-sign = %
-percent-pattern = #,##0 %
 pattern = #,##0.###
 standard = #,##0.00 ¤
 standard-alpha = #,##0.00 ¤

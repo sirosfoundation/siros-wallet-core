@@ -18,21 +18,6 @@ ordinal =
   few: n % 10 = 3 and n % 100 != 13
 pattern = #,##0.###
 
-[formats.offset]
-zero = 0
-decimal = .
-group = ,
-minus = -
-plus = +
-grouping = 1
-cardinal =
-  one: i = 1 and v = 0
-ordinal =
-  one: n % 10 = 1 and n % 100 != 11
-  two: n % 10 = 2 and n % 100 != 12
-  few: n % 10 = 3 and n % 100 != 13
-pattern = #,##0.###
-
 [formats.currency]
 zero = 0
 decimal = .
@@ -46,8 +31,6 @@ ordinal =
   one: n % 10 = 1 and n % 100 != 11
   two: n % 10 = 2 and n % 100 != 12
   few: n % 10 = 3 and n % 100 != 13
-percent-sign = %
-percent-pattern = #,##0%
 pattern = #,##0.###
 standard = ¤#,##0.00
 standard-alpha = ¤ #,##0.00

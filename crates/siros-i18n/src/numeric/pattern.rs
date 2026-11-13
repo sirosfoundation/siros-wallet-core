@@ -15,8 +15,6 @@ pub(crate) enum Affix {
     Minus,
     /// `+`: the locale's plus sign.
     Plus,
-    /// `%`: the locale's percent sign.
-    Percent,
     /// `¤`: the currency's symbol, code or name.
     Currency,
 }
@@ -96,7 +94,6 @@ pub(crate) struct Symbols {
     pub(crate) group: String,
     pub(crate) minus: String,
     pub(crate) plus: String,
-    pub(crate) percent: String,
 }
 
 /// Whether and when the integer digits group: never, or from this many digits in the highest
@@ -180,7 +177,7 @@ impl Pattern {
     }
 
     /// The pattern a module writes; `None` for a text outside the grammar this engine formats:
-    /// no exponent, no significant-digit pattern, no padding.
+    /// no exponent, no significant-digit pattern, no padding, no percent or per-mille sign.
     pub(crate) fn parse(text: &str) -> Option<Self> {
         let mut subpatterns = split_unquoted(text, ';');
         let positive = subpatterns.next()?;
@@ -205,7 +202,6 @@ fn affix(parts: &[Affix], symbols: &Symbols, currency: &str, out: &mut String) {
             Affix::Text(text) => text,
             Affix::Minus => &symbols.minus,
             Affix::Plus => &symbols.plus,
-            Affix::Percent => &symbols.percent,
             Affix::Currency => currency,
         });
     }
@@ -280,9 +276,8 @@ fn affix_parts(text: &str) -> Option<Vec<Affix>> {
             _ if quoted => None,
             '-' => Some(Affix::Minus),
             '+' => Some(Affix::Plus),
-            '%' => Some(Affix::Percent),
             '¤' => Some(Affix::Currency),
-            '‰' => return None,
+            '%' | '‰' => return None,
             _ => None,
         };
         match special {

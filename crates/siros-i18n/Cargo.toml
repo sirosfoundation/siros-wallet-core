@@ -10,27 +10,17 @@ rust-version.workspace = true
 publish = false
 
 [features]
-default = ["number", "currency", "offset", "date", "derive", "nfc"]
+default = ["number", "currency", "date", "derive"]
 # `:number` and `:integer`.
 number = []
-# `:currency` and `:percent`. icu_properties gives the letters that decide a currency symbol's
-# spacing.
+# `:currency`. icu_properties gives the letters that decide a currency symbol's spacing.
 currency = ["dep:siros-syntax", "dep:icu_properties"]
-# `:offset`.
-offset = []
 # `:siros:date`, `:siros:time` and `:siros:datetime`.
 date = ["dep:siros-syntax"]
 # `#[derive(Message)]`.
 derive = ["dep:siros-i18n-derive"]
-# MF2's Unicode Normalization Form C of names, variant keys, selector literals and argument keys,
-# and `Context::module_in_nfc`. A build without it holds them as written, and resolves a module
-# `module_in_nfc` loads to the texts a build with it resolves.
-nfc = ["dep:unicode-normalization"]
 # Test builds only: `Context::check` and every derived statement's row.
 check = ["siros-explain/check", "dep:inventory"]
-# siros-i18n's conformance tests' functions: MF2's `:test:function`, `:test:select` and
-# `:test:format`.
-conformance = []
 
 [dependencies]
 siros-explain = { workspace = true }
@@ -38,17 +28,15 @@ siros-syntax = { workspace = true, optional = true }
 siros-i18n-derive = { workspace = true, optional = true }
 thiserror = { workspace = true }
 rustc-hash = { workspace = true }
-unicode-normalization = { workspace = true, optional = true }
 icu_properties = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 
 [dev-dependencies]
-# The tests derive statements, check wordings and call MF2's test functions whatever the build's
-# features: cargo turns a package's dev-dependency features on in its own test builds alone.
-siros-i18n = { path = ".", features = ["derive", "check", "conformance"] }
+# The tests derive statements and check wordings whatever the build's features: cargo turns a
+# package's dev-dependency features on in its own test builds alone.
+siros-i18n = { path = ".", features = ["derive", "check"] }
 siros-syntax = { workspace = true }
 thiserror = { workspace = true }
-serde_json = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 # The differential tests' oracle: ICU4X 2.4 over its compiled CLDR 49.0.0 data.
@@ -61,12 +49,6 @@ icu_locale_core = { workspace = true }
 icu_experimental = { workspace = true }
 fixed_decimal = { workspace = true }
 writeable = { workspace = true }
-
-# The message-format-wg suite calls the numeric functions, and its "NFC:" cases compare names and
-# keys in NFC.
-[[test]]
-name = "conformance"
-required-features = ["number", "currency", "offset", "nfc"]
 
 # The ICU4X differential calls `:number`, `:currency` and the date functions.
 [[test]]

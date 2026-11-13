@@ -12,7 +12,6 @@ use crate::locale::LocaleTag;
 use crate::message::Message;
 use crate::messages::{Messages, Prefix};
 use crate::mf2;
-use crate::normal::Hold;
 use crate::registry::Formatters;
 use crate::resource::{self, Entry};
 use crate::text::Text;
@@ -21,9 +20,8 @@ use crate::text::Text;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Bidi {
     /// MF2's Default Bidi Strategy (spec/formatting.md "Handling Bidirectional Text"): a
-    /// placeholder stands between U+2066, U+2067 or U+2068 and U+2069 by its value's direction
-    /// or its `u:dir`. A left-to-right value in a left-to-right message without `u:dir` stands
-    /// alone.
+    /// placeholder stands between U+2066, U+2067 or U+2068 and U+2069 by its value's direction.
+    /// A left-to-right value in a left-to-right message stands alone.
     #[default]
     Default,
     /// Each placeholder's text as formatted.
@@ -73,29 +71,7 @@ impl Context {
     /// locale, an id or a section the context holds, a format section its format refuses, a
     /// function the build lacks or whose options no module defines, or a call its function
     /// refuses.
-    pub fn module(self, source: &str) -> Result<Self, LoadError> {
-        self.load(source, Hold::Normal)
-    }
-
-    /// The context with `source` loaded as [`Context::module`] loads it, when Unicode
-    /// Normalization Form C changes none of its names, variant keys and selector literals. A
-    /// build without `nfc` holds each as written, so it loads such a module into the same
-    /// messages, which resolve to the same texts. The wallet loads through it the sources it
-    /// hands to a matcher built without `nfc`.
-    ///
-    /// # Errors
-    ///
-    /// The [`LoadError`] of [`Context::module`], and [`LoadError::Unnormalized`] for the first
-    /// message that holds a name, a variant key or a selector literal NFC changes: its first such
-    /// name or key in source order, else its selector literal.
-    #[cfg(feature = "nfc")]
-    pub fn module_in_nfc(self, source: &str) -> Result<Self, LoadError> {
-        self.load(source, Hold::Written)
-    }
-
-    /// The context with `source` loaded, its names, variant keys and selector literals held by
-    /// `hold`.
-    fn load(mut self, source: &str, hold: Hold) -> Result<Self, LoadError> {
+    pub fn module(mut self, source: &str) -> Result<Self, LoadError> {
         let resource = resource::parse(source)?;
         match (&resource.locale, &self.locale) {
             (Some(locale), None) => self.locale = Some(locale.clone()),
@@ -136,10 +112,10 @@ impl Context {
                 if slot.is_some() {
                     return Err(LoadError::Repeated { id: id() });
                 }
-                let message = mf2::parse::parse(&entry.value, hold)
+                let message = mf2::parse::parse(&entry.value)
                     .and_then(|message| {
                         let valid = mf2::valid::Valid::of(&message)?;
-                        compile::compile(&valid, resource.direction, &self.formats, hold)
+                        compile::compile(&valid, resource.direction, &self.formats)
                     })
                     .map_err(|fault| fault.at(&id(), entry.line))?;
                 *slot = Some(Box::new(message));
@@ -155,8 +131,8 @@ impl Context {
     }
 
     /// The message's id worded by the context's modules, over the arguments the wording names:
-    /// each argument's text is its value's `Display`, its key asked for as the wording spells it,
-    /// in NFC with `nfc`. An argument takes the functions its type takes, and where the wording
+    /// each argument's text is its value's `Display`, its key asked for as the wording spells it.
+    /// An argument takes the functions its type takes, and where the wording
     /// names none, its type's default.
     ///
     /// # Errors

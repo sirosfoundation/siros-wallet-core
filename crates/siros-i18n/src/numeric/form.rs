@@ -4,28 +4,17 @@ use std::num::NonZeroU32;
 
 use super::decimal::{Fixed, Given};
 use super::pattern::{Pattern, Symbols};
-use super::{Form, Fraction, Rounding, Step};
+use super::{Form, Fraction, Rounding};
 use crate::digit::{Digit, Numerals};
 
 impl Form<'_> {
-    /// The operand after the chain's steps.
-    pub(super) fn stepped(&self, given: Given) -> Given {
-        self.steps.iter().fold(given, |given, step| match *step {
-            #[cfg(feature = "number")]
-            Step::Integer(mode) => given.integer(mode),
-            Step::Add(addend) => given.plus(addend),
-        })
-    }
-
-    /// The number a call formats: the operand after the chain's steps, times 100 for
-    /// `:percent`.
+    /// The number a call formats: the operand rounded by each `:integer` call it passes
+    /// through.
     pub(crate) fn value(&self, given: Given) -> Given {
-        let stepped = self.stepped(given);
-        if self.percent {
-            stepped.percent()
-        } else {
-            stepped
-        }
+        self.resolved
+            .roundings
+            .iter()
+            .fold(given, |given, mode| given.integer(*mode))
     }
 
     /// The number rounded by the digit options; `currency` the currency's fraction digits and

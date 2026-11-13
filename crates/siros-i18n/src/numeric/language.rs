@@ -1,11 +1,11 @@
 //! The language data the numeric formats share: a language's number symbols, grouping and plural
-//! rules, which every numeric section defines, and the `[formats.number]` and `[formats.offset]`
-//! sections, which add the decimal pattern.
+//! rules, which every numeric section defines, and the `[formats.number]` section, which adds the
+//! decimal pattern.
 
 use crate::digit::Numerals;
 use crate::error::FormatRule;
 use crate::format::{Direction, Options};
-#[cfg(any(feature = "number", feature = "offset"))]
+#[cfg(feature = "number")]
 use crate::numeric::pattern::Pattern;
 use crate::numeric::pattern::Symbols;
 use crate::numeric::plural::Rules;
@@ -22,17 +22,17 @@ pub(crate) struct Numbers {
 }
 
 /// A symbol: one character or more.
-pub(crate) fn symbol(text: &str) -> Option<String> {
+fn symbol(text: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
 impl Numbers {
-    /// The options of a section, `percent` its percent sign.
+    /// The options of a section.
     ///
     /// # Errors
     ///
     /// [`FormatRule`] for an option the section lacks or whose text the grammar refuses.
-    pub(crate) fn parse(options: Options<'_>, percent: String) -> Result<Self, FormatRule> {
+    pub(crate) fn parse(options: Options<'_>) -> Result<Self, FormatRule> {
         Ok(Self {
             symbols: Symbols {
                 numerals: options.parse("zero", Numerals::parse)?,
@@ -40,7 +40,6 @@ impl Numbers {
                 group: options.parse("group", symbol)?,
                 minus: options.parse("minus", symbol)?,
                 plus: options.parse("plus", symbol)?,
-                percent,
             },
             minimum_grouping: options.parse("grouping", |t| {
                 t.parse().ok().filter(|n| (1..=9).contains(n))
@@ -52,21 +51,21 @@ impl Numbers {
     }
 }
 
-/// A language's options of `:number` and `:offset`: its numbers, and its decimal pattern.
-#[cfg(any(feature = "number", feature = "offset"))]
+/// A language's options of `:number` and `:integer`: its numbers, and its decimal pattern.
+#[cfg(feature = "number")]
 #[derive(Debug, Clone)]
 pub(crate) struct Plain {
     pub(crate) numbers: Numbers,
     pub(crate) pattern: Pattern,
 }
 
-/// The options `[formats.number]` and `[formats.offset]` take.
-#[cfg(any(feature = "number", feature = "offset"))]
+/// The options `[formats.number]` takes.
+#[cfg(feature = "number")]
 pub(crate) const PLAIN: [&str; 9] = [
     "zero", "decimal", "group", "minus", "plus", "grouping", "cardinal", "ordinal", "pattern",
 ];
 
-#[cfg(any(feature = "number", feature = "offset"))]
+#[cfg(feature = "number")]
 impl Plain {
     /// A section's options.
     ///
@@ -75,7 +74,7 @@ impl Plain {
     /// [`FormatRule`] for an option the section lacks or whose text the grammar refuses.
     pub(crate) fn parse(options: Options<'_>) -> Result<Self, FormatRule> {
         Ok(Self {
-            numbers: Numbers::parse(options, "%".to_owned())?,
+            numbers: Numbers::parse(options)?,
             pattern: options.parse("pattern", Pattern::parse)?,
         })
     }

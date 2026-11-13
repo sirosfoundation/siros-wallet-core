@@ -18,8 +18,7 @@ use siros_explain::{Arg, Explain};
 /// its value when `Some` and `""` when `None`. An id names one statement of its crate. A type
 /// that derives `Explain` is a message already, and deriving both fails to build.
 ///
-/// An implementation by hand names each key in Unicode Normalization Form C, as a derived key
-/// is: a context asks for a key as its wording spells it, in NFC with the feature `nfc`.
+/// A context asks for a key as its wording spells it, byte for byte.
 pub trait Message {
     /// The id the context's modules word.
     fn id(&self) -> &str;

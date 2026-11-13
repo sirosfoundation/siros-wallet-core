@@ -8,12 +8,8 @@ const FUNCTIONS: &[&str] = &[
     "number",
     #[cfg(feature = "number")]
     "integer",
-    #[cfg(feature = "offset")]
-    "offset",
     #[cfg(feature = "currency")]
     "currency",
-    #[cfg(feature = "currency")]
-    "percent",
     #[cfg(feature = "date")]
     "siros:date",
     #[cfg(feature = "date")]

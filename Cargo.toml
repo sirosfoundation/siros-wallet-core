@@ -81,8 +81,6 @@ inventory = "0.3"
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = { version = "3.0.9", features = ["full"] }
-# UAX #15: MessageFormat 2 compares names and variant keys in NFC.
-unicode-normalization = { version = "0.1.26", default-features = false }
 # Unicode general categories: the letters that decide a currency symbol's spacing.
 icu_properties = { version = "=2.4.0", default-features = false, features = ["compiled_data"] }
 # Test-only: ICU4X 2.4 and its compiled CLDR 49.0.0 data, siros-i18n's oracle.

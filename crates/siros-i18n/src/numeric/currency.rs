@@ -1,5 +1,5 @@
 //! Currencies: `[formats.currency]`, which holds a language's currency patterns, symbols, names
-//! and fraction digits and the percent pattern of `:percent`, and an amount formatted with them
+//! and fraction digits, and an amount formatted with them
 //! (Unicode TR35 Part 3, "Currencies"; CLDR's `alphaNextToNumber` patterns as ICU4X selects them).
 
 use std::hash::Hash;
@@ -14,14 +14,14 @@ use crate::error::FormatRule;
 use crate::format::Options;
 use crate::numeric::Form;
 use crate::numeric::decimal::{Fixed, Given};
-use crate::numeric::language::{Numbers, symbol};
+use crate::numeric::language::Numbers;
 use crate::numeric::options::{Function, Refused, Resolved};
 use crate::numeric::pattern::{Affix, Pattern};
 use crate::numeric::plural::{Category, Operands};
 use crate::seen::repeated;
 
 /// The options `[formats.currency]` takes.
-pub(crate) const OPTIONS: [&str; 22] = [
+pub(crate) const OPTIONS: [&str; 20] = [
     "zero",
     "decimal",
     "group",
@@ -30,8 +30,6 @@ pub(crate) const OPTIONS: [&str; 22] = [
     "grouping",
     "cardinal",
     "ordinal",
-    "percent-sign",
-    "percent-pattern",
     "pattern",
     "standard",
     "standard-alpha",
@@ -131,11 +129,10 @@ struct Data {
     fractions: Vec<(Currency, Fractions)>,
 }
 
-/// `[formats.currency]`, parsed: its numbers, its percent pattern, and its currency data.
+/// `[formats.currency]`, parsed: its numbers and its currency data.
 #[derive(Debug, Clone)]
 pub(crate) struct Parsed {
     pub(crate) numbers: Numbers,
-    pub(crate) percent: Pattern,
     data: Data,
 }
 
@@ -239,8 +236,7 @@ impl Parsed {
         let pattern = |name| options.parse(name, Pattern::parse);
         let (default, fractions) = options.parse("digits", fractions)?;
         Ok(Self {
-            numbers: Numbers::parse(options, options.parse("percent-sign", symbol)?)?,
-            percent: pattern("percent-pattern")?,
+            numbers: Numbers::parse(options)?,
             data: Data {
                 patterns: Patterns {
                     standard: pattern("standard")?,
@@ -315,7 +311,7 @@ impl Parsed {
     ///
     /// [`Refused::Operand`] for a `:currency` value without a `currency` option.
     pub(crate) fn check(&self, resolved: &Resolved<'_>) -> Result<(), Refused> {
-        if resolved.formatter == Function::Currency && resolved.get("currency").is_none() {
+        if resolved.function == Function::Currency && resolved.get("currency").is_none() {
             return Err(Refused::Operand);
         }
         Ok(())

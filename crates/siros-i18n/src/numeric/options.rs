@@ -1,7 +1,6 @@
 //! MF2's numeric options (spec/functions/number.md) resolved along a call chain: each function's
-//! operand, the options it inherits from an operand's call and those it discards, the value
-//! steps of `:integer` and `:offset`, and the digit options after ECMA-402's
-//! SetNumberFormatDigitOptions.
+//! operand, the options it inherits from an operand's call and those it discards, the rounding
+//! of an `:integer` operand, and the digit options after ECMA-402's SetNumberFormatDigitOptions.
 
 use std::num::NonZeroU32;
 
@@ -9,7 +8,7 @@ use crate::chain::{CallTexts, Texts};
 use crate::format::Function as Called;
 use crate::numeric::decimal::RoundingMode;
 use crate::numeric::pattern::{Grouping, Pattern};
-use crate::numeric::{Digits, Fraction, Rounding, Selection, SignDisplay, Step};
+use crate::numeric::{Digits, Fraction, Rounding, Selection, SignDisplay};
 
 /// Why a chain's options do not resolve.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,9 +25,7 @@ pub(crate) enum Function {
     Number,
     #[cfg(feature = "number")]
     Integer,
-    Offset,
     Currency,
-    Percent,
 }
 
 impl Function {
@@ -39,12 +36,8 @@ impl Function {
             Called::Number => Some(Self::Number),
             #[cfg(feature = "number")]
             Called::Integer => Some(Self::Integer),
-            #[cfg(feature = "offset")]
-            Called::Offset => Some(Self::Offset),
             #[cfg(feature = "currency")]
             Called::Currency => Some(Self::Currency),
-            #[cfg(feature = "currency")]
-            Called::Percent => Some(Self::Percent),
             _ => None,
         }
     }
@@ -77,10 +70,6 @@ impl Function {
                 "minimumIntegerDigits" | "maximumSignificantDigits" => Some(Rule::Digits),
                 _ => None,
             },
-            Self::Offset => match name {
-                "add" | "subtract" => Some(Rule::Size),
-                _ => None,
-            },
             Self::Currency => match name {
                 #[cfg(feature = "currency")]
                 "currency" => Some(Rule::Currency),
@@ -89,10 +78,6 @@ impl Function {
                 "minimumIntegerDigits" => Some(Rule::Digits),
                 "fractionDigits" => Some(Rule::FractionDigits),
                 "roundingIncrement" => Some(Rule::RoundingIncrement),
-                _ => digits(),
-            },
-            Self::Percent => match name {
-                "minimumFractionDigits" | "maximumFractionDigits" => Some(Rule::Size),
                 _ => digits(),
             },
         }
@@ -104,18 +89,21 @@ impl Function {
     }
 
     /// Whether it discards this option of its operand's resolved value.
-    pub(crate) fn discards(self, name: &str) -> bool {
+    pub(crate) fn discards(
+        self,
+        #[cfg_attr(
+            not(feature = "number"),
+            expect(unused_variables, reason = "only `:integer` discards an option")
+        )]
+        name: &str,
+    ) -> bool {
         match self {
             #[cfg(feature = "number")]
             Self::Integer => matches!(
                 name,
                 "minimumFractionDigits" | "maximumFractionDigits" | "minimumSignificantDigits"
             ),
-            Self::Percent => matches!(
-                name,
-                "minimumIntegerDigits" | "roundingIncrement" | "select"
-            ),
-            Self::Number | Self::Offset | Self::Currency => false,
+            Self::Number | Self::Currency => false,
         }
     }
 }
@@ -131,19 +119,18 @@ pub(crate) enum Root {
     Argument,
 }
 
-/// A call's resolved value: what it starts from, the steps that change the value, its options
-/// as resolved, and the function whose formatting applies.
+/// A call's resolved value: what it starts from, the rounding mode of each `:integer` call its
+/// operand passes through, its options as resolved, and the function whose formatting applies.
 #[derive(Debug, Clone)]
 pub(crate) struct Resolved<'a> {
     pub(crate) root: Root,
-    pub(crate) steps: Vec<Step>,
+    pub(crate) roundings: Vec<RoundingMode>,
     options: Vec<(&'a str, &'a str)>,
     /// Whether an operand set `select`.
     select_inherited: bool,
     /// Whether an operand is a `:currency` value.
     pub(crate) currency_held: bool,
     pub(crate) function: Function,
-    pub(crate) formatter: Function,
 }
 
 /// `digit-size-option = "0" / (("1"-"9") [DIGIT])`.
@@ -166,7 +153,7 @@ pub(crate) enum Rule {
     UseGrouping,
     /// A digit size from 1 to 21: a count of integer or significant digits.
     Digits,
-    /// A digit size: a count of fraction digits, or an addend.
+    /// A digit size: a count of fraction digits.
     Size,
     /// `auto` or a digit size.
     FractionDigits,
@@ -235,12 +222,11 @@ impl<'a> Resolved<'a> {
         let function = Function::of(first.function).ok_or(Refused::Operand)?;
         let mut resolved = Self {
             root,
-            steps: Vec::new(),
+            roundings: Vec::new(),
             options: Vec::new(),
             select_inherited: false,
             currency_held: false,
             function,
-            formatter: Function::Number,
         };
         resolved.apply(function, first)?;
         for call in rest {
@@ -251,12 +237,9 @@ impl<'a> Resolved<'a> {
         Ok(resolved)
     }
 
-    /// Applies a call of `function` to the value: its options, then its step.
+    /// Applies a call of `function` to the value: its options.
     fn apply(&mut self, function: Function, call: &'a CallTexts<'_>) -> Result<(), Refused> {
         self.function = function;
-        if function != Function::Offset {
-            self.formatter = function;
-        }
         for &(name, value) in &call.options {
             let Some(rule) = function.rule(name) else {
                 continue;
@@ -268,20 +251,6 @@ impl<'a> Resolved<'a> {
         }
         if self.select_inherited {
             return Err(option("select"));
-        }
-        if function == Function::Offset {
-            let size = |name: &str| {
-                self.get(name)
-                    .map(|text| digit_size(text).map(i64::from).ok_or_else(|| option(name)))
-                    .transpose()
-            };
-            let step = match (size("add")?, size("subtract")?) {
-                (Some(add), None) => add,
-                (None, Some(subtract)) => -subtract,
-                (Some(_), Some(_)) => return Err(option("subtract")),
-                (None, None) => return Err(option("add")),
-            };
-            self.steps.push(Step::Add(step));
         }
         Ok(())
     }
@@ -299,20 +268,19 @@ impl<'a> Resolved<'a> {
             .map(|(_, v)| *v)
     }
 
-    /// The value as the operand of `outer`: `:integer`'s step added, `:offset`'s options dropped
-    /// and those `outer` discards. `:offset` adds its step where it is called.
+    /// The value as the operand of `outer`: `:integer`'s rounding held, the options `outer`
+    /// discards dropped.
     fn operand_of(mut self, outer: Function) -> Result<Self, Refused> {
         match self.function {
             #[cfg(feature = "number")]
             Function::Integer => {
                 let mode = self.mode()?;
-                self.steps.push(Step::Integer(mode));
+                self.roundings.push(mode);
             }
             Function::Currency => self.currency_held = true,
-            Function::Number | Function::Offset | Function::Percent => {}
+            Function::Number => {}
         }
-        self.options
-            .retain(|(name, _)| *name != "add" && *name != "subtract" && !outer.discards(name));
+        self.options.retain(|(name, _)| !outer.discards(name));
         self.select_inherited = self.get("select").is_some();
         Ok(self)
     }
@@ -327,12 +295,12 @@ impl<'a> Resolved<'a> {
 
     /// The option `name`, when the formatting function reads it.
     fn read(&self, name: &str) -> Option<&'a str> {
-        self.get(name).filter(|_| self.formatter.reads(name))
+        self.get(name).filter(|_| self.function.reads(name))
     }
 
     /// The option `name`, checked, when the formatting function reads it.
     fn checked(&self, name: &str) -> Result<Option<&'a str>, Refused> {
-        let Some(rule) = self.formatter.rule(name) else {
+        let Some(rule) = self.function.rule(name) else {
             return Ok(None);
         };
         match self.get(name) {
@@ -373,9 +341,9 @@ impl<'a> Resolved<'a> {
 
     /// How a selector of this value matches; `None` for a value that selects no variant.
     pub(crate) fn selection(&self) -> Result<Option<Selection>, Refused> {
-        Ok(match (self.formatter, self.checked("select")?) {
+        Ok(match (self.function, self.checked("select")?) {
             (Function::Currency, _) => None,
-            (Function::Percent, _) | (_, None | Some("plural")) => Some(Selection::Plural),
+            (_, None | Some("plural")) => Some(Selection::Plural),
             (_, Some("ordinal")) => Some(Selection::Ordinal),
             (_, Some("exact")) => Some(Selection::Exact),
             (_, Some(_)) => return Err(option("select")),
@@ -455,10 +423,9 @@ impl<'a> Resolved<'a> {
 
     /// The minimum and maximum fraction digits. An argument under `:number` defaults to the
     /// digits it is written with, as ICU4X's `DecimalFormatter` shows a `Decimal`; a literal of
-    /// the message defaults to the pattern's, as ECMA-402's `Intl.NumberFormat`, which MF2's
-    /// conformance suite follows.
+    /// the message defaults to the pattern's, as ECMA-402's `Intl.NumberFormat`.
     fn fraction(&self, pattern: &Pattern) -> Result<(Fraction, Fraction), Refused> {
-        match self.formatter {
+        match self.function {
             #[cfg(feature = "number")]
             Function::Integer => return Ok((Fraction::Digits(0), Fraction::Digits(0))),
             Function::Currency => {
@@ -470,13 +437,13 @@ impl<'a> Resolved<'a> {
                     }
                 });
             }
-            Function::Number | Function::Percent | Function::Offset => {}
+            Function::Number => {}
         }
         let (min, max) = (
             self.size("minimumFractionDigits")?,
             self.size("maximumFractionDigits")?,
         );
-        if self.root == Root::Argument && self.formatter == Function::Number {
+        if self.root == Root::Argument && self.function == Function::Number {
             return match (min, max) {
                 (Some(min), Some(max)) if min > max => Err(option("maximumFractionDigits")),
                 (min, max) => {
