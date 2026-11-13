@@ -11,22 +11,35 @@
 //! | [`verifier_id`] | `verifier_id`, `verifier_input`, the `sha-256` pseudonym | `pseudonym` |
 //! | [`system`] | The systems and the options each supports | System rulebooks, Sections 1 to 3 |
 //! | [`policy`] | The rules of signed requests and encrypted responses | Binding, Response confidentiality |
-//! | [`request_object`] | A Request Object the host validated, checked against the policy, and its session | Binding, Response confidentiality |
-//! | [`request`] | The verified request that meets the policy (N2) | Binding, Response confidentiality, Verifier identity |
 //! | [`pair`] | The options of a query and the usable pair of a system for one | `zkp_req`, Section 1.3 |
-//! | [`mdoc`] | The nym_auth form of the ISO/IEC 18013-5 attestation | Attestation |
-//! | [`attestation`] | The tested attestation; the usable attestation, its Document Signer admitted for the query (N3); the opened seed | System rulebooks, Section 7 |
-//! | [`presenter`] | The answer of an option, then the statement, the prover's job and the presentation | `zkp_req`, Sections 3, 4 |
-//! | [`prover`] | The statement and the prover interface | System rulebooks, Sections 3, 4, 7 |
-//! | [`verify`] | The Verifier's checks | `zkp_req`, Section 4.1; system rulebooks, Section 9 |
+#![cfg_attr(
+    feature = "credential",
+    doc = "\
+| [`request_object`] | A Request Object the host validated, checked against the policy, and its session | Binding, Response confidentiality |
+| [`mdoc`] | The nym_auth form of the ISO/IEC 18013-5 attestation | Attestation |
+| [`attestation`] | The tested attestation; the usable attestation, its Document Signer admitted for the query (N3); the opened seed | System rulebooks, Section 7 |
+| [`presenter`] | The answer of an option, then the statement, the prover's job and the presentation | `zkp_req`, Sections 3, 4 |
+| [`prover`] | The statement and the prover interface | System rulebooks, Sections 3, 4, 7 |
+| [`verify`] | The Verifier's checks | `zkp_req`, Section 4.1; system rulebooks, Section 9 |"
+)]
+#![cfg_attr(
+    feature = "request",
+    doc = "| [`request`] | The verified request that meets the policy (N2) | Binding, Response confidentiality, Verifier identity |"
+)]
 //!
-//! The provers stay outside. A host implements [`prover::NymAuthProver`] and
-//! [`prover::NymAuthProofVerifier`] with a system's prover and verifier.
+#![cfg_attr(
+    feature = "credential",
+    doc = "\
+The provers stay outside. A host implements [`prover::NymAuthProver`] and
+[`prover::NymAuthProofVerifier`] with a system's prover and verifier."
+)]
 //!
 //! Without the default feature `credential`, the crate holds the catalogue, the systems, the usable
 //! pairs and the policy: what the credential picker needs. The feature `request` adds
-//! [`request::NymAuthRequest`] over `siros-oid4vp`'s verified request, and the statement and
-//! presentation of an answer in its session.
+#![cfg_attr(feature = "request", doc = "[`request::NymAuthRequest`]")]
+#![cfg_attr(not(feature = "request"), doc = "`request::NymAuthRequest`")]
+//! over `siros-oid4vp`'s verified request, and the statement and presentation of an answer in its
+//! session.
 
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
