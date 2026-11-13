@@ -38,8 +38,8 @@ The provers stay outside. A host implements [`prover::NymAuthProver`] and
 //! pairs and the policy: what the credential picker needs. The feature `request` adds
 #![cfg_attr(feature = "request", doc = "[`request::NymAuthRequest`]")]
 #![cfg_attr(not(feature = "request"), doc = "`request::NymAuthRequest`")]
-//! over `siros-oid4vp`'s verified request, and the statement and presentation of an answer in its
-//! session.
+//! over `siros-oid4vp`'s verified request, and the statement and
+//! presentation of an answer in its session.
 
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
