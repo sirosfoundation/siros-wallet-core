@@ -521,3 +521,118 @@ adapter's shared store.
 The suite evidence stands: everything in §4 marked suite-validated is green
 against the OIDF plans (four OID4VCI + OID4VP variants incl. HAIP and
 iso_mdl) with `oidf`-provenance vectors pinning each wire.
+---
+
+## 8. The tenant-bound remote principal (W10 — proposed 2026-11-06)
+
+**The proposal:** the REMOTE engine (the HTTP+SSE binding; the container
+deployment) consumes **tenant-bound** tokens instead of user-bound ones.
+Privacy is the driver: the engine is infrastructure — it relays offers,
+proofs and credentials between wallets and issuers/verifiers, and every
+user-bound token it validates today attributes that traffic to a person in
+its logs, its KV flow registry and its session store. A tenant-bound token
+removes the person from the engine entirely.
+
+**The analysis — where the engine actually depends on the user.** The
+complete `Principal.subject` dependency surface (audited 2026-11-06):
+
+| Use | Where | Tenant-bound status |
+| --- | --- | --- |
+| Authentication gate | `is_authenticated()` = non-empty `subject` (session create + every flow start) | Needs a non-user `sub` (G3) |
+| Session ownership | `principal.key()` = `tenant/subject`; resume/close/extend check it (`sessionservice`) | Must become tenant-keyed (G1) |
+| The #319 token cut-off | `TokenGate.auth_invalid_before(subject, tenant)` (the engine's §6.10 seam) | Per-user keying dissolves (G2) |
+| The PDP contract | — | **No user anywhere**: subjects are the issuer/verifier (`ports.rs` binds `{type:"key", id: <issuer|verifier>}`) |
+| The flows, the asks, the completions | — | **No user anywhere**: the asks go to the wallet's Host/callbacks over the session's own channel; the flow state is per-flow; the redaction withholds the renewal material from replay |
+
+The proposal's premise holds: **nothing in the engine's flow execution
+attributability needs the user.** The user-bound tasks (consent UI,
+matching, signing, storage) are the frontend/SDK's; the engine only needs
+to know "an authenticated principal of tenant T may run flows, and this
+session belongs to that principal".
+
+### The gaps and issues
+
+- **G1 — session ownership and resume.** Sessions are owned by
+  `tenant/subject`; a token whose `sub` is a pseudonym minted per token
+  (or the tenant itself) breaks `session_resume`'s ownership check (a
+  fresh pseudonym ≠ the one that created the session). **Fix:** in tenant
+  mode the session's owner key is the **tenant**; the per-session security
+  is the **resumption token** (single-use, rotated on every resume —
+  already enforced), not the subject. Cross-user hijack within a tenant
+  reduces to stealing the resumption token — the same attack as today
+  with a user token.
+- **G2 — the #319 cut-off loses its key.** The per-user
+  `auth_invalid_before` is the engine's only per-user dependency beyond
+  G1. In tenant mode the gate keys the **tenant** (a tenant-wide cut-off)
+  or falls back to per-token **`jti` blacklisting**
+  (`with_revocation` exists, unwired). **The accepted risk** (owner's
+  words): a non-revocable short-lived tenant-scoped token may lie around
+  for its TTL. Mitigation: short TTLs (the GDC AS already mints ~120 s
+  tokens) + the jti blacklist as the cheap per-token revocation.
+- **G3 — the AS token shape.** `is_authenticated` requires a non-empty
+  `sub`; the AS's anonymous kind mints none. **Fix:** a new token kind
+  (beside `TOKEN_BACKEND`/`TOKEN_ANONYMOUS`): `sub` = a **random
+  pseudonym** (per mint — rotating with the TTL, so it identifies nothing
+  and cannot be correlated across mints), `tac ⊇ "ri"` (both flow types
+  gate on it), tenant claimed as today. The engine's wire handling is
+  then **unchanged** — only G1's owner keying and G2's gate keying move.
+- **G4 — audit.** Engine-side per-user attribution disappears (the
+  privacy win); per-user audit stays where the user actually is — the
+  backend/AS. Acceptable by design.
+- **G5 — the #319 interplay.** #319's **backend** halves (the login
+  gate, the erasure cascade, the instance model) are orthogonal and
+  unaffected. Its **engine seam** (§6.10) collapses: the Rust engine in
+  tenant mode needs no per-user cut-off propagation at all — hold #319's
+  engine-propagation stack until W10 decides the mode per deployment
+  (`ENGINE_PRINCIPAL_MODE=user|tenant`, default `user` for
+  backwards-compatible deployments, `tenant` for the privacy-preserving
+  remote one).
+- **G6 — the SDK side.** `WmpHttpSseTransport.tokenProvider` mints per
+  request (the freshened bearer); switching the WMP modes to the tenant
+  kind is a one-line `ensureTenantToken()` beside `ensureBackendToken()`
+  (the LEGACY_WS Go path keeps user tokens — go-wallet-backend is not
+  changing here).
+
+### The shape of W10
+
+**Landed 2026-11-08** — every step, in this order: engine
+`3345cf3`→`b52b9f7`→`3a78934` (`PrincipalMode` on the Principal, the
+transport stamps it from `ENGINE_PRINCIPAL_MODE`, the #319 gate's
+store-backed half keys the tenant via
+`TokenGate::tenant_auth_invalid_before`, `JtiBlacklist` wired into the
+validator with `EngineServer::revoke_jti`); AS `go-wallet-backend
+4b811641` (the `pseudonymous` token kind — `issueToken` splits the
+policy subject from the minted subject, the minted `sub` is a fresh
+`p-<uuid>` per mint, `tac` capped to `ri`); Kotlin
+`siros-sdk-kotlin#385` (`TokenKind.pseudonymous`, `TOKEN_WMP_ENGINE`,
+`ensureTenantToken()`, `AuthServerClient.requestPseudonymousToken`,
+`WalletConfig.wmpTenantTokens` — the `HTTP_SSE` provider mints per the
+flag); Swift `siros-sdk-swift#266` (the same mirror); deployment
+`sirosid-dev` `deploy.py` (the GDC/Fly engine overlay sets
+`ENGINE_PRINCIPAL_MODE=tenant` — read by the next engine image; the
+local compose keeps the default user mode). The SDK flag
+(`wmpTenantTokens`) must match the deployment's engine: a tenant-mode
+engine with user tokens keeps its sessions but loses the privacy
+point; a user-mode engine with pseudonym tokens strands every session
+at the token's mint.
+
+1. `wmp-core`: `Principal` gains a mode flag (or the owner key becomes
+   tenant-or-subject per configuration) — the sessionservice's ownership
+   checks follow it. Tests: a tenant principal resumes a session a
+   different pseudonym created; a cross-TENANT resume still refuses.
+2. `engine-adapter-server`: `ENGINE_PRINCIPAL_MODE` (default `user`);
+   `tenant` mode keys the gate tenant-wide and wires the jti blacklist.
+   Tests: both modes' flow-start gates.
+3. `sirosid-dev`: the AS token kind (`sub` = pseudonym, `tac` = "ri").
+4. `siros-sdk-kotlin`/`-swift`: `ensureTenantToken()` for the WMP
+   remote modes.
+5. Deployment: the GDC/Fly overlay sets `ENGINE_PRINCIPAL_MODE=tenant`.
+
+**Priority:** after the current SDK wave lands (the Kotlin drive is
+mid-flight; the Swift mirror and the merges follow). W10 then gates the
+**#319 merge decision** — the owner's call at merge time: merge #319's
+backend halves on their own merits, hold its engine seam for W10.
+
+**Not in scope:** the local (in-process) mode — the AAR/XCFramework runs
+in the wallet's own process; there is no third party to hide the user
+from, and the Host callbacks already carry the wallet's own context.

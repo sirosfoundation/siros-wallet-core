@@ -338,6 +338,7 @@ mod tests {
         IssuerMetadata {
             nonce_endpoint: None,
             deferred_credential_endpoint: None,
+            batch_credential_issuance: None,
             credential_endpoint: String::new(),
             token_endpoint: String::new(),
             notification_endpoint: String::new(),
@@ -345,6 +346,7 @@ mod tests {
             authorization_servers: Vec::new(),
             credential_configurations: serde_json::json!({}),
             signed_metadata: None,
+            envelope_key_material: None,
             is_signed: false,
             raw: Vec::new(),
         }

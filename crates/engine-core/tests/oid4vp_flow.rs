@@ -51,6 +51,7 @@ mod presentation_flow_tests {
             Ok(EvaluationResponse {
                 trusted: true,
                 decision: Some("in the registry".to_owned()),
+                context: None,
             })
         }
         async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {
@@ -474,6 +475,7 @@ mod untrusted_flow_tests {
             Ok(EvaluationResponse {
                 trusted: false,
                 decision: Some("not in the registry".to_owned()),
+                context: None,
             })
         }
         async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {
@@ -627,6 +629,7 @@ mod sign_refusal_tests {
             Ok(EvaluationResponse {
                 trusted: true,
                 decision: None,
+                context: None,
             })
         }
         async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {

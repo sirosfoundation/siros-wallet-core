@@ -1,0 +1,342 @@
+# The cross-repo backlog
+
+**Scope:** engine-core, the Kotlin and Swift SDKs, go-wallet-backend, go-trust.
+**Dated:** 2026-11-12 — the step-back review after the v0.2.2 / v0.23.0 / v0.17.0 release train.
+
+This is the working backlog across the platform, not any one repo's issue list —
+the tiers are ranked by blast radius, every item links to its issue, and the
+handful that have no issue yet are marked for filing on approval. Review and
+re-rank freely; the tiers are proposals.
+
+---
+
+## Where we stand (2026-11-12)
+
+| Piece | State |
+|---|---|
+| wallet-core **v0.2.2–v0.2.5** | Released: AARs on Central + GH Packages, XCFramework + bindings per tag, engine image on ghcr, conformance green. **v0.2.4**: `VpParams` carries `verified_request` + `response_encryption` (#33). **v0.2.5** (2026-11-13): `VpVerifiedRequest` carries `signature_verification` (#34 — the on-device find below) |
+| Kotlin SDK **v0.23.0** | Released: Maven Central, GH Packages, Play internal track — the consent round and the credential deck shipped. **Predates #404** (the zkp_req match + sign pipeline, the session recovery, the diagnostics, the dialog buttons) |
+| Swift SDK **v0.17.0** | Released: tarballs + TestFlight — the consent bridge and the listener-contract repairs shipped. **Predates #283** (the session recovery twin) |
+| GDC | Backend 0.25.2 (deployed), engine **re-pinned to v0.2.5 and verified live** (2026-11-13: `fly-up` ran, the machine runs `engine-server:v0.2.5`, `/healthz` answers 200 through the wallet-proxy) |
+| Native AARs | **8/8 on Maven Central** (wallet-core 0.2.2 and verifier-core-ffi 0.1.2 added 2026-11-12; the token-free resolution is proven) |
+| Multi-credential issuance (Platform-Epics#63) | Analyzed, decided (no mid-flow selection; subset-at-flow-start; `IssuanceSelectionPolicy` knob), tracked in five repos — **not started** |
+| **SDK patch releases (v0.23.1 / v0.17.1)** | **Queued behind the morning nym_auth validation.** Carry #404/#283 from merged main + embed engine **v0.2.4** — both SDKs currently pin **v0.2.2** (Kotlin: the `walletCoreVersion` gradle property in `sdk/transport/build.gradle.kts`; Swift: the `Package.swift` xcframework zip URL). The embedded engine only serves local-first mode (a local-first zkp_req needs v0.2.4's `VpParams` or it dies at the same policy gate); the remote path deserializes the params from the wire, so the morning test does not wait on this. The #33 change touched no FFI records (`VpParams` is an engine-internal port), so the vendored UniFFI bindings are unchanged — the bump is the AAR pin + the zip URL, re-vendored from v0.2.4 anyway for the same-release rule |
+
+---
+
+## P0 — this week
+
+1. **Swift #276 — WMP batch completions are metadata-checked then discarded.**
+   Nothing stored while the UI reports success; silent data loss the moment the
+   engine emits batches (i.e. the moment multi-credential issuance lands).
+   The Kotlin twin is fixed in code (`SirosWallet.kt`'s entry-by-entry batch
+   store) — the fix is a mirror. **[2026-11-12] DONE: Kotlin #398 closed as
+   fixed-in-code; the Swift mirror merged as siros-sdk-swift#282 (both batch
+   tests green, 1766-test suite green) and #276 closed with it.**
+   https://github.com/sirosfoundation/siros-sdk-swift/issues/276
+2. **The GDC remote validation round.** **[2026-11-12] DONE — and it found
+   four real bugs that only a live device round could surface:**
+   - The SDK's remote engine bearer took the legacy HMAC app token instead
+     of the AS's pseudonymous tenant token (the engine's asymmetric-only
+     gate refused it before even fetching the JWKS — fixed: a tenant-mode
+     engine always mints the tenant kind, siros-sdk-kotlin `fix/wmp-session-recovery`)
+   - The engine's principal read the AS's `tenant` claim, but the AS stamps
+     `tenant_id` — every real AS token produced an empty tenant, and a
+     tenant-mode principal with no tenant has an empty ownership key
+     (fixed: wallet-core#32, released as v0.2.3, re-pinned)
+   - The wallet's resume loop exhausted on "Session not found" (the TTL
+     lapsed) and left the wallet stranded on a dead session — every later
+     flow start landed on it and the engine answered "Capability not
+     supported" (fixed: the resume exhaustion falls back to a fresh
+     session create, siros-sdk-kotlin `fix/wmp-session-recovery`)
+   - The wallet-proxy's nginx spoke HTTP/1.0 to the engine's SSE — the
+     first event arrived, every subsequent one was lost in the encoding
+     mismatch (fixed: `proxy_http_version 1.1` + `Connection ''`, sirosid-dev)
+   After all four: the tenant mint works (0.25.2 proven), the session
+   connects (v0.2.3 proven), the cross-device presentation works for both
+   the matching case (consent popup → noun-phrase claims → signed share →
+   completion clears the UI) and the no-match case (decline reaches the
+   verifier, the wallet shows the denial, the UI clears). The consent
+   surfaces show `client_name` (go-trust#249's `display_name` is still
+   in flight).
+3. **go-trust#249 — the registry `display_name` is never emitted.** The
+   verifier-label chain shipped in the consent surfaces consumes it as its
+   first link; until it exists, every consent ask shows the client_name.
+   The wire plumbing (wallet-core's `EvaluationResponse.context` → both SDKs)
+   is done; the source is a small go-trust change. **[2026-11-12] In flight.**
+   https://github.com/sirosfoundation/go-trust/issues/249
+   **[2026-11-12, late] The implementation (go-trust#255, closing #249) will
+   ALSO add `display_name_l10n` — a map of language-tag → string — alongside
+   `display_name`. The consumption plan, mapped to the code:**
+   - **The arrival needs no engine change**: the PDP client relays go-trust's
+     `context` verbatim (`engine-adapter-server/src/ports.rs:513`), so the map
+     rides `EvaluationResponse.context` automatically once go-trust sends it.
+   - **But the pick point drops it today**:
+     `engine-core/src/oid4vp/trust.rs:275` collapses `context.display_name`
+     into the single-string `verifier.name` (`VerifierInfo.name`, the match
+     ask's label) — the map is lost right there, and the engine cannot pick a
+     locale entry anyway because it never learns the wallet's device locale.
+   - **Engine change (wallet-core, next release)**: `VerifierInfo` gains an
+     optional `display_name_l10n` map member, populated in `trust.rs` from
+     `context.display_name_l10n` verbatim; `display_name` → `name` stays the
+     default so old wallets see today's behaviour unchanged.
+   - **Kotlin SDK**: the match-ask verifier parsing (`handleWmpMatchRequest`
+     → the `TrustResult(entityName = label)` construction) prefers the
+     locale-matching entry: exact `Locale.getDefault().toLanguageTag()` →
+     language-only → case-insensitive tag → `display_name` → today's label
+     chain.
+   - **Swift SDK**: the twin, `Locale.current.identifier`, in the match
+     handler's TrustResult construction.
+   - Not in scope: the legacy wallet-backend PDP's own context (`entity_name`
+     keys — `TrustResolution`/`MdocTrust`/`DCAPI` read those) is a different
+     wire shape from a different source.
+4. **The #549 protocol decision — the one gate on the multi-credential epic.**
+   **[2026-11-12] DECIDED and recorded on #549:** the flow-start subset
+   (`credential_configuration_ids`, absent = all) + the `credentials[]`
+   completion are the WMP wire mechanism; select-vs-issue-all is an
+   engine/SDK-level configuration defaulting to issue-all; and the
+   go-wallet-backend engine module (the legacy WebSocket protocol) is
+   **explicitly out of scope** — #549 is the decision record, the
+   implementation is wallet-core#28 (WMP), with the SDK legs unblocked.
+   https://github.com/sirosfoundation/go-wallet-backend/issues/549
+
+## P1 — next two weeks
+
+4. **The FAPI `iss` (RFC 9207) validation — the new engine's twin of
+   go-wallet-backend#551.** The OpenID Foundation's
+   `fapi2-security-profile-final-client-test-remove-authorization-response-iss`
+   (run against the legacy WS engine) strips `iss` from the authorization
+   response and expects the wallet to refuse BEFORE the token exchange; #551
+   fixes the legacy path (its bulk is the stateless-resumption machinery —
+   a signed HMAC `authorization_context` — the Go engine needs because it
+   has no per-transaction server-side storage).
+   **The new Rust engine has the same gap** (traced 2026-11-13, the
+   morning's four-gate nym_auth debugging, `resume_authorization_code` in
+   `crates/engine-core/src/oid4vci/mod.rs`): the resume reads only `code` +
+   `state` from the action params — the CSRF state match, then straight to
+   `exchange_authorization_code`. No `iss` is read, required, or compared;
+   `AsMetadata` (`oid4vci/types.rs`) does not even model
+   `authorization_response_iss_parameter_supported`, so the engine CANNOT
+   enforce it when an AS advertises it; there is no
+   `require_authorization_response_issuer` knob.
+   **Why it has not come up:** the wallet-core conformance runs cover
+   OID4VCI/OID4VP core, not the FAPI2 security-profile suite that does the
+   `iss`-removal test — the gap is real but unexercised, not absent. **Do
+   not run the FAPI2 suite against the new engine until this is fixed** or
+   it will produce the identical finding.
+   **The Rust fix is much smaller than #551** (the engine already stashes
+   per-flow state server-side — `AuthorizationStash`, the KV store, 600s
+   TTL — so the stateless-resumption machinery is already built):
+   1. model `authorization_response_iss_parameter_supported` in `AsMetadata`;
+   2. read `iss` in the resume (typed — reject null/non-string);
+   3. require it when advertised; compare exactly against the stashed AS
+      (the stash gains `as_url`/`as_issuer`); refuse BEFORE the exchange;
+   4. a `require_authorization_response_issuer` knob for FAPI deployments.
+   The #551 client-rollout caveats (duplicate-`iss` URL parameters before
+   reducing to the JSON message; preserving the decoded callback `iss`)
+   do NOT apply to the engine path — the resume arrives as typed JSON, and
+   the duplicate-parameter guard belongs in the wallet-frontend/SDK callback
+   parser (the legacy path's concern).
+   https://github.com/sirosfoundation/go-wallet-backend/pull/551
+
+   **[2026-11-13, midday] Investigation follow-up — the TEE direction, an
+   architectural constraint on this fix and the engine's state design
+   generally.** Server-side state makes TEE deployment hard (encrypted
+   pages, small RAM budgets, attestation-unfriendly state sprawl), so the
+   goal is mechanisms that keep the engine stateless — the state rides
+   the wire, sealed to the client, and the engine holds nothing across
+   requests. **The state the engine keeps today (the inventory):**
+   - `MemorySessionStore` (engine-adapter-server/handler.rs) — the WMP
+     sessions (that is what `Session not found` was: the TTL lapsed).
+   - `InMemoryKv` (engine-adapter-server/ports.rs:602) — the KV port's
+     default implementation; `AuthorizationStash` (oid4vci/mod.rs, 600s
+     TTL) rides it, 8 put/get sites total (6 oid4vci, 2 runtime).
+   - The resumption token already carries state forward (transport.rs:279)
+     — the sessions are half-stateless already.
+   **The mechanisms to investigate (in rough order of effort):**
+   1. **The client-held sealed stash (the #551 pattern, adapted):** replace
+      `AuthorizationStash`-in-KV with a signed (HMAC or the host key) and
+      optionally encrypted blob returned to the wallet with the redirect
+      hand-off, presented back on the resume — the engine verifies,
+      never stores. #551 built exactly this for the Go engine
+      (the 5-minute signed `authorization_context`); the Rust engine can
+      adopt the same shape at the `wmp.flow.action` boundary.
+   2. **The KV port to an attested host:** the `KeyValue` port
+      (engine-ports) is already an interface — a TEE deployment can back
+      it with the host's encrypted storage (or a sealed sidecar) without
+      engine changes, IF the host is trusted for that state. This is the
+      low-effort TEE story: the engine's logic is unchanged, only the
+      adapter. Cost: the TEE boundary then excludes the state (a
+      session/stash read is a host roundtrip) — fine for correctness,
+      weaker for the confidentiality story.
+   3. **The full stateless resume (the biggest lift):** the flow start
+      returns everything the resume needs (the offer params already ride
+      the stash today — the resume re-parses them); extend that so
+      NOTHING needs the KV: the resume carries the verifier, state,
+      redirect, PKCE, and configuration, sealed. Sessions go the same way
+      — the resumption token IS the session, the store becomes a cache,
+      not a source of truth.
+   Design rule going forward (the actionable part): every new engine flow
+   must state its resume story up front — what rides the wire, what the
+   engine must hold, what the TTL is — and the default is the
+   stateless option. #551's `iss` fix (item 4 above) should land in
+   shape 1 (the sealed stash), not by deepening the KV dependency.
+
+5. **The parity sweep** — one cross-SDK push through the 2026-11-11 audit's
+   remaining set: zkp_req match planning, the WMP REAUTH surface, Swift's
+   local disconnect + attestation ask, Kotlin's WMP match UX.
+   Kotlin https://github.com/sirosfoundation/siros-sdk-kotlin/issues/399 ·
+   Swift https://github.com/sirosfoundation/siros-sdk-swift/issues/277
+
+   **[2026-11-12, evening] P0-2 follow-up — the zkp_req match gap is now
+   root-caused on-device** (the GDC round's nym_auth test): the WMP
+   `handleWmpMatchRequest` path calls `CredentialMatcher.match` WITHOUT
+   the `circuitZk` support, so every `zkp_req` query falls through to
+   `matchSingleQuery`, whose format filter (`format == "mso_mdoc"`) rejects
+   the nym_auth credential before the doctype check runs — `format=zkp_req
+   vct=null doctype=eu.europa.ec.eudi.nym_auth.1 → 0 matches`. The legacy
+   engine path works because its own matcher passes the `CircuitZkSupport`.
+   **[2026-11-12, night] The match half is FIXED and on-device** (`fix/wmp-session-recovery`
+   @ 44ba225f): `handleWmpMatchRequest` now passes the `circuitZk` support and the
+   payload's `client_metadata` to `matchDcql` (the same wiring every other call
+   site had). On-device verified: the nym_auth presentation now matches, the
+   consent ask appears, and the flow reaches the sign step.
+
+   **The remaining two halves, with a precise on-device signature:**
+   the flow now fails at sign with `vp ask: disclosedClaims=[] → vp sign:
+   consentedClaims=null → DisclosureRefusedException` —
+   1. The consent ask carries `claims=[]` (a zkp_req match result has
+      `requestedClaims = emptyList()`), so the UI words nothing — it needs
+      the circuit's proof description (what the verifier learns), which the
+      DC API path renders through `answerCircuitZkQueries`'
+      `PresentationConsentHandler`.
+   2. The sign step's `consentedClaims=null` means "disclose everything",
+      which the ZK wrapper refuses — a zkp_req presentation must disclose
+      exactly the circuit's declared inputs. The sign step needs the
+      ZK-wrapped presentation (`zkPresentation.present`, the DC API path's
+      shape), not the plain DeviceResponse.
+   **[2026-11-12, night] The WMP zkp sign pipeline is IMPLEMENTED and on-device**
+   (`fix/wmp-session-recovery`): the WMP `sign_presentation` arm routes
+   `zkp_req` queries through `answerWmpCircuitZkPresentation` — a port of the
+   legacy transport's `handleCircuitZkEngineSignPresentation` that runs the
+   shared `answerCircuitZkQueries` pipeline (the plan's consent wording,
+   verifier-id resolution, the CircuitZkPresenter). The on-device trace:
+   match succeeds ✓ → consent ask fires ✓ → the ZK sign pipeline runs ✓ →
+   **refuses at `ZkpReqPolicy.refusalStep` with `step=unsigned-request`**.
+
+   **The remaining gap is ENGINE-SIDE**: `VpParams` (the Rust engine's
+   `request_vp` host port) doesn't carry `verified_request` (the engine's
+   verified, signed request object) or `response_encryption` (the verifier's
+   response encryption key) — both of which the wallet's ZK policy gate
+   requires ("the engine verified the request's signature AND the response
+   channel is encrypted"). The legacy Go engine relays both on its
+   sign_presentation; the Rust engine's `VpParams` struct
+   (engine-ports/src/lib.rs:413) has neither. The fix: add both to
+   `VpParams`, populate them from the OID4VP request parsing in the engine's
+   oid4vp flow, thread them through the host bridge — then a wallet-core
+   release → engine re-deploy → the SDK picks them up from the WMP sign
+   sub-flow's params. The Swift twin follows.
+
+   **[2026-11-12, midnight] ALL THREE LAYERS MERGED AND BUILDING.**
+   - Engine: wallet-core **#33** merged, tagged **v0.2.4**, release running.
+   - Kotlin SDK: **#404** merged (all five fixes). The device runs the merged build.
+   - Swift SDK: **#283** merged (the session recovery). The Swift zkp match
+     and sign pipeline are the remaining #277 work.
+   After the v0.2.4 engine deploy: the nym_auth test should run end-to-end.
+
+   **[2026-11-13, morning] THE v0.2.4 TEST REFUSED AT
+   step=unsigned-request, reason=NOT_TRUSTED — a fourth layer found.**
+   Match, trust and consent all ran; the sign ask died at the wallet's
+   ZK policy gate (`ZkpReqPolicy.refusalStep`). Root cause: the gate
+   reads `signed` AND `signature_verification == "verified"`
+   (go-wallet-backend#471's `VerifiedRequest` shape, which the legacy
+   backend sends); #33's `VpVerifiedRequest` carried `signed` but not
+   `signature_verification` — the SDK read the absent member as null ≠
+   "verified" and refused, whatever `signed` said. Engine wire drift,
+   fixed by wallet-core **#34** (v0.2.5, deployed): the member rides
+   the ask ("verified" — the engine verifies synchronously at parse and
+   never defers; "none" without a signed request object), `signed`
+   simplifies to `request_jwt.is_some()` (the parser's refusal is the
+   truth source; the DID schemes verify against resolved keys, not an
+   x5c chain), and a wire test now asserts the exact member set the
+   wallets' `VerifiedRequest`/`ResponseEncryptionRequest` readers
+   expect — this class of drift fails in CI now, not on a device.
+6. **Consent-set hardening** — the shared-query-in-unselected-option and the
+   multi-element-option misattribution edges, against the consent UX that
+   just shipped.
+   https://github.com/sirosfoundation/siros-sdk-kotlin/issues/363 ·
+   https://github.com/sirosfoundation/siros-sdk-kotlin/issues/356
+7. **The EUCC pair** — `UniFFISigner` hardcodes "EUCC" as the certifying
+   scheme with no evaluation behind it, in both SDKs, identically.
+   Kotlin https://github.com/sirosfoundation/siros-sdk-kotlin/issues/375 ·
+   Swift https://github.com/sirosfoundation/siros-sdk-swift/issues/260
+8. **Backend #511** — the credential offer's `authorization_server` hint is
+   ignored (MUST NOT proceed on mismatch). Security-adjacent, small.
+   https://github.com/sirosfoundation/go-wallet-backend/issues/511
+9. **Kotlin #364** — the credential-kid retention check misses DIIP
+   (did:jwk) bound credentials; the shadow/renew state is wrong for them.
+   https://github.com/sirosfoundation/siros-sdk-kotlin/issues/364
+10. **Backend #530** — a failed DPoP signing burns the single-use
+    notification context; WMP cannot sign after the flow ended.
+    https://github.com/sirosfoundation/go-wallet-backend/issues/530
+11. **Release-pipeline hardening.** The drift class (env mappings, stale pins,
+    skipped publishes) has now struck three releases (v0.17.0, v0.18.0,
+    v0.23.0). Two moves: make the publishes idempotent (tolerate an
+    already-published version instead of dying at the 409), and add a
+    post-tag "release doctor" dry-run that fails loudly on the missing
+    mappings/stale pins before anything ships.
+
+## P2 — the queue
+
+12. **Backend #502 — the credential-data-free consent shape** (WMP spec #27).
+    Quietly the biggest item on the board: it changes the wire the consent
+    surfaces we just shipped consume. Promote to its own epic when scheduled.
+    https://github.com/sirosfoundation/go-wallet-backend/issues/502
+13. **The Swift sample's deck parity** — the Android-first UX round
+    (lift/swipe deck, edge-to-edge, pull-down-to-close) has no Swift mirror.
+    A product decision, then a port or a divergence.
+14. **Swift #255, #253, #254** — the link-ledger attempt-identity races, the
+    path-carrying identifier URL construction, `auxiliary_data` not refused in
+    relayed completions.
+    https://github.com/sirosfoundation/siros-sdk-swift/issues/255 ·
+    https://github.com/sirosfoundation/siros-sdk-swift/issues/253 ·
+    https://github.com/sirosfoundation/siros-sdk-swift/issues/254
+15. **Backend #512, #521, #478, #534** — the AuthZEN proxy's issuer
+    resolution; "last connection wins" not superseding across replicas;
+    flow_start rejecting client-generated flow ids; the anonymous-token
+    `/issuer/all` rejection.
+16. **Swift #274** — mirror the WMP OID4VP findings (partially overtaken by
+    the engine v0.2.2 and #276; the blocking-send and consent-default
+    mirrors need verification).
+    https://github.com/sirosfoundation/siros-sdk-swift/issues/274
+17. **Swift #252, #270; Kotlin #365, #361** — the SVG logo fidelity gaps; the
+    light-appearance status bar over the brand-blue header; the BBS git
+    dependency re-pin; the TransactionSchemas pool flakiness.
+18. **Repo hygiene** — OpenSSF Scorecard fails on every wallet-core commit
+    (chronic, policy-side); backend release-notes PRs #547/#542 open;
+    Kotlin's `.claude/` still un-gitignored (the near-miss happened there
+    twice; Swift's is ignored).
+
+## Items with no issue yet — file on approval
+
+A. **The detail screen's "Expires" row shows the JWT `exp`** while the status
+   evaluator judges the VCDM `validUntil` — the two can disagree (short-lived
+   envelope, long-lived credential), which read on-device as "shows as expired
+   but needs-attention says fine". Both SDKs' detail screens should show the
+   credential's own validity, the same field the evaluator reads.
+B. **The credential deck's accessibility semantics** — the hand-written gesture
+   detectors replaced `combinedClickable`, so the cards lost their clickable/
+   click-label semantics: a TalkBack user gets no click or lift actions on
+   deck cards. Needs semantics annotations on the cards (click = detail;
+   custom action = lift/put back).
+C. **The release doctor** (see P1 item 11) — listed there; file as its own
+   issue on whichever repo owns the workflow templates.
+D. **Kotlin's `.claude/` ignore** — a one-line PR.
+
+## Proposed next steps
+
+1. **#276 + close #398** — in flight (the mirror fix).
+2. **The GDC remote round** — needs a device and the verifier side; an hour.
+3. **go-trust#249** — assign or pick up; small, high consent-UX value.
+4. **The #549 spec edit** — the backend owner; unblocks four repos.
+5. The P1 sweep as capacity allows, starting with the parity set (#399/#277).

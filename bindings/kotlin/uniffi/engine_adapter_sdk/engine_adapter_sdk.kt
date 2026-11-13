@@ -2694,7 +2694,15 @@ data class EvaluationResponse (
     /**
      * The decision text, when there is one.
      */
-    var `decision`: kotlin.String?
+    var `decision`: kotlin.String?, 
+    /**
+     * The PDP's response context, verbatim JSON text when it carried one
+     * (go-trust's `EvaluationResponseContext` - `display_name`, …). The
+     * recognised member today is `display_name` (a registry's own
+     * human-facing name for the subject), consumed by the wallet's consent
+     * surfaces; uninterpreted elsewhere.
+     */
+    var `context`: kotlin.String?
 ) {
     
     companion object
@@ -2708,17 +2716,20 @@ public object FfiConverterTypeEvaluationResponse: FfiConverterRustBuffer<Evaluat
         return EvaluationResponse(
             FfiConverterBoolean.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
     override fun allocationSize(value: EvaluationResponse) = (
             FfiConverterBoolean.allocationSize(value.`trusted`) +
-            FfiConverterOptionalString.allocationSize(value.`decision`)
+            FfiConverterOptionalString.allocationSize(value.`decision`) +
+            FfiConverterOptionalString.allocationSize(value.`context`)
     )
 
     override fun write(value: EvaluationResponse, buf: ByteBuffer) {
             FfiConverterBoolean.write(value.`trusted`, buf)
             FfiConverterOptionalString.write(value.`decision`, buf)
+            FfiConverterOptionalString.write(value.`context`, buf)
     }
 }
 
@@ -3223,7 +3234,13 @@ data class SigningKeyParams (
     /**
      * The key the engine will sign with, named when the flow knows it.
      */
-    var `keyId`: kotlin.String?
+    var `keyId`: kotlin.String?, 
+    /**
+     * Whether the host must answer with a FRESH key (the OID4VCI batch
+     * rule: each credential in a batch binds to its own key —
+     * SDJWT-10.1). Default false.
+     */
+    var `fresh`: kotlin.Boolean
 ) {
     
     companion object
@@ -3237,17 +3254,20 @@ public object FfiConverterTypeSigningKeyParams: FfiConverterRustBuffer<SigningKe
         return SigningKeyParams(
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
     override fun allocationSize(value: SigningKeyParams) = (
             FfiConverterString.allocationSize(value.`flowId`) +
-            FfiConverterOptionalString.allocationSize(value.`keyId`)
+            FfiConverterOptionalString.allocationSize(value.`keyId`) +
+            FfiConverterBoolean.allocationSize(value.`fresh`)
     )
 
     override fun write(value: SigningKeyParams, buf: ByteBuffer) {
             FfiConverterString.write(value.`flowId`, buf)
             FfiConverterOptionalString.write(value.`keyId`, buf)
+            FfiConverterBoolean.write(value.`fresh`, buf)
     }
 }
 

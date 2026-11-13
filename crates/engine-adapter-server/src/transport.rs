@@ -87,7 +87,7 @@ async fn post_wmp(
     // validated. The adapter validates the token against the AS's JWKS
     // (the config's `as_external_url`) and extracts the subject; a missing
     // or invalid token is anonymous.
-    let principal = bearer_principal(&headers, &server.validator);
+    let principal = bearer_principal(&headers, &server.validator, server.config.principal_mode);
 
     // The WMP session the request names, for context enrichment.
     let session_id = header_session_id(&headers);
@@ -143,7 +143,7 @@ async fn get_wmp_ws(
     // The principal from the upgrade request's bearer token, as §3.4
     // allows ("authentication MAY be performed at the HTTP level before
     // the upgrade"). Without one the engine's session methods refuse.
-    let principal = bearer_principal(&headers, &server.validator);
+    let principal = bearer_principal(&headers, &server.validator, server.config.principal_mode);
     let ctx = RequestContext {
         principal,
         ..RequestContext::default()
@@ -326,9 +326,15 @@ async fn get_readyz(State(server): State<Arc<EngineServer>>) -> Response {
 /// or invalid token answers `None` (anonymous): the engine's session
 /// methods refuse it with `-31002`, exactly as go-tokenauth's middleware
 /// refuses an unauthenticated request.
+///
+/// The principal is stamped with the deployment's ownership mode
+/// (engine-parity.md §8): `user` — the historic `tenant/subject` owner key —
+/// or `tenant` — W10's tenant-bound tokens, whose rotating pseudonym
+/// subject cannot key a session, so the tenant owns it.
 fn bearer_principal(
     headers: &HeaderMap,
     validator: &crate::token::TokenValidator,
+    mode: wmp_core::principal::PrincipalMode,
 ) -> Option<wmp_core::principal::Principal> {
     let raw_token = headers
         .get(header::AUTHORIZATION)
@@ -341,14 +347,17 @@ fn bearer_principal(
         // `auth_invalid_before` stamp) — the #319 gate's stateless
         // inputs, stamped here so the flow-start gate reads them off the
         // principal.
-        Ok(validated) => Some(wmp_core::principal::Principal::with_token_claims(
-            validated.subject,
-            validated.tenant,
-            validated.jti,
-            validated.tac,
-            validated.iat,
-            validated.auth_invalid_before,
-        )),
+        Ok(validated) => Some(
+            wmp_core::principal::Principal::with_token_claims(
+                validated.subject,
+                validated.tenant,
+                validated.jti,
+                validated.tac,
+                validated.iat,
+                validated.auth_invalid_before,
+            )
+            .in_mode(mode),
+        ),
         Err(_) => None,
     }
 }
