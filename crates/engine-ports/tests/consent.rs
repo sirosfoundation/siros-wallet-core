@@ -241,12 +241,13 @@ fn the_verified_request_carries_the_wallets_gate_members() {
     let verified = wire
         .get("verified_request")
         .expect("the verified request rides the ask");
-    let members: std::collections::BTreeSet<String> = verified
+    let mut members: Vec<String> = verified
         .as_object()
         .expect("an object")
         .keys()
         .cloned()
         .collect();
+    members.sort_unstable();
     assert_eq!(
         members,
         [
@@ -258,8 +259,7 @@ fn the_verified_request_carries_the_wallets_gate_members() {
             "signature_verification",
             "signed"
         ]
-        .map(str::to_owned)
-        .into(),
+        .map(str::to_owned),
         "the member set matches the wallet's VerifiedRequest readers"
     );
     assert_eq!(
@@ -276,15 +276,16 @@ fn the_verified_request_carries_the_wallets_gate_members() {
     let encryption = wire
         .get("response_encryption")
         .expect("the response encryption rides the ask");
-    let members: std::collections::BTreeSet<String> = encryption
+    let mut members: Vec<String> = encryption
         .as_object()
         .expect("an object")
         .keys()
         .cloned()
         .collect();
+    members.sort_unstable();
     assert_eq!(
         members,
-        ["alg", "enc", "jwk"].map(str::to_owned).into(),
+        ["alg", "enc", "jwk"].map(str::to_owned),
         "the member set matches the wallet's ResponseEncryptionRequest readers"
     );
 }
