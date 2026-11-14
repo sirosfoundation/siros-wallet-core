@@ -138,9 +138,11 @@ Aligned after the conformance milestones unless noted:
 
 - Response modes: all four (`direct_post`, `direct_post.jwt`, `query`,
   `fragment`) implemented; JARM negotiation incl. `*_values_supported`
-  inference and usable-key selection (§8.3) — suite-validated. **Gap D1**:
-  Go sanitizes the response endpoint (http/https only, SSRF break,
-  `oid4vp.go:1679-1695`) — Rust posts to whatever the request names.
+  inference and usable-key selection (§8.3) — suite-validated. **D1 — closed**:
+  the endpoint sanitisation (http/https only) IS implemented
+  (`response.rs` `submit_response`, the same rule as Go's
+  `sanitizeEndpointURL`) — this entry predates the fix; verified
+  2026-11-14 against the code.
 - Request parsing: URL schemes (`openid4vp:`, `haip:`, `haip-vp:`,
   `mdoc-openid4vp:`, raw query, bare reference), by-value/by-reference,
   request-object `typ` + JWS + `x5c`, `x509_hash` binding — suite-validated.
@@ -155,8 +157,10 @@ Aligned after the conformance milestones unless noted:
   does not carry over.
 - Decline/no-match OAuth descriptions: Go sends the **same** description
   (`"The wallet did not fulfil the request"`) for decline and no-match so
-  the verifier cannot probe which; Rust sends distinct strings —
-  **gap D2**, trivially aligned.
+  the verifier cannot probe which; Rust sends the SAME description on
+  every refusal path (`"The wallet did not fulfil the request"` — found
+  in all four call sites, 2026-11-14) — **D2 closed**, this entry
+  predated the fix.
 - VCTM protocol: Go registers it; Rust has no family — **gap E2** (out of
   scope until the SDKs' VCTM flows are triaged).
 

@@ -273,6 +273,11 @@ pub struct VerifierInfo {
     pub framework: String,
     /// Why the decision was made (the PDP's reason).
     pub reason: String,
+    /// The PDP's response context as raw JSON text — go-trust's
+    /// `verifier_ids` (the wallet's pseudonym sources read them to scope
+    /// a nym_auth pseudonym) and the registry's `display_name` ride it
+    /// verbatim. Absent when the PDP answered with no context.
+    pub trust_context: Option<String>,
 }
 
 impl From<engine_ports::VerifierInfo> for VerifierInfo {
@@ -286,6 +291,7 @@ impl From<engine_ports::VerifierInfo> for VerifierInfo {
             trusted: v.trusted,
             framework: v.framework,
             reason: v.reason,
+            trust_context: v.trust_context.and_then(|c| serde_json::to_string(&c).ok()),
         }
     }
 }
@@ -335,6 +341,11 @@ pub struct MatchParams {
     pub verifier: VerifierInfo,
     /// The transaction data entries, raw, for the UI's summary.
     pub transaction_data: Vec<String>,
+    /// The request's client metadata as raw JSON text — the verifier's
+    /// `vp_formats_supported` (the zkp_req circuit lists the wallet's
+    /// planner reads) and the consent's `client_name`/`logo_uri` ride it.
+    /// Absent when the request carried none.
+    pub client_metadata: Option<String>,
 }
 
 impl From<engine_ports::MatchParams> for MatchParams {
@@ -345,6 +356,9 @@ impl From<engine_ports::MatchParams> for MatchParams {
             scope: m.scope,
             verifier: m.verifier.into(),
             transaction_data: m.transaction_data,
+            client_metadata: m
+                .client_metadata
+                .and_then(|c| serde_json::to_string(&c).ok()),
         }
     }
 }
@@ -393,6 +407,50 @@ pub struct VpParams {
     /// The transport's selection handle, as the match answer carried
     /// it (WMP OpenID4x 3.2.3.1): passed through unchanged.
     pub selection_handle: Option<String>,
+    /// The request as the engine verified it — the wallet's ZK policy
+    /// gate and the JARM audience read it. Absent for a request the
+    /// engine did not verify. Mirrors `engine_ports::VpVerifiedRequest`.
+    pub verified_request: Option<VpVerifiedRequest>,
+    /// The verifier's response encryption parameters (the JWK for
+    /// direct_post.jwt's JARM). Absent for a plain response mode.
+    /// Mirrors `engine_ports::VpResponseEncryption`.
+    pub response_encryption: Option<VpResponseEncryption>,
+}
+
+/// The request as the engine VERIFIED it — the embedded mirror of
+/// `engine_ports::VpVerifiedRequest`: the wallet's ZK policy gate reads
+/// `signed` AND `signature_verification == "verified"`, and the JARM
+/// audience is the certificate-authenticated `client_id`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct VpVerifiedRequest {
+    /// The client_id the request object's certificate authenticated.
+    pub client_id: String,
+    /// The client_id scheme, as the engine inferred it.
+    pub client_id_scheme: String,
+    /// The response mode's wire name.
+    pub response_mode: String,
+    /// The response URI the engine validated.
+    pub response_uri: String,
+    /// Whether the request object's signature was verified.
+    pub signed: bool,
+    /// `verified` or `none` — the engine verifies synchronously at
+    /// parse and never defers.
+    pub signature_verification: String,
+    /// The raw request JWT, when the request object was signed.
+    pub request_jwt: Option<String>,
+}
+
+/// The verifier's response encryption parameters — the embedded mirror
+/// of `engine_ports::VpResponseEncryption`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct VpResponseEncryption {
+    /// The verifier's JWK (the response-encryption key), as raw JSON
+    /// text — the uniffi surface carries strings, the wallet parses.
+    pub jwk: String,
+    /// The JARM key wrapping algorithm (RSA-OAEP, ECDH-ES, …).
+    pub alg: String,
+    /// The content encryption algorithm (A128GCM, A256GCM, …).
+    pub enc: String,
 }
 
 impl From<engine_ports::VpParams> for VpParams {
@@ -407,6 +465,32 @@ impl From<engine_ports::VpParams> for VpParams {
             verifier_session_id: p.verifier_session_id,
             transaction_data: p.transaction_data,
             selection_handle: p.selection_handle,
+            verified_request: p.verified_request.map(Into::into),
+            response_encryption: p.response_encryption.map(Into::into),
+        }
+    }
+}
+
+impl From<engine_ports::VpVerifiedRequest> for VpVerifiedRequest {
+    fn from(v: engine_ports::VpVerifiedRequest) -> Self {
+        Self {
+            client_id: v.client_id,
+            client_id_scheme: v.client_id_scheme,
+            response_mode: v.response_mode,
+            response_uri: v.response_uri,
+            signed: v.signed,
+            signature_verification: v.signature_verification,
+            request_jwt: v.request_jwt,
+        }
+    }
+}
+
+impl From<engine_ports::VpResponseEncryption> for VpResponseEncryption {
+    fn from(e: engine_ports::VpResponseEncryption) -> Self {
+        Self {
+            jwk: serde_json::to_string(&e.jwk).unwrap_or_default(),
+            alg: e.alg,
+            enc: e.enc,
         }
     }
 }
