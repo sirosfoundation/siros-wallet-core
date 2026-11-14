@@ -173,6 +173,16 @@ function query(name) {
   return new URLSearchParams(window.location.search).get(name);
 }
 
+// Every value the callback query carries under [name], in arrival order —
+// the RFC 9207 duplicate-parameter guard (go-wallet-backend#551's client
+// rollout): a callback carrying TWO iss parameters is a spoofing vector
+// (the first authenticates, the second rides), and no downstream single-
+// value reader can tell. Refused HERE, at the parser, before the values
+// are reduced to the one JSON member the action carries.
+function queryAll(name) {
+  return new URLSearchParams(window.location.search).getAll(name);
+}
+
 // The authorization step: navigate. Playwright answers the suite's AS
 // login page, and the AS redirects back to this page with ?code&state.
 async function openAuthorization(url) {
@@ -230,6 +240,19 @@ async function resumeAuthorizationCode() {
   const state = query('state');
   const pending = JSON.parse(sessionStorage.getItem('mini-wallet-pending') || 'null');
   if (!code || !pending || !pending.flow_id) return;
+  // The RFC 9207 issuer, decoded and forwarded verbatim in the resume
+  // action (go-wallet-backend#551's client rollout #1): the AS the start
+  // selected advertises `authorization_response_iss_parameter_supported`
+  // and the engine's resume gate requires the parameter then — never
+  // synthesized from the stashed AS or the expected issuer, only the
+  // actual callback value. A duplicate iss is a spoofing vector and the
+  // callback parser's to refuse (rollout #2): never reduced to one.
+  const issuers = queryAll('iss');
+  if (issuers.length > 1) {
+    document.body.setAttribute('data-flow-state', 'error');
+    window.__last_result = { error: 'the authorization response carries duplicate iss parameters (RFC 9207)' };
+    return;
+  }
   // The page reloaded: a fresh engine, whose in-memory session store is
   // empty — the wmp session does not survive the reload, and needs not
   // to. The stateless resume carries the flow in the KeyValue port (the
@@ -242,11 +265,15 @@ async function resumeAuthorizationCode() {
     security: { mode: 'tls' },
   });
   const sessionId = session.wmp.session_id;
+  const params = { code: code, state: state ?? pending.state };
+  // The issuer rides only when the callback carried one: absent stays
+  // absent (the engine's requirement logic decides), never invented.
+  if (issuers.length === 1) params.iss = issuers[0];
   const result = await wmp('wmp.flow.action', {
     wmp: { session_id: sessionId, version: '0.1' },
     flow_id: pending.flow_id,
     action: 'authorization_complete',
-    params: { code: code, state: state ?? pending.state },
+    params: params,
   });
   window.__last_result = result;
   document.body.setAttribute('data-flow-state', 'completed');
