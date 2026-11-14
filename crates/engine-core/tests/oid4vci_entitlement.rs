@@ -285,6 +285,7 @@ fn test_context(pdp: Arc<dyn Pdp>) -> (FlowContext, Arc<CaptureTransport>) {
             kv: Arc::new(NoopKv),
             telemetry: Arc::new(NoopTelemetry),
             consent_check: engine_ports::ConsentCheckMode::Warn,
+            require_authorization_response_issuer: false,
             notifications: std::sync::Arc::new(
                 engine_core::oid4vci::notification::NotificationContexts::default(),
             ),

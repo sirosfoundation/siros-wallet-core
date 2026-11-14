@@ -710,6 +710,18 @@ struct AuthorizationStash {
     /// The original offer params, as the flow start received them — the
     /// resume re-parses the offer from this (the stateless resume).
     offer_params: serde_json::Value,
+    /// The AS selected for the ORIGINAL transaction (its metadata's
+    /// `issuer`): the RFC 9207 `iss` the resume receives is compared
+    /// against exactly this (the #551 rule — the AS can differ from the
+    /// credential issuer), and the re-resolved AS must be the same one.
+    #[serde(default)]
+    as_issuer: String,
+    /// Whether the original AS advertised
+    /// `authorization_response_iss_parameter_supported`: stashed at the
+    /// start so a metadata refresh cannot drop the requirement between
+    /// the start and the resume.
+    #[serde(default)]
+    as_iss_supported: Option<bool>,
 }
 
 /// The KeyValue key the authorization-code flow stashes under.
@@ -896,6 +908,15 @@ async fn start_authorization_code(
         dpop_key_id: start.dpop_key_id.map(str::to_owned),
         configuration_id: configuration_id.to_owned(),
         offer_params: offer_params.clone(),
+        // The AS selected for THIS transaction (#551's rule): the resume's
+        // `iss` comparison binds to it — which can differ from the
+        // credential issuer — and the re-resolved AS must be the same one.
+        as_issuer: as_metadata.issuer.clone(),
+        // Whether the AS advertised the `iss` requirement — the resume
+        // re-resolves the metadata, but the STASHED decision holds: a
+        // metadata refresh that drops the member cannot downgrade the
+        // check between the start and the resume (the #551 rule).
+        as_iss_supported: as_metadata.authorization_response_iss_supported,
     };
     ctx.kv()
         .put(
@@ -1028,6 +1049,58 @@ async fn resume_authorization_code(
     let as_metadata = as_metadata::discover_as_metadata(ctx.http().as_ref(), &as_url, false)
         .await
         .map_err(|err| flow_error(err.to_string()))?;
+
+    // The RFC 9207 issuer check (#551's rule, the FAPI2
+    // remove-authorization-response-iss conformance case): the response
+    // `iss` is validated BEFORE the code is exchanged, against the AS
+    // selected for the ORIGINAL transaction (the stash's - the AS can
+    // differ from the credential issuer). Required when the original AS
+    // advertised `authorization_response_iss_parameter_supported` (the
+    // stashed decision: a metadata refresh that drops the member cannot
+    // downgrade the check between the start and the resume) or the
+    // deployment knob demands it (FAPI enforcement without advertised
+    // support). A supplied `iss` is always compared, never required
+    // alone. Malformed shapes (null, not a string) are refused, never
+    // read as absent - the same fail-closed rule the whole resume runs
+    // on. Duplicate URL parameters are the CALLBACK parser's to reject
+    // (the frontend/SDK reduces them; by here they are one JSON member).
+    let iss = match action_params.get("iss") {
+        None => None,
+        Some(value) => match value.as_str() {
+            Some(iss) => Some(iss),
+            None => {
+                return Err(flow_error(
+                    "the authorization response's iss is not a string (RFC 9207)".to_owned(),
+                ));
+            }
+        },
+    };
+    let iss_required =
+        stash.as_iss_supported == Some(true) || ctx.ports.require_authorization_response_issuer;
+    if iss_required && iss.is_none() {
+        return Err(flow_error(
+            "the authorization response carries no iss (RFC 9207) and the authorization server requires it"
+                .to_owned(),
+        ));
+    }
+    if let Some(iss) = iss {
+        if iss != stash.as_issuer {
+            return Err(flow_error(
+                "the authorization response's issuer does not match the authorization server of the original transaction (RFC 9207)"
+                    .to_owned(),
+            ));
+        }
+    }
+    // The re-resolved AS must be the ORIGINAL transaction's AS: a
+    // metadata refresh that moved the issuer between the start and the
+    // resume is a different transaction, not the one the user
+    // authorized.
+    if as_metadata.issuer != stash.as_issuer {
+        return Err(flow_error(
+            "the authorization server resolved on the resume is not the one selected for the original transaction"
+                .to_owned(),
+        ));
+    }
 
     // The flow's DPoP key (the engine-held legacy mode): the token
     // exchange and the credential request sign with the same key, which
@@ -1506,6 +1579,9 @@ mod auth_code_flow_tests {
         /// code-for-token exchange answers with the RFC 7523
         /// assertion.
         token_auth_methods: Vec<String>,
+        /// The AS metadata's `authorization_response_iss_parameter_supported`,
+        /// as the #551 resume tests configure it.
+        iss_advertised: Option<bool>,
     }
     #[async_trait::async_trait]
     impl HttpClient for ScriptedHttp {
@@ -1529,6 +1605,7 @@ mod auth_code_flow_tests {
                     "require_pushed_authorization_requests": false,
                     "challenge_endpoint": "https://as.example/attestation/challenge",
                     "token_endpoint_auth_methods_supported": &self.token_auth_methods,
+                    "authorization_response_iss_parameter_supported": self.iss_advertised,
                 })
                 .to_string(),
                 "https://as.example/par" => {
@@ -1594,6 +1671,15 @@ mod auth_code_flow_tests {
     }
 
     fn test_context(http: Arc<dyn HttpClient>, host: Arc<FakeHost>) -> FlowContext {
+        test_context_with_iss_knob(http, host, false)
+    }
+
+    /// [test_context] with the FAPI `iss` knob set (#551's rule).
+    fn test_context_with_iss_knob(
+        http: Arc<dyn HttpClient>,
+        host: Arc<FakeHost>,
+        require_iss: bool,
+    ) -> FlowContext {
         let store = Arc::new(wmp_core::session::MemorySessionStore::new());
         let handler = Arc::new(wmp_core::sessionservice::SessionHandler::new(
             Arc::new(
@@ -1629,6 +1715,7 @@ mod auth_code_flow_tests {
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoopTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                require_authorization_response_issuer: require_iss,
                 notifications: std::sync::Arc::new(
                     crate::oid4vci::notification::NotificationContexts::default(),
                 ),
@@ -1680,6 +1767,7 @@ mod auth_code_flow_tests {
         let http = Arc::new(ScriptedHttp {
             credential_requests: Mutex::new(Vec::new()),
             token_auth_methods: Vec::new(),
+            iss_advertised: None,
         });
         let host = Arc::new(FakeHost {
             authorization_urls: Mutex::new(Vec::new()),
@@ -1738,6 +1826,7 @@ mod auth_code_flow_tests {
             // The AS names the method (OpenID4VCI 1.0 §5.1): the
             // code-for-token POST must carry the RFC 7523 assertion.
             token_auth_methods: vec!["private_key_jwt".to_owned()],
+            iss_advertised: None,
         });
         let host = Arc::new(FakeHost {
             authorization_urls: Mutex::new(Vec::new()),
@@ -1796,6 +1885,7 @@ mod auth_code_flow_tests {
         let http = Arc::new(ScriptedHttp {
             credential_requests: Mutex::new(Vec::new()),
             token_auth_methods: Vec::new(),
+            iss_advertised: None,
         });
         let host = Arc::new(FakeHost {
             authorization_urls: Mutex::new(Vec::new()),
@@ -1816,6 +1906,173 @@ mod auth_code_flow_tests {
         assert!(flow.handle_action(&ctx, &action).await.is_err());
         // Nothing reached the credential endpoint.
         assert!(http.credential_requests.lock().expect("lock").is_empty());
+    }
+
+    // ── The RFC 9207 `iss` gate (go-wallet-backend#551's rule) ─────────
+    //
+    // The FAPI2 remove-authorization-response-iss conformance case: a
+    // response without the issuer is refused BEFORE the code is
+    // exchanged — ZERO token requests for an invalid response.
+
+    /// The state the Rng port produces (bytes 0..16): the resume's valid CSRF.
+    async fn stash_valid_state() -> String {
+        auth_code::generate_state(&FakeRng).expect("state")
+    }
+
+    #[tokio::test]
+    async fn a_missing_required_iss_refuses_the_resume_before_the_exchange() {
+        let http = Arc::new(ScriptedHttp {
+            credential_requests: Mutex::new(Vec::new()),
+            token_auth_methods: Vec::new(),
+            // The AS advertises the requirement: a response without `iss`
+            // cannot be exchanged, whatever the deployment knob says.
+            iss_advertised: Some(true),
+        });
+        let host = Arc::new(FakeHost {
+            authorization_urls: Mutex::new(Vec::new()),
+            sign_key_ids: Mutex::new(Vec::new()),
+        });
+        let ctx = test_context(http.clone() as Arc<dyn HttpClient>, host);
+        let flow = Oid4vciFlow;
+        flow.start_flow(&ctx, &start_params()).await.expect("start");
+
+        // No `iss` on the response: refused.
+        let action = FlowActionParams {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: "flow-1".to_owned(),
+            action: "authorization_complete".to_owned(),
+            params: raw_value(serde_json::json!({
+                "code": "auth-code-1",
+                "state": stash_valid_state().await,
+            })),
+        };
+        assert!(flow.handle_action(&ctx, &action).await.is_err());
+        // ZERO token requests: the refusal precedes the exchange.
+        assert!(http.credential_requests.lock().expect("lock").is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_wrong_iss_refuses_the_resume_even_when_not_required() {
+        let http = Arc::new(ScriptedHttp {
+            credential_requests: Mutex::new(Vec::new()),
+            token_auth_methods: Vec::new(),
+            // Not advertised — but a SUPPLIED `iss` is always compared.
+            iss_advertised: None,
+        });
+        let host = Arc::new(FakeHost {
+            authorization_urls: Mutex::new(Vec::new()),
+            sign_key_ids: Mutex::new(Vec::new()),
+        });
+        let ctx = test_context(http.clone() as Arc<dyn HttpClient>, host);
+        let flow = Oid4vciFlow;
+        flow.start_flow(&ctx, &start_params()).await.expect("start");
+
+        let action = FlowActionParams {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: "flow-1".to_owned(),
+            action: "authorization_complete".to_owned(),
+            params: raw_value(serde_json::json!({
+                "code": "auth-code-1",
+                "state": stash_valid_state().await,
+                "iss": "https://attacker.example",
+            })),
+        };
+        assert!(flow.handle_action(&ctx, &action).await.is_err());
+        assert!(http.credential_requests.lock().expect("lock").is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_malformed_iss_refuses_the_resume() {
+        let http = Arc::new(ScriptedHttp {
+            credential_requests: Mutex::new(Vec::new()),
+            token_auth_methods: Vec::new(),
+            iss_advertised: None,
+        });
+        let host = Arc::new(FakeHost {
+            authorization_urls: Mutex::new(Vec::new()),
+            sign_key_ids: Mutex::new(Vec::new()),
+        });
+        let ctx = test_context(http.clone() as Arc<dyn HttpClient>, host);
+        let flow = Oid4vciFlow;
+        flow.start_flow(&ctx, &start_params()).await.expect("start");
+
+        // A null (or otherwise non-string) `iss` is malformed, never absent.
+        let action = FlowActionParams {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: "flow-1".to_owned(),
+            action: "authorization_complete".to_owned(),
+            params: raw_value(serde_json::json!({
+                "code": "auth-code-1",
+                "state": stash_valid_state().await,
+                "iss": null,
+            })),
+        };
+        assert!(flow.handle_action(&ctx, &action).await.is_err());
+        assert!(http.credential_requests.lock().expect("lock").is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_iss_knob_requires_it_even_when_unadvertised() {
+        let http = Arc::new(ScriptedHttp {
+            credential_requests: Mutex::new(Vec::new()),
+            token_auth_methods: Vec::new(),
+            // The AS does NOT advertise the requirement...
+            iss_advertised: None,
+        });
+        let host = Arc::new(FakeHost {
+            authorization_urls: Mutex::new(Vec::new()),
+            sign_key_ids: Mutex::new(Vec::new()),
+        });
+        // ...but the deployment knob demands it anyway (FAPI enforcement).
+        let ctx = test_context_with_iss_knob(http.clone() as Arc<dyn HttpClient>, host, true);
+        let flow = Oid4vciFlow;
+        flow.start_flow(&ctx, &start_params()).await.expect("start");
+
+        let action = FlowActionParams {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: "flow-1".to_owned(),
+            action: "authorization_complete".to_owned(),
+            params: raw_value(serde_json::json!({
+                "code": "auth-code-1",
+                "state": stash_valid_state().await,
+            })),
+        };
+        assert!(flow.handle_action(&ctx, &action).await.is_err());
+        assert!(http.credential_requests.lock().expect("lock").is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_matching_iss_passes_the_gate() {
+        let http = Arc::new(ScriptedHttp {
+            credential_requests: Mutex::new(Vec::new()),
+            token_auth_methods: Vec::new(),
+            iss_advertised: Some(true),
+        });
+        let host = Arc::new(FakeHost {
+            authorization_urls: Mutex::new(Vec::new()),
+            sign_key_ids: Mutex::new(Vec::new()),
+        });
+        let ctx = test_context(http.clone() as Arc<dyn HttpClient>, host);
+        let flow = Oid4vciFlow;
+        flow.start_flow(&ctx, &start_params()).await.expect("start");
+
+        // The matching `iss` (the AS the start selected): the exchange runs.
+        // The scripted /token answers an error the flow turns into a flow
+        // error AFTER the POST — the gate passing is what this asserts.
+        let action = FlowActionParams {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: "flow-1".to_owned(),
+            action: "authorization_complete".to_owned(),
+            params: raw_value(serde_json::json!({
+                "code": "auth-code-1",
+                "state": stash_valid_state().await,
+                "iss": "https://as.example",
+            })),
+        };
+        let _ = flow.handle_action(&ctx, &action).await;
+        // The exchange WAS reached (the gate passed): a token request
+        // landed, whatever the scripted response was.
+        assert!(!http.credential_requests.lock().expect("lock").is_empty());
     }
 }
 
@@ -2026,6 +2283,7 @@ mod renewal_flow_tests {
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                require_authorization_response_issuer: false,
                 notifications: std::sync::Arc::new(
                     crate::oid4vci::notification::NotificationContexts::default(),
                 ),

@@ -487,6 +487,7 @@ mod tests {
             challenge_endpoint: "https://as.example/challenge".to_owned(),
             code_challenge_methods: None,
             grant_types: Vec::new(),
+            authorization_response_iss_supported: None,
         };
 
         // The response header wins without touching the endpoint.

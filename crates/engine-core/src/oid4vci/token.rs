@@ -549,6 +549,7 @@ mod tests {
             challenge_endpoint: String::new(),
             code_challenge_methods: None,
             grant_types: Vec::new(),
+            authorization_response_iss_supported: None,
         }
     }
 

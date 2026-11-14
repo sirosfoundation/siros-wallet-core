@@ -95,6 +95,7 @@ pub async fn discover_as_metadata(
             "authorization_code".to_owned(),
             "pre-authorized_code".to_owned(),
         ],
+        authorization_response_iss_supported: None,
     };
     Ok(metadata)
 }

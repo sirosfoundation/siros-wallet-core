@@ -238,6 +238,7 @@ fn vet_context(mode: ConsentCheckMode, telemetry: Arc<RecordingTelemetry>) -> Fl
             kv: Arc::new(NoopKv),
             telemetry,
             consent_check: mode,
+            require_authorization_response_issuer: false,
             notifications: Arc::new(
                 engine_core::oid4vci::notification::NotificationContexts::default(),
             ),
@@ -297,6 +298,7 @@ fn flow_context(
             kv: Arc::new(NoopKv),
             telemetry,
             consent_check: mode,
+            require_authorization_response_issuer: false,
             notifications: Arc::new(
                 engine_core::oid4vci::notification::NotificationContexts::default(),
             ),

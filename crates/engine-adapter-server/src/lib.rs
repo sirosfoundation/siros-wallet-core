@@ -108,6 +108,9 @@ impl EngineServer {
             kv: Arc::new(crate::ports::InMemoryKv::default()),
             telemetry: Arc::new(crate::ports::NoopTelemetry),
             consent_check: engine_ports::ConsentCheckMode::Warn,
+            // The FAPI `iss` knob (ENGINE_REQUIRE_AUTHORIZATION_RESPONSE_ISSUER,
+            // go-wallet-backend#551's WALLET_SECURITY_* twin): off by default.
+            require_authorization_response_issuer: config.require_authorization_response_issuer,
             notifications: std::sync::Arc::new(
                 engine_core::oid4vci::notification::NotificationContexts::default(),
             ),

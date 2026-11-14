@@ -147,6 +147,7 @@ impl WasmEngine {
             kv: std::sync::Arc::new(JsKeyValue::new(kv_get, kv_put, kv_del)),
             telemetry: std::sync::Arc::new(NoTelemetry),
             consent_check: engine_ports::ConsentCheckMode::Warn,
+            require_authorization_response_issuer: false,
             notifications: std::sync::Arc::new(
                 engine_core::oid4vci::notification::NotificationContexts::default(),
             ),

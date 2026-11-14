@@ -54,6 +54,15 @@ pub struct Config {
     /// The `metadata_type` policy: `prefer-signed` (default),
     /// `require-signed`, `prefer-unsigned`, `require-unsigned`, `any`.
     pub metadata_type: String,
+    /// Whether the RFC 9207 `iss` is REQUIRED on every authorization
+    /// response (`ENGINE_REQUIRE_AUTHORIZATION_RESPONSE_ISSUER`, the Go
+    /// `WALLET_SECURITY_REQUIRE_AUTHORIZATION_RESPONSE_ISSUER`): FAPI
+    /// enforcement even when the AS metadata does not advertise
+    /// `authorization_response_iss_parameter_supported`. Advertised
+    /// support always requires `iss`, regardless of this knob. Default
+    /// false preserves non-FAPI issuers without RFC 9207 support
+    /// (go-wallet-backend#551's rule).
+    pub require_authorization_response_issuer: bool,
     /// The maximum concurrent flows a session may run (the flows
     /// capability the session create advertises, core §10.3; default 16,
     /// the wasm dispatcher's bound).
@@ -81,6 +90,7 @@ impl Default for Config {
             pdp_token: String::new(),
             allow_plaintext: false,
             metadata_type: "prefer-signed".to_owned(),
+            require_authorization_response_issuer: false,
             max_concurrent_flows: 16,
             principal_mode: wmp_core::principal::PrincipalMode::User,
         }
@@ -146,6 +156,14 @@ impl Config {
                 .filter(|audience| !audience.is_empty())
                 .map(str::to_owned)
                 .collect();
+        }
+        // bool: any of true/yes/on/1 (case-insensitive) is true; the Go
+        // viper form's rule.
+        if let Some(value) = text("ENGINE_REQUIRE_AUTHORIZATION_RESPONSE_ISSUER") {
+            config.require_authorization_response_issuer = matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "true" | "yes" | "on" | "1"
+            );
         }
         if let Some(value) = text("ENGINE_PDP_URL") {
             config.pdp_url = value;

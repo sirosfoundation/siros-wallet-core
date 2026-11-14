@@ -322,6 +322,7 @@ fn test_context(
             kv: Arc::new(NoopKv),
             telemetry: Arc::new(NoopTelemetry),
             consent_check: engine_ports::ConsentCheckMode::Warn,
+            require_authorization_response_issuer: false,
             notifications: Arc::new(NotificationContexts::default()),
         }),
         peer,
