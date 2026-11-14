@@ -200,6 +200,35 @@ by user-visible blast radius:
     and the transaction-log failure not at all. Port both to Kotlin for
     the parity-check CI to hold.
 
+### F. The plugin-selection test program (2026-11-15, from the key-loss hunt)
+
+18. **Test the plugin-selection policy engine end-to-end: set tier requirements
+    on the credential catalogue that force nym_auth onto a hardware-bound
+    plugin.** The 2026-11-15 key-loss hunt found the selection machinery
+    exercised only incidentally: the sample app offers every plugin
+    (`softkey`, `fido2`, `r2ps`) to `WscdSelectionPolicy`, which picks per
+    required tier — but nothing in the current catalogue *demands* a
+    hardware tier, so softkey wins every pick and the policy's
+    hw-requirement branch has never fired on-device. A deliberate test:
+    annotate the credential catalogue (the zk-circuits manifest / the
+    issuer metadata the sample consumes) with a tier requirement that
+    nym_auth cannot satisfy in software, forcing the fido2/r2ps path —
+    then issue and present nym_auth against it. This validates:
+    - the policy's requirement parsing (the catalogue annotation →
+      the effective tier),
+    - the fail-closed behaviour when the demanded plugin is absent
+      (a wallet with no fido2 hardware),
+    - the fallback/ordering semantics between the offered keystores,
+    - and, with the softkey write-through (v0.14.2) landed, it
+      cross-checks that hw-bound keys were never affected by the
+      volatility bug — the mdoc deviceKey path on this device was
+      softkey-resident all along, so "nym_auth worked" was survivorship
+      (its issuance-to-presentation window never crossed a restart), not
+      a different key path.
+    owner: the credential-catalogue annotation is
+    siros-zk-catalogues/issuer-metadata work; the policy itself is
+    `WscdSelectionPolicy` (both SDKs) + the catalogue's schema.
+
 ### The ranked order (next two weeks)
 
 1. **#277** — the Swift zkp parity (the only feature-parity blocker left)
