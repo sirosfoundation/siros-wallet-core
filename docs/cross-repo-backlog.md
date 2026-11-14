@@ -14,13 +14,33 @@ re-rank freely; the tiers are proposals.
 
 | Piece | State |
 |---|---|
-| wallet-core **v0.2.2–v0.2.5** | Released: AARs on Central + GH Packages, XCFramework + bindings per tag, engine image on ghcr, conformance green. **v0.2.4**: `VpParams` carries `verified_request` + `response_encryption` (#33). **v0.2.5** (2026-11-13): `VpVerifiedRequest` carries `signature_verification` (#34 — the on-device find below) |
+| wallet-core **v0.2.2–v0.2.8** | Released: AARs on Central + GH Packages, XCFramework + bindings per tag, engine image on ghcr, conformance green. **v0.2.4** (#33): `VpParams` carries `verified_request` + `response_encryption`. **v0.2.5** (#34): `signature_verification`. **v0.2.6** (#35): the encryption key from `client_metadata.jwks`. **v0.2.7** (#36): `VerifierInfo.trust_context` (the PDP context relay). **v0.2.8** (#37): the match ask carries `client_metadata` (the planner's circuit lists) |
 | Kotlin SDK **v0.23.0** | Released: Maven Central, GH Packages, Play internal track — the consent round and the credential deck shipped. **Predates #404** (the zkp_req match + sign pipeline, the session recovery, the diagnostics, the dialog buttons) |
 | Swift SDK **v0.17.0** | Released: tarballs + TestFlight — the consent bridge and the listener-contract repairs shipped. **Predates #283** (the session recovery twin) |
-| GDC | Backend 0.25.2 (deployed), engine **re-pinned to v0.2.5 and verified live** (2026-11-13: `fly-up` ran, the machine runs `engine-server:v0.2.5`, `/healthz` answers 200 through the wallet-proxy) |
+| GDC | Backend 0.25.2 (deployed), engine **v0.2.8 verified live**; Spherity's OID4VCI issuer whitelisted (2026-11-13, the sd-jwt offer test) |
 | Native AARs | **8/8 on Maven Central** (wallet-core 0.2.2 and verifier-core-ffi 0.1.2 added 2026-11-12; the token-free resolution is proven) |
 | Multi-credential issuance (Platform-Epics#63) | Analyzed, decided (no mid-flow selection; subset-at-flow-start; `IssuanceSelectionPolicy` knob), tracked in five repos — **not started** |
-| **SDK patch releases (v0.23.1 / v0.17.1)** | **Queued behind the morning nym_auth validation.** Carry #404/#283 from merged main + embed engine **v0.2.4** — both SDKs currently pin **v0.2.2** (Kotlin: the `walletCoreVersion` gradle property in `sdk/transport/build.gradle.kts`; Swift: the `Package.swift` xcframework zip URL). The embedded engine only serves local-first mode (a local-first zkp_req needs v0.2.4's `VpParams` or it dies at the same policy gate); the remote path deserializes the params from the wire, so the morning test does not wait on this. The #33 change touched no FFI records (`VpParams` is an engine-internal port), so the vendored UniFFI bindings are unchanged — the bump is the AAR pin + the zip URL, re-vendored from v0.2.4 anyway for the same-release rule |
+| **SDK patch releases (v0.23.1 / v0.17.1)** | **[2026-11-14] UNBLOCKED — the nym_auth chain is device-validated end-to-end.** Carry #404/#405/#406/#407 from merged main + embed engine **v0.2.8** — both SDKs currently pin **v0.2.2** (Kotlin: the `walletCoreVersion` gradle property in `sdk/transport/build.gradle.kts`; Swift: the `Package.swift` xcframework zip URL). The embedded engine only serves local-first mode (a local-first zkp_req needs v0.2.4+'s `VpParams` members or it dies at the same policy gate); the remote path deserializes the params from the wire. The #33–#37 changes touched no FFI records (`VpParams`/`MatchParams`/`VerifierInfo` — hmm, `VerifierInfo` IS a uniffi Record: re-vendor the bindings from v0.2.8 for the `trust_context` member), so the bump is the AAR pin + the zip URL + the re-vendored bindings, all from v0.2.8 per the same-release rule |
+
+**[2026-11-14] THE NYM_AUTH ZKP_REQ CHAIN IS DONE — device-validated end-to-end**
+(match → consent → the ZK proof → the engine's JARM submission →
+`onFlowComplete` → the spinner clears). Seven gates found and fixed, each one
+found on-device and root-caused:
+1. v0.2.5 (#34): `signature_verification` rides the ask — the gate's missing member.
+2. #404 (merged): the WMP synthesis dropped `verified_request`/`response_encryption`.
+3. v0.2.6 (#35): the encryption key from `client_metadata.jwks`, not the top-level `jwk`.
+4. v0.2.7 (#36): `VerifierInfo.trust_context` — the PDP's `verifier_ids` relay.
+5. v0.2.8 (#37): the match ask carries `client_metadata` — the planner's circuit lists.
+6. #405 (merged): the SSE data-line log leak + the apiCheck dump.
+7. #407 (the "stuck at contacting verifier" fix, in flight): **`WmpPeer.startFlow` tracked
+   a wallet-initiated flow's type AFTER the start RPC** — the engine answers that RPC
+   only after the flow completes, so the completion always won the race, found
+   `type=unknown`, and was silently dropped. Track BEFORE the call; forget on the
+   start's own failure paths. Plus the completion-drop recovery (a spinner can
+   never hang again).
+The full hunt is on #407 and in the Kotlin commit history; the Swift twins of
+the engine-side members ride the #277 parity sweep (the `trust_context`/
+`client_metadata` mirrors + the `iss` items below).
 
 ---
 
