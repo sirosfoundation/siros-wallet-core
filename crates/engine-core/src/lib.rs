@@ -87,6 +87,13 @@ pub struct Ports {
     /// policy — the adapter parses its configured value; the default
     /// is warn.
     pub consent_check: engine_ports::ConsentCheckMode,
+    /// Whether the RFC 9207 `iss` is REQUIRED on every authorization
+    /// response (the Go `security.require_authorization_response_issuer`
+    /// / `WALLET_SECURITY_REQUIRE_AUTHORIZATION_RESPONSE_ISSUER`): FAPI
+    /// enforcement even when the AS metadata does not advertise
+    /// `authorization_response_iss_parameter_supported`. Advertised
+    /// support always requires `iss`, regardless of this knob.
+    pub require_authorization_response_issuer: bool,
     /// The notification context registry (#527/#528): the ephemeral,
     /// in-process store the OID4VCI completions register their
     /// issuance contexts in and the `credential_notification` flows

@@ -243,6 +243,14 @@ pub struct AsMetadata {
     /// The supported grant types.
     #[serde(default)]
     pub grant_types: Vec<String>,
+    /// Whether the AS requires the RFC 9207 `iss` parameter on the
+    /// authorization response (`authorization_response_iss_parameter_supported`).
+    /// `Some(true)`: a response without a matching `iss` is refused before
+    /// the token exchange (the FAPI2 security-profile rule). `Some(false)`
+    /// and `None` (not declared): a supplied `iss` is still compared when
+    /// present, never required — the OID4VCI default.
+    #[serde(default, alias = "authorization_response_iss_parameter_supported")]
+    pub authorization_response_iss_supported: Option<bool>,
 }
 
 impl AsMetadata {

@@ -28,6 +28,7 @@ fn dispatcher(script: serde_json::Value) -> Dispatcher {
             kv: Arc::new(MemoryKv::new()),
             telemetry: Arc::new(NoTelemetry),
             consent_check: engine_ports::ConsentCheckMode::Warn,
+            require_authorization_response_issuer: false,
             notifications: std::sync::Arc::new(
                 engine_core::oid4vci::notification::NotificationContexts::default(),
             ),

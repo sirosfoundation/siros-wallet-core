@@ -193,6 +193,7 @@ mod presentation_flow_tests {
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                require_authorization_response_issuer: false,
                 notifications: std::sync::Arc::new(
                     engine_core::oid4vci::notification::NotificationContexts::default(),
                 ),
@@ -418,6 +419,7 @@ mod presentation_flow_tests {
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                require_authorization_response_issuer: false,
                 notifications: std::sync::Arc::new(
                     engine_core::oid4vci::notification::NotificationContexts::default(),
                 ),
@@ -557,6 +559,7 @@ mod untrusted_flow_tests {
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                require_authorization_response_issuer: false,
                 notifications: std::sync::Arc::new(
                     engine_core::oid4vci::notification::NotificationContexts::default(),
                 ),
@@ -743,6 +746,7 @@ mod sign_refusal_tests {
                 )),
                 telemetry: Arc::new(super::presentation_flow_tests::NoTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                require_authorization_response_issuer: false,
                 notifications: std::sync::Arc::new(
                     engine_core::oid4vci::notification::NotificationContexts::default(),
                 ),

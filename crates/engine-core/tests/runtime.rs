@@ -197,6 +197,7 @@ fn noop_ports() -> Ports {
         kv: Arc::new(MemoryKv(parking_lot::Mutex::new(FxHashMap::default()))),
         telemetry: Arc::new(NoopTelemetry),
         consent_check: engine_ports::ConsentCheckMode::Warn,
+        require_authorization_response_issuer: false,
         notifications: std::sync::Arc::new(
             engine_core::oid4vci::notification::NotificationContexts::default(),
         ),

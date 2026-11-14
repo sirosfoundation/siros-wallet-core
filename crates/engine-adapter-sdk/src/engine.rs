@@ -220,6 +220,7 @@ pub fn create_engine(
         kv: Arc::new(InMemoryKv::default()),
         telemetry: Arc::new(NoopTelemetry),
         consent_check: engine_ports::ConsentCheckMode::parse(&config.consent_check),
+        require_authorization_response_issuer: false,
         notifications: Arc::new(
             engine_core::oid4vci::notification::NotificationContexts::default(),
         ),
@@ -290,6 +291,7 @@ fn fallback_engine(
         kv: Arc::new(InMemoryKv::default()),
         telemetry: Arc::new(NoopTelemetry),
         consent_check: engine_ports::ConsentCheckMode::Warn,
+        require_authorization_response_issuer: false,
         notifications: Arc::new(
             engine_core::oid4vci::notification::NotificationContexts::default(),
         ),
