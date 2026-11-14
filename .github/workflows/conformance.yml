@@ -90,8 +90,14 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  conformance:
-    name: OIDF conformance (vci + vp)
+  conformance-vci:
+    # The VCI half of the suite, its own job: the two halves run in
+    # PARALLEL (each brings up its own stack on its own runner), so a
+    # failing variant burns its retries in one job's budget, not both —
+    # found twice in the v0.2.9 round: the serialised 4+4 matrix (one
+    # job, workers:1, retries:2) hit the 45m runner cap twice on a real
+    # authorization_code failure and cancelled the whole run.
+    name: OIDF conformance (vci)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -181,6 +187,89 @@ jobs:
           export CONFORMANCE_BLACKLIST="$(cat "$GITHUB_WORKSPACE/conformance/blacklist.json" 2>/dev/null || echo '{}')"
           NODE_TLS_REJECT_UNAUTHORIZED=0 npx playwright test specs/conformance/mini-wallet.spec.ts
 
+      - name: The results, as artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: conformance-results-vci
+          path: |
+            conformance-repo/conformance-results/
+            conformance-repo/test-results/
+          if-no-files-found: warn
+
+  conformance-vp:
+    # The VP half, the same split (see conformance-vci's comment).
+    name: OIDF conformance (vp)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CONFORMANCE_URL: https://localhost.emobix.co.uk:8443/
+      MINI_WALLET_URL: http://localhost:3010/
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Checkout the conformance repo (pinned ref)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: sirosfoundation/siros-conformance
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.conformance-ref || 'main' }}
+          path: conformance-repo
+
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@d1527c8c67ef9af357290475d4af4b0fab8f12f0 # v2.9.3
+
+      - name: Install wasm-pack
+        run: curl -sSLf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
+      - name: Build the mini-wallet page
+        run: make wasm-page
+
+      - name: The suite's TLS host
+        run: echo "127.0.0.1 localhost.emobix.co.uk" | sudo tee -a /etc/hosts
+
+      - name: The suite version (pinned, from conformance/suite-version)
+        run: |
+          TAG="$(grep -oE 'release-v[0-9.]+' conformance/suite-version | head -1)"
+          if [ -z "$TAG" ]; then
+            echo "::error::conformance/suite-version carries no release tag"
+            exit 1
+          fi
+          echo "CONFORMANCE_SUITE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "The OIDF conformance suite: $TAG"
+
+      - name: Bring up the mini-wallet stack
+        working-directory: conformance-repo
+        run: |
+          npm ci
+          npx playwright install chromium --with-deps
+          CONFORMANCE_SUITE_TAG="$CONFORMANCE_SUITE_TAG" \
+            WALLET_PAGE_DIR="$GITHUB_WORKSPACE/target/wasm-page" \
+            docker compose \
+              -f compose/wallet.yml \
+              -f compose/mini-wallet.yml \
+              -f compose/go-trust.yml \
+              -f compose/vc-services.yml \
+              -f compose/conformance-suite.yml \
+              up -d --remove-orphans
+          for i in $(seq 1 60); do
+            if curl -sk -o /dev/null -w '%{http_code}' "${CONFORMANCE_URL%/}/" | grep -q 302; then
+              echo "The suite is up (attempt $i)"
+              break
+            fi
+            sleep 5
+          done
+          curl -sk -o /dev/null "${CONFORMANCE_URL%/}/" || true
+
+      - name: The blacklist (module name → reason)
+        run: |
+          echo "The blacklist:"
+          cat conformance/blacklist.json
+
       - name: Run the VP suite (presentation)
         working-directory: conformance-repo
         run: |
@@ -191,7 +280,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: conformance-results
+          name: conformance-results-vp
           path: |
             conformance-repo/conformance-results/
             conformance-repo/test-results/
@@ -225,7 +314,7 @@ jobs:
     # OR the explicit `tag` re-trigger (the recovery path: the named
     # tag's verdict, rebuilt by today's workflow).
     if: (github.event_name == 'push' && github.ref_type == 'tag') || inputs.tag != ''
-    needs: conformance
+    needs: [conformance-vci, conformance-vp]
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
