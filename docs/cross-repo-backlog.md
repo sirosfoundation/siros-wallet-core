@@ -14,9 +14,9 @@ re-rank freely; the tiers are proposals.
 
 | Piece | State |
 |---|---|
-| wallet-core **v0.2.2–v0.2.8** | Released: AARs on Central + GH Packages, XCFramework + bindings per tag, engine image on ghcr, conformance green. **v0.2.4** (#33): `VpParams` carries `verified_request` + `response_encryption`. **v0.2.5** (#34): `signature_verification`. **v0.2.6** (#35): the encryption key from `client_metadata.jwks`. **v0.2.7** (#36): `VerifierInfo.trust_context` (the PDP context relay). **v0.2.8** (#37): the match ask carries `client_metadata` (the planner's circuit lists) |
-| Kotlin SDK **v0.23.0** | Released: Maven Central, GH Packages, Play internal track — the consent round and the credential deck shipped. **Predates #404** (the zkp_req match + sign pipeline, the session recovery, the diagnostics, the dialog buttons) |
-| Swift SDK **v0.17.0** | Released: tarballs + TestFlight — the consent bridge and the listener-contract repairs shipped. **Predates #283** (the session recovery twin) |
+| wallet-core **v0.2.2–v0.2.9** | Released: AARs on Central + GH Packages, XCFramework + bindings per tag, engine image on ghcr, conformance green. **v0.2.4–v0.2.8** (#33–#37): the nym_auth zkp chain's five wire members. **v0.2.9** (#40, 2026-11-14): the RFC 9207 `iss` gate (the #551 twin) + the mini-wallet page's client rollout (the conformance suite caught it — the `authorization_code` variant) |
+| Kotlin SDK **v0.23.1** | **Released 2026-11-14** (Maven Central + GH Packages + Play internal track, from the v0.23.1 tag): carries #404/#405 (the WMP zkp chain), #406/#407 (the message journal, the Show me action, the completion-race fix), the engine AAR pin **v0.2.9** (bindings byte-identical v0.2.2→v0.2.9 — the whole engine train rode JSON through the Host port) |
+| Swift SDK **v0.17.1** | **Released 2026-11-14** (tarballs + TestFlight, from the v0.17.1 tag): carries #283 (the session recovery twin), the xcframework pin **v0.2.9** (FFI surface byte-identical). The zkp parity (#277) stays open |
 | GDC | Backend 0.25.2 (deployed), engine **v0.2.8 verified live**; Spherity's OID4VCI issuer whitelisted (2026-11-13, the sd-jwt offer test) |
 | Native AARs | **8/8 on Maven Central** (wallet-core 0.2.2 and verifier-core-ffi 0.1.2 added 2026-11-12; the token-free resolution is proven) |
 | Multi-credential issuance (Platform-Epics#63) | Analyzed, decided (no mid-flow selection; subset-at-flow-start; `IssuanceSelectionPolicy` knob), tracked in five repos — **not started** |
