@@ -225,9 +225,25 @@ by user-visible blast radius:
       softkey-resident all along, so "nym_auth worked" was survivorship
       (its issuance-to-presentation window never crossed a restart), not
       a different key path.
+    **[2026-11-15] The test's supporting config surface (the reporter's
+    addition): build settings in BOTH SDKs and expose them in the sample
+    apps to allow mapping credential-catalog labels to a WSCD plugin** —
+    the sample app already sketches this shape
+    (`WalletViewModel.defaultWscdMappingText`, the
+    `"issuer|credentialType=pluginId"` parsed form feeding
+    `WalletConfig.defaultWscdMapping`), but it is a UI-side
+    pre-population for the *policy's* own selection, not a first-class
+    SDK setting: promote the mapping to a real
+    `WalletConfig`/`SirosWallet` surface (the label → pluginId map the
+    `WscdSelectionPolicy` consults beside the tier requirements), expose
+    it in both sample apps' settings, and use it as the F.18 test's
+    actuator — flipping a nym_auth catalogue label onto `fido2`/`r2ps`
+    at runtime is the test itself.
     owner: the credential-catalogue annotation is
     siros-zk-catalogues/issuer-metadata work; the policy itself is
-    `WscdSelectionPolicy` (both SDKs) + the catalogue's schema.
+    `WscdSelectionPolicy` (both SDKs) + the catalogue's schema; the
+    mapping setting is SDK-side (`WalletConfig.defaultWscdMapping`
+    already exists as the parsed form — promote it) + both sample apps.
 
 ### The ranked order (next two weeks)
 
