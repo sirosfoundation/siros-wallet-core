@@ -44,6 +44,121 @@ the engine-side members ride the #277 parity sweep (the `trust_context`/
 
 ---
 
+## The step-back review (2026-11-14, post-v0.2.9 / v0.23.1 / v0.17.1)
+
+After the release train: a full-platform gap analysis. Sources:
+`engine-parity.md` (the wave history — W1–W8 complete, W9 in progress),
+the SDK checkouts, the CI surfaces, and this week's on-device findings.
+Ranked by risk × likelihood, not by effort.
+
+### A. The structural risks (the ones that bite in production)
+
+1. **The server adapter's state is all in-process — multi-replica is broken
+   today** (parity #432, known and recorded): `MemorySessionStore` (the WMP
+   sessions — this week's on-device "Session not found" was the single-replica
+   TTL lapse; a replica bounce is the multi-replica version), `InMemoryKv`
+   (the `AuthorizationStash`, 600s TTL), the outbox (the SSE replay log),
+   the flow-type registry. The Rust engine answers correctly for ONE pod;
+   a Fly deploy with `min_machines>1` or a restart mid-flow silently loses
+   every in-flight session/stash/replay. **The TEE stateless-resume design
+   (below) is ALSO the fix here** — the client-held sealed stash moves the
+   resumable state off the server entirely; the session store becomes a
+   cache. Until then: `min_machines=1`, sticky sessions, and the stash TTL
+   kept short.
+
+2. **The conformance suite's 45-minute runner cap is a recurring flake**
+   (two cancelled runs this week, both the `authorization_code` variant
+   burning 10m × 4 modules × 2 retries on a real failure, the third a
+   genuine timeout). The suite serialises 4 VCI variants + 4 VP variants
+   on ONE job. Split the matrix (VCI/VP as parallel jobs) or raise the cap
+   — the job is the only CI gate that has blocked merges twice this week
+   for infra reasons.
+
+3. **`wallet-frontend` (the wasm consumer) is the least-tested surface.**
+   The mini-wallet page (`engine-adapter-wasm/page/wallet.js`) is the
+   reference consumer and its `kv` is localStorage, its resume is
+   sessionStorage, its engine is a fresh WASM instance per page load — and
+   this week's `iss` catch showed exactly how its gaps surface (through the
+   conformance suite, not its own tests). The page has NO test coverage of
+   its own; every wallet-side fix lands there last. **Priority: the
+   duplicate-`iss` guard and the forwarded-`iss` we just shipped exist only
+   there and in the conformance evidence — port them as first-class tests
+   or move the page's logic into the wasm crate's testable surface.**
+
+### B. The SDK parity gaps (ranked)
+
+4. **Swift `CredentialMatcher.matchDcql` has NO `circuitZk`/`zkSystemIds`
+   parameters at all** (#277, the known biggest lift): the Swift WMP match
+   path offers every eligible credential regardless of the query's zkp_req
+   format filter, and there is no Swift ZK sign pipeline. This is the ONLY
+   remaining blocker for zkp_req parity — a Swift user presenting to a
+   zkp_req verifier gets a refusal (or worse, a wrong-credential match).
+   The engine-side members (`trust_context`, `client_metadata`,
+   `verified_request`, `response_encryption`) are all wire-shape-stable
+   now, so the port can be built against them without churn.
+
+5. **The Kotlin embedded-engine path (`WmpEngineAskHandler`) forwards nulls
+   for the new wire members** — `verified_request`/`response_encryption`
+   are in the uniffi `VpParams` Record but the handler passes null (the
+   vendored bindings predate them); local-first mode would refuse at the
+   same policy gates the remote path just cleared. Same for the Swift
+   `WmpEngineAskHandler` twins. **The bindings are byte-identical because
+   the members ride JSON — but the EMBEDDED adapters still need their
+   bridges updated** (engine-adapter-sdk's `From` impls) to populate them.
+   Verify with one local-first device test.
+
+6. **Swift #283's session-recovery fix landed, but the bearer-precedence
+   parity and the SSE-logging diagnostics did not** (the Kotlin #404 set
+   is only partially twinned): no Swift `SSE line`-equivalent trace, no
+   dispatch logging. The Kotlin round proved those diagnostics are what
+   makes on-device debugging tractable at all — port them BEFORE the next
+   Swift on-device debugging session, not during it.
+
+### C. The engine (the Rust core)
+
+7. **`select_as_url` first-entry on multi-AS issuers** (#511, W1-remainder,
+   recorded): a grant-level `authorization_server` hint MUST match; absent
+   + several advertised takes `first()`. Fail-closed on mismatch landed;
+   the absent-then-first case is a documented choice but a real interop
+   hazard for multi-AS production issuers.
+
+8. **The decline/no-match OAuth description divergence** (#D2, trivial):
+   Go sends the same description for decline and no-match (the verifier
+   cannot probe which); Rust sends distinct strings. One-line align.
+
+9. **The response-endpoint sanitisation** (#D1): Go sanitises the
+   response endpoint scheme (http/https); Rust posts to whatever the
+   request names. An SSRF-adjacent gap on the submission path — worth
+   closing with the same rule as Go.
+
+### D. The process gaps (this week's meta-findings)
+
+10. **The admin-merge-before-CI lesson, twice-learned**: #404 (the SSE log
+    leak reached main) and #407 (the translations lint) both merged on
+    partial CI. The auto-merge watchers now gate on `fail==0 AND
+    pending==0`, but the discipline is: no admin merge before the FULL
+    suite, ever — the watchers suffice.
+
+11. **The engine releases are tag-per-PR** (v0.2.4–v0.2.9 in two days): the
+    release train is cheap and correct, but GDC re-pins are manual
+    per-release. A rolling `engine-server:latest-sha` tag + an auto-pin
+    pipeline would retire the per-release ceremony; until then the
+    per-release pin stays deliberate.
+
+### The ranked order (next two weeks)
+
+1. **#277** — the Swift zkp parity (the only feature-parity blocker left)
+2. **The TEE stateless-resume design doc + the `AuthorizationStash`
+   sealed-blob shape** (fixes A.1 in passing, the backlog's standing item)
+3. **A.2** — the conformance matrix split (infra, one workflow edit)
+4. **A.5** — the embedded-adapter bridges + one local-first device test
+5. **C.8 + C.9** — the two small engine alignments (#D2, #D1)
+6. **A.3** — the wasm page's tests (or its logic into the crate)
+7. Then the P1 sweep as it stands (consent-set hardening, EUCC, #511's
+   full multi-AS treatment)
+
+---
+
 ## P0 — this week
 
 1. **Swift #276 — WMP batch completions are metadata-checked then discarded.**
