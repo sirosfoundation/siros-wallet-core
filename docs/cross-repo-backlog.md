@@ -145,6 +145,61 @@ Ranked by risk × likelihood, not by effort.
     pipeline would retire the per-release ceremony; until then the
     per-release pin stays deliberate.
 
+### E. The Swift↔Kotlin parity sweep (2026-11-14, the second pass)
+
+The listener-surface and feature-set diff, beyond the known #277. Ranked
+by user-visible blast radius:
+
+12. **The Credential Auxiliary Data surface is ABSENT in Swift** (the
+    #480 wave's wallet half): Kotlin's `AuxiliaryDataV01` /
+    `AuxiliaryDataShape` / `AuxiliarySelection` (46 call sites in
+    SirosWallet — the advertised-selection bookkeeping, the
+    `auxiliary_data_to_issuer`/`_to_wallet` answer slots) has NO Swift
+    counterpart. The `secretSeedAdvertised` per-issuer bookkeeping, the
+    seed-delivery answer, the conflict/refusal listeners
+    (`onAuxiliaryDataConflict`/`onAuxiliaryDataRefused`) — none exist.
+    A Swift wallet presenting to a nym_auth verifier that advertises
+    auxiliary data cannot deliver the seed commitment: the issuance and
+    the presentation both miss. **This is the largest single gap; it
+    blocks the nym_auth issuance path on Swift entirely.**
+
+13. **`onTransactionDataRefused` has no Swift twin**: Kotlin reports the
+    TS12 refusal's reason class (`TransactionDataReason`, the typed
+    decline the UI words locally); Swift's `TransactionDataError.Reason`
+    exists but no listener callback surfaces it. The Swift wallet cannot
+    tell a user-decline from an unsupported-transaction-type refusal in
+    its UI — the exact conflation the Kotlin side words apart.
+
+14. **`onCredentialSelectionRequired` is async-with-answer in Swift but
+    the Swift ENGINE path appears to drive selection differently**:
+    Kotlin's WMP `consent`/`presentation` asks thread the engine's own
+    selection (`credentials_to_include`, the `EngineVpParams.selections`
+    relay); Swift's `handleWmpVpRequest` synthesizes from
+    `EngineVpParams.selections` but its `onCredentialSelectionRequired`
+    returns the DC-API presentation's answer. Verify the two SDKs agree
+    on WHO picks (the engine's relay vs the wallet's ask) for the same
+    request — a mismatch here is a silent wrong-credential presentation.
+
+15. **The verifier module**: Kotlin's `verifier` (mdoc reader) and
+    `passkey-provider` modules have Swift counterparts
+    (`SirosVerifier`, `Sources/SirosWallet/SirosWallet+Passkey.swift`)
+    but the SirosVerifier module list looks thinner (Mdoc/, trust/) —
+    verify the reader trust roots and the NFC engagement parity.
+    Lower priority (the verifier is the other side's problem).
+
+16. **The SSE-logging + dispatch diagnostics** (already in the review's
+    B.6): reconfirmed — no Swift `SSE line`-equivalent, no dispatch trace.
+    The completion-race fix (#407) landed Kotlin-side only; the Swift
+    `WmpSession.startFlow` tracking has the same latent race if its
+    transport awaits the start RPC (verify: `WmpSession.swift`'s
+    `sendRequest` path).
+
+17. **The Kotlin side's gaps (the reverse sweep)**: `onNoMatchingCredential`
+    (with `requestedTypes`) and `onTransactionLogFailure` exist ONLY in
+    Swift — Kotlin reports the no-match via `onFlowComplete(matchedNothing)`
+    and the transaction-log failure not at all. Port both to Kotlin for
+    the parity-check CI to hold.
+
 ### The ranked order (next two weeks)
 
 1. **#277** — the Swift zkp parity (the only feature-parity blocker left)
