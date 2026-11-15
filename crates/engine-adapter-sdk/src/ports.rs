@@ -1,7 +1,6 @@
 //! The SDK callback interfaces bridged to the engine's ports (the gap-F2
 //! wiring): the Kotlin/Swift implementations of this crate's
-//! [`Host`](crate::Host), [`HttpClient`](crate::HttpClient) and
-//! [`Pdp`](crate::Pdp) callback interfaces, wrapped as the
+//! [`Host`], [`HttpClient`] and [`Pdp`] callback interfaces, wrapped as the
 //! `engine-ports` traits the engine core runs on — plus the built-ins
 //! the adapter supplies itself (the system clock, the OS randomness,
 //! the in-memory persistence, the no-op telemetry).

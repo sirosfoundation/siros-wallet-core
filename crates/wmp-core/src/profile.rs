@@ -1,7 +1,7 @@
 //! Profiles: the pluggable extension seam of WMP.
 //!
 //! A profile adds capabilities, flow types, resolve handlers and custom
-//! methods to a [`crate::Peer`]. go-wmp discovers a profile's optional roles
+//! methods to a [`crate::peer::Peer`]. go-wmp discovers a profile's optional roles
 //! by type assertion (`FlowHandler`, `MethodHandler`, `ResolveHandler`,
 //! `SessionHook`, `IdentifierResolver`, `CapabilityRequirer`,
 //! `FlowCanceller`, `routeManager`); Rust has no cross-trait downcast, so
@@ -35,7 +35,7 @@ pub type Middleware = Arc<
 >;
 
 /// A pluggable extension to WMP. Register profiles with
-/// [`crate::Peer::use_profile`] before serving.
+/// [`crate::peer::Peer::use_profile`] before serving.
 pub trait Profile: Send + Sync {
     /// The profile identifier (for example `openid4x`, `evidence`).
     fn name(&self) -> String;

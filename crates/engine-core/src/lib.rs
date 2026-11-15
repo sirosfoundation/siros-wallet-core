@@ -8,7 +8,7 @@
 //! the WASM module).
 //!
 //! The flow seam: a flow family is a handler plus a spec, registered by
-//! flow type through the [`FlowHandler`] trait. The runtime registers
+//! flow type through the [`runtime::FlowHandler`] trait. The runtime registers
 //! handlers by flow type, gates them on negotiated capabilities, routes
 //! sub-flow requests to the host through the flow context, and supplies
 //! the ports. A family never reaches into the runtime's internals.

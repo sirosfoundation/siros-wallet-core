@@ -183,7 +183,7 @@ fn is_valid_did_web_domain(domain: &str) -> bool {
 
 /// Fetches the WMP well-known configuration for a domain through `fetch`,
 /// which receives the well-known URL and answers the response body. The body
-/// is limited to [`MAX_CONFIG_BYTES`] and must decode as a configuration.
+/// is limited to 1 MiB and must decode as a configuration.
 ///
 /// This is the primary discovery mechanism for all domain-based identifiers;
 /// use [`extract_domain`] to get the domain from any WMP identifier.
