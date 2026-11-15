@@ -1,7 +1,16 @@
-//! Claims path pointers (OpenID4VCI 1.0 Appendix C): "a non-empty array of strings, nulls and
-//! integers", read by the semantics of the credential's format: Appendix C.1 for a JSON-based
-//! Credential, Appendix C.2 for an ISO mdoc. A pointer into a Credential of a format Appendix A
-//! does not define keeps Appendix C's grammar alone. A pointer is parsed where it enters.
+//! Claims path pointers, read by the semantics of the credential's format and parsed where they
+//! enter.
+//!
+//! `ClaimsPath` reads an issuer's pointer (OpenID4VCI 1.0 Appendix C): "a non-empty array of
+//! strings, nulls and integers", by Appendix C.1 for a JSON-based Credential and by Appendix C.2
+//! for an ISO mdoc. `PresentationClaimsPath` reads a presentation request's pointer (OpenID4VP
+//! 1.0 §7): "a non-empty array of strings, nulls and non-negative integers", by §7.1 for a
+//! JSON-based Credential and by §7.2 for an ISO mdoc. A pointer into a Credential of a format
+//! OpenID4VCI 1.0 Appendix A does not define keeps its specification's grammar alone.
+//!
+//! §7.1 reads a pointer into a JSON-based Credential as Appendix C.1 does. The two differ twice:
+//! §7 admits no negative integer in any format, and §7.2.1 admits exactly two components into an
+//! ISO mdoc, where Appendix C.2 continues into the data element's value.
 
 use std::num::IntErrorKind;
 
@@ -9,8 +18,9 @@ use serde_json::{Number, Value};
 
 use crate::oid4vci::types::CredentialFormat;
 
-/// A claims path pointer, parsed by the semantics of its credential's format. Two pointers are
-/// equal when their components are, whatever the spelling of their integers.
+/// An issuer's claims path pointer (OpenID4VCI 1.0 Appendix C), parsed by the semantics of its
+/// credential's format. Two pointers are equal when their components are, whatever the spelling
+/// of their integers.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ClaimsPath {
     /// A pointer into a JSON-based Credential (Appendix C.1).
@@ -32,7 +42,37 @@ pub(crate) enum ClaimsPath {
     OtherFormat(Vec<Component>),
 }
 
-/// A component of a pointer into a JSON-based Credential (Appendix C.1).
+/// A presentation request's claims path pointer (OpenID4VP 1.0 §7), parsed by the semantics of
+/// its credential's format.
+#[derive(Debug)]
+pub(crate) enum PresentationClaimsPath {
+    /// A pointer into a JSON-based Credential (§7.1).
+    Json(Vec<JsonComponent>),
+    /// A pointer into an ISO mdoc (§7.2): "exactly two components", each a string.
+    Mdoc {
+        /// The namespace: the first component.
+        namespace: String,
+        /// The data element identifier: the second component.
+        data_element: String,
+    },
+    /// A pointer into a Credential of a format OpenID4VCI 1.0 Appendix A does not define, or of
+    /// no format: the components §7 admits, without semantics.
+    OtherFormat(Vec<PresentationComponent>),
+}
+
+/// A component as OpenID4VP 1.0 §7 writes it, in a pointer into a Credential of a format
+/// OpenID4VCI 1.0 Appendix A does not define, or of no format.
+#[derive(Debug)]
+pub(crate) enum PresentationComponent {
+    /// A JSON string.
+    Key(String),
+    /// A JSON number whose value is a non-negative integer.
+    Integer(u64),
+    /// JSON `null`.
+    Null,
+}
+
+/// A component of a pointer into a JSON-based Credential (Appendix C.1, OpenID4VP 1.0 §7.1).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum JsonComponent {
     /// Selects the member of an object with this key: a JSON string.
@@ -71,57 +111,67 @@ impl ClaimsPath {
         value: &Value,
         format: Option<CredentialFormat>,
     ) -> Result<Self, ClaimsPathError> {
-        let Value::Array(items) = value else {
-            return Err(ClaimsPathError::NotArray);
-        };
-        if items.is_empty() {
-            return Err(ClaimsPathError::Empty);
-        }
+        let items = items_of(value)?;
         match format {
             Some(
                 CredentialFormat::JwtVcJson
                 | CredentialFormat::LdpVc
                 | CredentialFormat::JwtVcJsonLd
                 | CredentialFormat::DcSdJwt,
-            ) => Self::parse_json(items),
+            ) => components(items.iter().enumerate(), JsonComponent::parse).map(Self::Json),
             Some(CredentialFormat::MsoMdoc) => Self::parse_mdoc(items),
-            None => components(items.iter().enumerate()).map(Self::OtherFormat),
+            None => components(items.iter().enumerate(), Component::parse).map(Self::OtherFormat),
         }
-    }
-
-    /// A pointer into a JSON-based Credential (Appendix C.1).
-    fn parse_json(items: &[Value]) -> Result<Self, ClaimsPathError> {
-        items
-            .iter()
-            .enumerate()
-            .map(|(at, item)| {
-                JsonComponent::parse(item).map_err(|why| ClaimsPathError::Component { at, why })
-            })
-            .collect::<Result<_, _>>()
-            .map(Self::Json)
     }
 
     /// A pointer into an ISO mdoc (Appendix C.2): "at least two path components of type
     /// string", the namespace and the data element identifier, then the components within the
     /// data element's value.
     fn parse_mdoc(items: &[Value]) -> Result<Self, ClaimsPathError> {
-        let name = |at: usize| match items.get(at) {
-            Some(Value::String(name)) => Ok(name.clone()),
-            Some(_) => Err(ClaimsPathError::Component {
-                at,
-                why: ComponentError::NotString,
-            }),
-            // Appendix C.2.1: "If the path contains fewer than two path components, abort
-            // processing and return an error."
-            None => Err(ClaimsPathError::MdocTooShort),
-        };
-        let namespace = name(0)?;
-        let data_element = name(1)?;
-        let within = components(items.iter().enumerate().skip(2))?;
+        let namespace = mdoc_name(items, 0)?;
+        let data_element = mdoc_name(items, 1)?;
+        let within = components(items.iter().enumerate().skip(2), Component::parse)?;
         Ok(Self::Mdoc {
             namespace,
             data_element,
             within,
+        })
+    }
+}
+
+impl PresentationClaimsPath {
+    /// The pointer the JSON value `value` writes into a Credential of the format `format`;
+    /// `None` is a format OpenID4VCI 1.0 Appendix A does not define, or no format.
+    pub(crate) fn parse(
+        value: &Value,
+        format: Option<CredentialFormat>,
+    ) -> Result<Self, ClaimsPathError> {
+        let items = items_of(value)?;
+        match format {
+            Some(
+                CredentialFormat::JwtVcJson
+                | CredentialFormat::LdpVc
+                | CredentialFormat::JwtVcJsonLd
+                | CredentialFormat::DcSdJwt,
+            ) => components(items.iter().enumerate(), JsonComponent::parse).map(Self::Json),
+            Some(CredentialFormat::MsoMdoc) => Self::parse_mdoc(items),
+            None => components(items.iter().enumerate(), PresentationComponent::parse)
+                .map(Self::OtherFormat),
+        }
+    }
+
+    /// A pointer into an ISO mdoc (§7.2.1): "If the claims path pointer does not contain exactly
+    /// two components or one of the components is not a string then abort processing and return
+    /// an error."
+    fn parse_mdoc(items: &[Value]) -> Result<Self, ClaimsPathError> {
+        let namespace = mdoc_name(items, 0)?;
+        let data_element = mdoc_name(items, 1)?;
+        if items.len() > 2 {
+            return Err(ClaimsPathError::MdocTooLong);
+        }
+        Ok(Self::Mdoc {
+            namespace,
+            data_element,
         })
     }
 }
@@ -131,30 +181,73 @@ impl JsonComponent {
     fn parse(value: &Value) -> Result<Self, ComponentError> {
         match value {
             Value::String(key) => Ok(Self::Key(key.clone())),
-            Value::Number(number) => match whole_number_of(number)? {
-                WholeNumber::InRange(CborInteger::Unsigned(index)) => Ok(Self::Index(index)),
-                // Appendix C.1: "Negative integer values are not used for JSON-based
-                // credentials."
-                WholeNumber::InRange(CborInteger::Negative(_)) | WholeNumber::Below => {
-                    Err(ComponentError::Negative)
-                }
-                WholeNumber::Above => Err(ComponentError::OutOfRange),
-            },
+            Value::Number(number) => non_negative_integer(number).map(Self::Index),
             Value::Null => Ok(Self::AllElements),
             Value::Bool(_) | Value::Array(_) | Value::Object(_) => Err(ComponentError::WrongType),
         }
     }
 }
 
-/// The components `items` write, each with its position in the pointer.
-fn components<'a>(
+impl PresentationComponent {
+    /// The component the JSON value `value` writes.
+    fn parse(value: &Value) -> Result<Self, ComponentError> {
+        match value {
+            Value::String(key) => Ok(Self::Key(key.clone())),
+            Value::Number(number) => non_negative_integer(number).map(Self::Integer),
+            Value::Null => Ok(Self::Null),
+            Value::Bool(_) | Value::Array(_) | Value::Object(_) => Err(ComponentError::WrongType),
+        }
+    }
+}
+
+/// The components of the pointer the JSON value `value` writes: "a non-empty array" (Appendix
+/// C, OpenID4VP 1.0 §7).
+fn items_of(value: &Value) -> Result<&[Value], ClaimsPathError> {
+    let Value::Array(items) = value else {
+        return Err(ClaimsPathError::NotArray);
+    };
+    if items.is_empty() {
+        return Err(ClaimsPathError::Empty);
+    }
+    Ok(items)
+}
+
+/// The components `items` write, each read by `parse`, with its position in the pointer.
+fn components<'a, T>(
     items: impl Iterator<Item = (usize, &'a Value)>,
-) -> Result<Vec<Component>, ClaimsPathError> {
+    parse: fn(&Value) -> Result<T, ComponentError>,
+) -> Result<Vec<T>, ClaimsPathError> {
     items
-        .map(|(at, item)| {
-            Component::parse(item).map_err(|why| ClaimsPathError::Component { at, why })
-        })
+        .map(|(at, item)| parse(item).map_err(|why| ClaimsPathError::Component { at, why }))
         .collect()
+}
+
+/// The namespace, `at` 0, or the data element identifier, `at` 1, of a pointer into an ISO
+/// mdoc: a string (Appendix C.2, OpenID4VP 1.0 §7.2).
+fn mdoc_name(items: &[Value], at: usize) -> Result<String, ClaimsPathError> {
+    match items.get(at) {
+        Some(Value::String(name)) => Ok(name.clone()),
+        Some(_) => Err(ClaimsPathError::Component {
+            at,
+            why: ComponentError::NotString,
+        }),
+        // Appendix C.2.1: "If the path contains fewer than two path components, abort
+        // processing and return an error." §7.2.1 asks for "exactly two components".
+        None => Err(ClaimsPathError::MdocTooShort),
+    }
+}
+
+/// The non-negative integer a JSON number writes, at most 2^64 − 1.
+fn non_negative_integer(number: &Number) -> Result<u64, ComponentError> {
+    match whole_number_of(number)? {
+        WholeNumber::InRange(CborInteger::Unsigned(integer)) => Ok(integer),
+        // Appendix C.1: "Negative integer values are not used for JSON-based credentials."
+        // OpenID4VP 1.0 §7: "non-negative integers", in every format.
+        WholeNumber::InRange(CborInteger::Negative(_)) | WholeNumber::Below => {
+            Err(ComponentError::Negative)
+        }
+        WholeNumber::Above => Err(ComponentError::OutOfRange),
+    }
 }
 
 impl Component {
@@ -301,7 +394,7 @@ fn is_digits(text: &str) -> bool {
 }
 
 /// Why a JSON value is no claims path pointer into a Credential of its format (OpenID4VCI 1.0
-/// Appendix C).
+/// Appendix C, or OpenID4VP 1.0 §7 for a presentation request's pointer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ClaimsPathError {
     /// The value is no array.
@@ -311,9 +404,13 @@ pub enum ClaimsPathError {
     #[error("the path is an empty array")]
     Empty,
     /// A pointer into an ISO mdoc has one component: it lacks the data element identifier
-    /// (Appendix C.2.1).
+    /// (Appendix C.2.1, OpenID4VP 1.0 §7.2.1).
     #[error("the mdoc path has fewer than two components")]
     MdocTooShort,
+    /// A presentation request's pointer into an ISO mdoc has a component after the data element
+    /// identifier: OpenID4VP 1.0 §7.2.1 admits "exactly two components".
+    #[error("the mdoc path has more than two components")]
+    MdocTooLong,
     /// A component is none its position admits.
     #[error("path component {at} is {why}")]
     Component {
@@ -325,7 +422,7 @@ pub enum ClaimsPathError {
 }
 
 /// Why a JSON value is no component of a claims path pointer at its position (OpenID4VCI 1.0
-/// Appendix C).
+/// Appendix C, or OpenID4VP 1.0 §7 for a presentation request's pointer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ComponentError {
     /// No string, `null` or number.
@@ -334,15 +431,16 @@ pub enum ComponentError {
     /// A number whose value has a nonzero fractional part.
     #[error("a fraction")]
     Fraction,
-    /// A negative integer in a pointer into a JSON-based Credential (Appendix C.1).
-    #[error("a negative integer in a JSON-based credential's path")]
+    /// A negative integer in a pointer into a JSON-based Credential (Appendix C.1), or in a
+    /// presentation request's pointer (OpenID4VP 1.0 §7).
+    #[error("a negative integer")]
     Negative,
-    /// An integer above 2^64 − 1, the largest index, or, outside a pointer into a JSON-based
-    /// Credential, below −2^64, the smallest CBOR integer (RFC 8949 §3.1).
+    /// An integer above 2^64 − 1, the largest index, or, in an issuer's pointer outside a
+    /// JSON-based Credential, below −2^64, the smallest CBOR integer (RFC 8949 §3.1).
     #[error("an integer out of range")]
     OutOfRange,
     /// The namespace or the data element identifier of a pointer into an ISO mdoc is no string
-    /// (Appendix C.2).
+    /// (Appendix C.2, OpenID4VP 1.0 §7.2.1).
     #[error("no string")]
     NotString,
 }
