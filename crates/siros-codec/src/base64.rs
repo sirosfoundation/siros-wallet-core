@@ -10,7 +10,7 @@ use crate::sextets::{self, Base64Error};
 /// [`Base64Error`]: the first rule `text` breaks.
 pub fn decode(text: &str) -> Result<Vec<u8>, Base64Error> {
     let bytes = text.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err(Base64Error::Length);
     }
     let pad = bytes.iter().rev().take_while(|&&c| c == b'=').count();

@@ -114,7 +114,7 @@ cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml
 ```
 
-Rust 1.82 is the floor of every library crate; the `msrv` CI job checks it.
+Rust 1.89 is the floor of every crate; the `msrv` CI job checks it.
 The toolchain itself is pinned exactly in `rust-toolchain.toml`.
 
 ## Working rules

@@ -8,8 +8,8 @@
 # commit). Reproducible artifacts ("built from this commit") need the same
 # rustc.
 #
-# This is not the MSRV. `rust-version` in Cargo.toml is the oldest compiler the
-# library crates promise to support and is checked by the `msrv` CI job.
+# This is not the MSRV. `rust-version` in Cargo.toml is the oldest compiler
+# every crate supports and is checked by the `msrv` CI job.
 #
 # To bump: change `channel` to the new release (Dependabot's `rust-toolchain`
 # ecosystem opens this PR monthly), run fmt, clippy and tests, and say so in

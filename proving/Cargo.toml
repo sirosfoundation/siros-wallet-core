@@ -1,6 +1,5 @@
-# The proof backends and what links them. zk-cred-longfellow and zk-cred-vega are edition 2024,
-# which Cargo 1.82 cannot read, so they stay out of the root workspace and its 1.82 floor; the
-# matcher never resolves them.
+# The proof backends and what links them. zk-cred-longfellow needs Rust 1.91
+# (`bigint_helper_methods`), above the root workspace's 1.89 floor; the matcher never resolves them.
 [workspace]
 resolver = "2"
 members = [

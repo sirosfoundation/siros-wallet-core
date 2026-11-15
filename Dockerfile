@@ -11,7 +11,7 @@
 
 # The workspace's pinned toolchain (rust-toolchain.toml - the single
 # source of truth): the image builds with the exact compiler CI and a
-# local build use. The MSRV (Cargo.toml's `rust-version`, 1.82) is the
+# local build use. The MSRV (Cargo.toml's `rust-version`, 1.89) is the
 # LIBRARY crates' promise, checked by the msrv job - the image needs
 # this pinned compiler, whose cargo parses the locked dependencies'
 # manifests (aes-gcm 0.11's edition among them).

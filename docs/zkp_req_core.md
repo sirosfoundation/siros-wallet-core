@@ -14,17 +14,17 @@ behind the nym_auth prover interface and the rulebooks' artifact pins.
 
 | Crate | Holds | Rust |
 | :-- | :-- | :-- |
-| `siros-zkp-req` | The protocol: the Credential Query with `_req` and `_req_sets`, `vp_formats_supported.zkp_req`, the usable pair of Section 1.3, `ZkpPresentation`, the backends' `Proof`, the `vp_token`, the Verifier's steps 1 to 5 of Section 4.1. Depends on `serde_json`, `siros-codec` and `siros-dcql`, which parses the Credential Query: `ZkpReqQuery::parse` reads the `CredentialQuery` it gives. | 1.82 |
-| `siros-zkp-catalogues` | The catalogue (`pseudonym`, `age_check` with E and C), `verifier_id`, the Longfellow and Vega systems, the session binding, the request policy. With the default feature `credential`: the nym_auth form of an mdoc, the Wallet's credential tests, the prover interface and the verifier (`siros-mdoc` with `crypto`, `siros-trust` with `chain`, `zeroize`). With `request`: the nym_auth request of `siros-oid4vp`'s verified request, the answer of an option and its presentation. With `test-fixtures`: a test issuer, signed requests and a test host. | 1.82 |
-| `siros-dc-matcher-core` | The matcher. It plans `zkp_req` with the two crates above, without `credential`. | 1.82 |
-| `siros-dc-matcher-ffi` | Module `zkp_req`: the session, the `vp_token` and the verifier for Kotlin and Swift (UniFFI), around a host's proof verifier. | 1.88 |
+| `siros-zkp-req` | The protocol: the Credential Query with `_req` and `_req_sets`, `vp_formats_supported.zkp_req`, the usable pair of Section 1.3, `ZkpPresentation`, the backends' `Proof`, the `vp_token`, the Verifier's steps 1 to 5 of Section 4.1. Depends on `serde_json`, `siros-codec` and `siros-dcql`, which parses the Credential Query: `ZkpReqQuery::parse` reads the `CredentialQuery` it gives. | 1.89 |
+| `siros-zkp-catalogues` | The catalogue (`pseudonym`, `age_check` with E and C), `verifier_id`, the Longfellow and Vega systems, the session binding, the request policy. With the default feature `credential`: the nym_auth form of an mdoc, the Wallet's credential tests, the prover interface and the verifier (`siros-mdoc` with `crypto`, `siros-trust` with `chain`, `zeroize`). With `request`: the nym_auth request of `siros-oid4vp`'s verified request, the answer of an option and its presentation. With `test-fixtures`: a test issuer, signed requests and a test host. | 1.89 |
+| `siros-dc-matcher-core` | The matcher. It plans `zkp_req` with the two crates above, without `credential`. | 1.89 |
+| `siros-dc-matcher-ffi` | Module `zkp_req`: the session, the `vp_token` and the verifier for Kotlin and Swift (UniFFI), around a host's proof verifier. | 1.89 |
 | `siros-zkp-backend-longfellow` | `urn:circuits:longfellow:nym_auth:v1` on `longfellow-libzk-v1`: `LongfellowProver` and `LongfellowVerifier` over zk-cred-longfellow. | 1.95 |
 | `siros-zkp-backend-vega` | `urn:circuits:vega:nym_auth:v1` on `vega-v1`: `VegaNymAuth` over zk-cred-vega. | 1.95 |
 | `siros-zkp-req-wasm` | The browser's provers over both backends and the `vp_token` (`wasm-bindgen`). | 1.95 |
 
 The last three and the real-proof tests in `proving/e2e` form the `proving/` workspace.
-zk-cred-longfellow and zk-cred-vega are edition 2024, which Cargo 1.82 cannot read; in the root
-workspace they would stop every 1.82 build, the matcher's included. The matcher plans with the nym_auth catalogue and compiles no prover.
+zk-cred-longfellow needs Rust 1.91 (`bigint_helper_methods`), above the root workspace's 1.89 floor;
+in the root workspace it would stop every build on that floor, the matcher's included. The matcher plans with the nym_auth catalogue and compiles no prover.
 
 The matcher decides which credentials can serve a query. Signing and proving follow the user's
 consent. Every `zkp_req` rule has one owner: the matcher, the wallet's plan, the FFI and the
@@ -239,7 +239,7 @@ exports the provers and `vpTokenJson`.
   Vega, and a `zk_proof` one byte short is `proof_encoding` with both.
 * **G6, build.** `matcher.wasm` within its budget, Kotlin and Swift bindings generated,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings` and
-  `cargo fmt --all -- --check` clean in both workspaces, the picker crates on Rust 1.82, and the
+  `cargo fmt --all -- --check` clean in both workspaces, the picker crates on Rust 1.89, and the
   browser module importing only wasm-bindgen's modules.
 
 ## Licence

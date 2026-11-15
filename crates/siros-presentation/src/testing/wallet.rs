@@ -76,7 +76,7 @@ pub fn sd_jwt_x5c(vct: &str, claims: &[(&str, Value)], x5c: &[&[u8]]) -> String 
 /// base64 with padding (RFC 4648, Section 4), as `x5c` writes a certificate.
 pub fn base64(bytes: &[u8]) -> String {
     let mut text = b64(bytes).replace('-', "+").replace('_', "/");
-    while text.len() % 4 != 0 {
+    while !text.len().is_multiple_of(4) {
         text.push('=');
     }
     text
