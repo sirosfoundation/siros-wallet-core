@@ -9,9 +9,11 @@ cannot recover. A test host (a crate named `*-testhost`) runs the matcher in
 the tests, so its code is test code. Every other crate of the named
 workspaces runs in a normal flow, where a panic crashes the wallet, and the
 check covers it with no list to extend. Each root of its targets that ship
-carries `#![cfg_attr(not(test), deny(...))]` over the lints in PANIC_LINTS,
-and this check fails on a root without it and on an `allow`, `expect` or
-`warn` of those lints outside test code: clippy then denies `panic!`,
+carries `#![deny(...)]` over the lints in PANIC_LINTS, or
+`#![cfg_attr(not(test), deny(...))]` in the engine crates, whose tests sit in
+their source files, and this check fails on a root without either and on an
+`allow`, `expect` or `warn` of those lints outside test code: clippy then
+denies `panic!`,
 `unreachable!`, `todo!`, `unimplemented!`, `unwrap`, `expect`, indexing, and
 the std methods that clippy.toml's `disallowed-methods` names, which panic
 and share their name with a method that does not. This check finds the rest
@@ -27,6 +29,10 @@ by name:
   - `/` and `%` by anything but a numeric literal, which panic on an
     integer 0: `checked_div` and `checked_rem` take a divisor that may be 0.
     The check reads no types, so it flags a float divisor too.
+
+A `const` item's type and initialiser and an inline `const { }` block run in
+the compiler, where a panic is error E0080 and fails the build: the check
+reads them as build-time code.
 
 Test code is exempt: the integration tests, benches and examples, an item
 under `#[test]` or under a `#[cfg(...)]` that implies `test` or a feature in
@@ -97,6 +103,9 @@ METHODS = {method.name: method for method in [
               "div_euclid", "rem_euclid", "div_ceil", "div_floor", "next_multiple_of"),
     *_methods(RADIX, "to_digit", "is_digit", "from_digit", "from_str_radix"),
 ]}
+
+# Keywords after `const` that make a function: its body runs.
+CONST_QUALIFIED = frozenset({"fn", "unsafe", "extern", "async"})
 
 # Keywords after which `[` opens an array or a slice pattern, never an index.
 NOT_AN_OPERAND = frozenset({"as", "box", "break", "const", "continue", "dyn", "else", "enum",
@@ -317,11 +326,34 @@ class _Scanner:
                 closer = matching_closer(items, index + 2)
                 self.scan(index + 3, closer, in_test, (*inline, name))
                 return closer + 1
+        if token.is_ident("const"):
+            build_time = self.build_time_end(index, end)
+            if build_time is not None:
+                return build_time
         if not in_test:
             what = _site_at(items, index)
             if what is not None:
                 self.walk.sites.append(Site(self.module.path, token.line, f"{what} panics"))
         return index + 1
+
+    def build_time_end(self, index: int, end: int) -> int | None:
+        """The index after the code at `index` that only the compiler runs, an inline `const`
+        block or a `const` item's type and initialiser, and None when `index` starts neither. A
+        panic there fails the build (E0080)."""
+        items = self.items
+        if index + 2 >= end:
+            return None
+        follower = items[index + 1]
+        if follower.is_punct("{"):
+            return matching_closer(items, index + 1) + 1
+        before = items[index - 1] if index > 0 else None
+        at_item = before is None or before.is_ident("pub") or (
+            before.kind is Kind.PUNCT and before.text in (";", "{", "}", "]", ")"))
+        named = follower.is_punct("_") or (
+            follower.kind is Kind.IDENT and follower.text not in CONST_QUALIFIED)
+        if at_item and named and items[index + 2].is_punct(":"):
+            return _item_end(items, index)
+        return None
 
     def attribute(self, index: int, end: int, in_test: bool, inline: tuple[str, ...]) -> int:
         items = self.items
@@ -379,17 +411,19 @@ class _Scanner:
 
 
 def _denied_outside_tests(items: list[Token]) -> frozenset[str]:
-    """The clippy lints an inner `#![cfg_attr(not(test), deny(...))]` names."""
+    """The clippy lints an inner `#![deny(...)]` or `#![cfg_attr(not(test), deny(...))]` names."""
     texts = [token.text for token in items]
-    head = ["#", "!", "[", "cfg_attr", "(", "not", "(", "test", ")", ",", "deny", "("]
+    heads = (["#", "!", "[", "deny", "("],
+             ["#", "!", "[", "cfg_attr", "(", "not", "(", "test", ")", ",", "deny", "("])
     found: set[str] = set()
-    for start in range(len(texts) - len(head)):
-        if texts[start:start + len(head)] != head:
-            continue
-        opener = start + len(head) - 1
-        for begin, end in _arguments(items, opener, matching_closer(items, opener)):
-            if texts[begin:end - 1] == ["clippy", "::"]:
-                found.add(texts[end - 1])
+    for head in heads:
+        for start in range(len(texts) - len(head)):
+            if texts[start:start + len(head)] != head:
+                continue
+            opener = start + len(head) - 1
+            for begin, end in _arguments(items, opener, matching_closer(items, opener)):
+                if texts[begin:end - 1] == ["clippy", "::"]:
+                    found.add(texts[end - 1])
     return frozenset(found)
 
 
@@ -403,8 +437,8 @@ def _read(path: Path) -> list[Token]:
 def _walk_tree(root: Path, walk: Walk) -> None:
     missing = PANIC_LINTS - _denied_outside_tests(_read(root))
     if missing:
-        walk.unlinted.append(Site(root, 1, "the root lacks #![cfg_attr(not(test), deny(clippy::"
-                                  + ", clippy::".join(sorted(missing)) + "))]"))
+        walk.unlinted.append(Site(root, 1, "the root lacks #![deny(clippy::"
+                                  + ", clippy::".join(sorted(missing)) + ")]"))
     pending = [ModuleFile(root, root.parent, in_test=False)]
     while pending:
         module = pending.pop()

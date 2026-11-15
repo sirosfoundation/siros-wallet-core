@@ -55,11 +55,17 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: The errors crates without their default features
+        run: cargo clippy --locked -p siros-derive-internals -p siros-explain -p siros-explain-derive --lib --no-default-features -- -D warnings
       # The clippy steps enforce the lints each crate root denies outside its
       # tests; the script fails on a root without them and on an allow of them
       # outside the tests, and finds the panics no lint covers.
       - name: No panic outside the tests
         run: python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
+      - name: The errors crates' documentation builds
+        run: cargo doc --no-deps --locked --all-features -p siros-derive-internals -p siros-explain -p siros-explain-derive
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   wasm:
     name: WASM (browser engine, Node)
@@ -132,6 +138,15 @@ jobs:
           set -euo pipefail
           crates=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[].name')
           for crate in $crates; do
+            cargo check --locked -p "$crate"
+            cargo check --locked -p "$crate" --no-default-features
+          done
+      - name: The errors crates, with and without their default features, warnings denied
+        env:
+          RUSTFLAGS: -D warnings
+        run: |
+          set -euo pipefail
+          for crate in siros-derive-internals siros-explain siros-explain-derive; do
             cargo check --locked -p "$crate"
             cargo check --locked -p "$crate" --no-default-features
           done
