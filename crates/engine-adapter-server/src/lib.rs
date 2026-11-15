@@ -55,10 +55,6 @@ pub struct EngineServer {
     /// from it, and `wmp.session.resume` counts its missed messages from
     /// it.
     pub outbox: Arc<Outbox>,
-    /// The host bridge: the engine's asks as child flows over the peer.
-    /// The remote host (the `Host` port inside the ports) carries it;
-    /// exposed for the tests, which drive an ask end to end.
-    pub bridge: Arc<crate::host_bridge::WmpHostBridge>,
     /// The engine's configuration.
     pub config: config::Config,
 }
@@ -114,7 +110,7 @@ impl EngineServer {
         // their completions routed back through the same registry the
         // dispatch uses. The remote host carries it from here on.
         let bridge = crate::host_bridge::WmpHostBridge::new(peer.clone());
-        remote_host.set_bridge(bridge.clone());
+        remote_host.set_bridge(bridge);
 
         // The flow families register on THE runtime the handler
         // dispatches to (the drop-in server: a flow type nobody
@@ -142,7 +138,6 @@ impl EngineServer {
             validator,
             runtime,
             outbox,
-            bridge,
             config,
         }
     }
