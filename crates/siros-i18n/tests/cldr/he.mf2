@@ -1,0 +1,477 @@
+# The format options of he from CLDR 49.0.0 (unicode-org/cldr-json), written by siros-cldr.
+@locale he
+@dir rtl
+---
+
+[formats.number]
+zero = 0
+decimal = .
+group = ,
+minus = ‎-
+plus = ‎+
+grouping = 1
+cardinal =
+  one: i = 1 and v = 0 or i = 0 and v != 0
+  two: i = 2 and v = 0
+ordinal =
+pattern = #,##0.###
+
+[formats.currency]
+zero = 0
+decimal = .
+group = ,
+minus = ‎-
+plus = ‎+
+grouping = 1
+cardinal =
+  one: i = 1 and v = 0 or i = 0 and v != 0
+  two: i = 2 and v = 0
+ordinal =
+pattern = #,##0.###
+standard = ‏#,##0.00 ‏¤;‏-#,##0.00 ‏¤
+standard-alpha = ‏#,##0.00 ‏¤;‏-#,##0.00 ‏¤
+accounting = ‏#,##0.00 ‏¤;‏-#,##0.00 ‏¤
+accounting-alpha = ‏#,##0.00 ‏¤;‏-#,##0.00 ‏¤
+no-currency = ‏#,##0.00 ‏;‏-#,##0.00 ‏
+no-currency-accounting = ‏#,##0.00 ‏;‏-#,##0.00 ‏
+unit-pattern =
+  other {0} {1}
+digits =
+  default 2
+  AFN 0
+  ALL 0
+  AMD 2
+  BHD 3
+  BIF 0
+  BYN 2
+  CAD 2
+  CHF 2
+  CLF 4
+  CLP 0
+  COP 0
+  CRC 2
+  CZK 2
+  DJF 0
+  DKK 2
+  GNF 0
+  GYD 2
+  HUF 0
+  IDR 0
+  IQD 0
+  IRR 0
+  ISK 0
+  JOD 3
+  JPY 0
+  KMF 0
+  KPW 0
+  KRW 0
+  KWD 3
+  LAK 0
+  LBP 0
+  LYD 3
+  MGA 0
+  MMK 0
+  MNT 2
+  MRU 2
+  MUR 2
+  NOK 2
+  OMR 3
+  PKR 2
+  PYG 0
+  RSD 2
+  RWF 0
+  SEK 2
+  SLE 2
+  SOS 0
+  SYP 0
+  TND 3
+  TWD 2
+  TZS 2
+  UGX 0
+  UYI 0
+  UYW 4
+  UZS 2
+  VND 0
+  VUV 0
+  XAD 2
+  XAF 0
+  XAU 2
+  XOF 0
+  XPF 0
+  YER 0
+symbols =
+  AUD A$
+  BRL R$
+  CAD CA$
+  CNY ‎CN¥‎
+  EUR €
+  GBP £
+  HKD HK$
+  ILS ₪
+  INR ₹
+  JPY ¥
+  KRW ₩
+  MXN MX$
+  NZD NZ$
+  THB ฿
+  TWD NT$
+  USD $
+  VND ₫
+  XAF FCFA
+  XCD EC$
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+  XXX ¤
+narrow =
+  AFN ؋
+  AMD ֏
+  AOA Kz
+  ARS $
+  AUD $
+  AZN ₼
+  BAM KM
+  BBD $
+  BDT ৳
+  BMD $
+  BND $
+  BOB Bs
+  BRL R$
+  BSD $
+  BWP P
+  BYN р
+  BZD $
+  CAD $
+  CHF Fr.
+  CLP $
+  CNY ¥
+  COP $
+  CRC ₡
+  CUP $
+  CZK Kč
+  DKK kr
+  DOP $
+  EGP E£
+  EUR €
+  FJD $
+  FKP £
+  GBP £
+  GEL ₾
+  GHS GH₵
+  GIP £
+  GNF FG
+  GTQ Q
+  GYD $
+  HKD $
+  HNL L
+  HUF Ft
+  IDR Rp
+  ILS ₪
+  INR ₹
+  ISK kr
+  JMD $
+  JPY ¥
+  KGS ⃀
+  KHR ៛
+  KMF CF
+  KPW ₩
+  KRW ₩
+  KYD $
+  KZT ₸
+  LAK ₭
+  LBP L£
+  LKR Rs
+  LRD $
+  MGA Ar
+  MMK K
+  MNT ₮
+  MUR Rs
+  MXN $
+  MYR RM
+  NAD $
+  NGN ₦
+  NIO C$
+  NOK kr
+  NPR Rs
+  NZD $
+  PHP ₱
+  PKR Rs
+  PLN zł
+  PYG ₲
+  RON lei
+  RUB ₽
+  RWF RF
+  SBD $
+  SEK kr
+  SGD $
+  SHP £
+  SRD $
+  SSP £
+  STN Db
+  SYP £
+  THB ฿
+  TOP T$
+  TRY ₺
+  TTD $
+  TWD NT$
+  UAH ₴
+  USD $
+  UYU $
+  VND ₫
+  XAF FCFA
+  XCD $
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+  XXX ¤
+  ZAR R
+  ZMW ZK
+names =
+  AED other דירהם של איחוד הנסיכויות הערביות
+  AFN other אפגני אפגני
+  ALL other לק אלבני
+  AMD other דראם ארמני
+  AOA other קואנזה אנגולי
+  ARS other פסו ארגנטינאי
+  AUD other דולר אוסטרלי
+  AWG other פלורין של ארובה
+  AZN other מאנאט אזרבייג׳ני
+  BAM other מארק סחיר של בוסניה והרצגובינה
+  BBD other דולר ברבדיאני
+  BDT other טאקה בנגלדשי
+  BHD other דינר בחרייני
+  BIF other פרנק בורונדי
+  BMD other דולר ברמודה
+  BND other דולר ברוניי
+  BOB other בוליביאנו
+  BRL other ריאל ברזילאי
+  BSD other דולר בהאמי
+  BTN other נגולטרום בהוטני
+  BWP other פולה בוטסואני
+  BYN other רובל בלרוסי
+  BZD other דולר בליזי
+  CAD other דולר קנדי
+  CDF other פרנק קונגולזי
+  CHF other פרנק שוויצרי
+  CLP other פסו צ׳ילאני
+  CNY other יואן סיני
+  COP other פסו קולומביאני
+  CRC other קולון קוסטה־ריקני
+  CUP other פסו קובני
+  CVE other אסקודו כף ורדה
+  CZK other קורונה צ׳כית
+  DJF other פרנק ג׳יבוטי
+  DKK other כתר דני
+  DOP other פסו דומיניקני
+  DZD other דינר אלג׳ירי
+  EGP other לירה מצרית
+  ERN other נאקפה אריתראי
+  ETB other ביר אתיופי
+  EUR other אירו
+  FJD other דולר פיג׳י
+  FKP other לירה של איי פוקלנד
+  GBP other לירה שטרלינג
+  GEL other לארי גאורגי
+  GHS other סדי גאני
+  GIP other פאונד גיברלטר
+  GMD other דלסי גמבי
+  GNF other פרנק גינאי
+  GTQ other קצאל גואטמלי
+  GYD other דולר גיאני
+  HKD other דולר הונג קונגי
+  HNL other למפירה הונדורי
+  HTG other גורד האיטי
+  HUF other פורינט הונגרי
+  IDR one רופיה אינדונזית
+  IDR two רופיות אינדונזיות
+  IDR other רופיות אינדונזיות
+  ILS one שקל חדש
+  ILS two שקלים חדשים
+  ILS other שקלים חדשים
+  INR other רופי הודי
+  IQD other דינר עיראקי
+  IRR other ריאל איראני
+  ISK other כתר איסלנדי
+  JMD other דולר ג׳מייקני
+  JOD other דינר ירדני
+  JPY other ין יפני
+  KES other שילינג קנייתי
+  KGS other סום קירגיזי
+  KHR other ריל קמבודי
+  KMF other פרנק קומורואי
+  KPW other וון צפון קוריאני
+  KRW other וון דרום קוריאני
+  KWD other דינר כוויתי
+  KYD other דולר קיימני
+  KZT other טנגה קזחסטני
+  LAK other קיפ לאי
+  LBP one לירה לבנונית
+  LBP two לירות לבנוניות
+  LBP other לירות לבנוניות
+  LKR other רופי סרי לנקי
+  LRD other דולר ליברי
+  LSL other לוטי לסותי
+  LYD other דינר לובי
+  MAD other דירהם מרוקאי
+  MDL other לאו מולדובני
+  MGA other אריארי מלגשי
+  MKD other דינר מקדוני
+  MMK other קיאט מיאנמרי
+  MNT other טוגרוג מונגולי
+  MOP other פטקה של מקאו
+  MRU other אואוגויה מאוריטני
+  MUR other רופי מאוריציני
+  MVR one רופיה מלדיבית
+  MVR two רופיות מלדיביות
+  MVR other רופיות מלדיביות
+  MWK other קואצ׳ה מלאווי
+  MXN other פסו מקסיקני
+  MXV one יחידת השקעות מקסיקנית
+  MXV two יחידות השקעות מקסיקניות
+  MXV other יחידות השקעות מקסיקניות
+  MYR other רינגיט מלזי
+  MZN other מטיקל מוזמביני
+  NAD other דולר נמיבי
+  NGN other נאירה ניגרי
+  NIO other קורדובה ניקרגואה
+  NOK other כתר נורווגי
+  NPR other רופי נפאלי
+  NZD other דולר ניו זילנדי
+  OMR other ריאל עומאני
+  PAB other בלבואה פנמי
+  PEN other סול פרואני
+  PGK other קינה של פפואה גינאה החדשה
+  PHP other פסו פיליפיני
+  PKR other רופי פקיסטני
+  PLN other זלוטי פולני
+  PYG other גוארני פרגוואי
+  QAR other ריאל קטארי
+  RON other לאו רומני
+  RSD other דינר סרבי
+  RUB other רובל רוסי
+  RWF other פרנק רואנדי
+  SAR other ריאל סעודי
+  SBD other דולר איי שלמה
+  SCR other רופי סיישלי
+  SDG other לירה סודנית
+  SEK other כתר שוודי
+  SGD other דולר סינגפורי
+  SHP other פאונד סנט הלני
+  SLE other ליאון סיירה לאוני
+  SOS other שילינג סומלי
+  SRD other דולר סורינאמי
+  SSP other לירה דרום-סודנית
+  STN other דוברה של סאו טומה ופרינסיפה
+  SVC one קולון סלבדורי
+  SVC two קולונים סלבדוריים
+  SVC many קולון סלבדורי
+  SVC other קולונים סלבדוריים
+  SYP one לירה סורית
+  SYP two לירות סוריות
+  SYP other לירות סוריות
+  SZL other לילנגני סווזילנדי
+  THB other בהט תאילנדי
+  TJS other סומוני טג׳קיסטני
+  TMT other מאנאט טורקמני
+  TND other דינר טוניסאי
+  TOP other פאנגה טונגי
+  TRY one לירה טורקית חדשה
+  TRY two לירות טורקיות
+  TRY other לירות טורקיות
+  TTD other דולר טרינידדי
+  TWD other דולר טייוואני חדש
+  TZS other שילינג טנזני
+  UAH other הריבנה אוקראיני
+  UGX other שילינג אוגנדי
+  USD other דולר אמריקאי
+  USN other דולר אמריקאי (היום הבא)
+  UYU other פסו אורוגוואי
+  UZS other סום אוזבקי
+  VES other בוליבר ונצואלי
+  VND other דונג וייטנאמי
+  VUV other ואטו של ונואטו
+  WST other טאלה סמואי
+  XAF other פרנק CFA מרכז אפריקני
+  XAG other כסף
+  XAU other זהב
+  XCD other דולר מזרח קריבי
+  XCG other גילדר של הקריביים
+  XDR other זכויות משיכה מיוחדות
+  XOF other פרנק CFA מערב אפריקני
+  XPD other פלדיום
+  XPF other פרנק פולינזיה הצרפתית
+  XPT other פלטינה
+  XTS other סימון למטרות בדיקה
+  XXX one (מטבע שאינו ידוע)
+  XXX two (מטבע שאינו ידוע)
+  XXX other (מטבע שאינו ידוע)
+  YER other ריאל תימני
+  ZAR other ראנד דרום אפריקאי
+  ZMW other קוואצ׳ה זמבי
+  ZWG other זהב של זימבבואה
+
+[formats.date]
+zero = 0
+date-short = d.M.y
+date-medium = d בMMM y
+date-long = d בMMMM y
+date-full = EEEE, d בMMMM y
+time-short = H:mm
+time-medium = H:mm:ss
+time-long = H:mm:ss z
+time-full = H:mm:ss zzzz
+datetime-short = {1}, {0}
+datetime-medium = {1}, {0}
+datetime-long = {1} בשעה {0}
+datetime-full = {1} בשעה {0}
+months-wide =
+  ינואר
+  פברואר
+  מרץ
+  אפריל
+  מאי
+  יוני
+  יולי
+  אוגוסט
+  ספטמבר
+  אוקטובר
+  נובמבר
+  דצמבר
+months-abbreviated =
+  ינו׳
+  פבר׳
+  מרץ
+  אפר׳
+  מאי
+  יוני
+  יולי
+  אוג׳
+  ספט׳
+  אוק׳
+  נוב׳
+  דצמ׳
+days-wide =
+  יום ראשון
+  יום שני
+  יום שלישי
+  יום רביעי
+  יום חמישי
+  יום שישי
+  יום שבת
+days-abbreviated =
+  יום א׳
+  יום ב׳
+  יום ג׳
+  יום ד׳
+  יום ה׳
+  יום ו׳
+  שבת
+periods =
+  AM
+  PM
+zone-gmt = GMT{0}‎
+zone-hours = ‎+HH:mm;-HH:mm‎
+year-era = y G
+eras =
+  לפנה״ס
+  לספירה

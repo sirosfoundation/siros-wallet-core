@@ -75,6 +75,9 @@ siros-wallet-engine/
     ├── siros-explain-derive/
     ├── siros-derive-internals/
     ├── siros-syntax/          # values in their literal forms; keyed and non-empty lists
+    ├── siros-i18n/            # the wallet's texts: MF2 sources a Context resolves into Text
+    ├── siros-i18n-derive/
+    ├── siros-cldr/            # writes CLDR format options as MF2 source
     ├── wmp-core/              # engine stubs until the spike opens (S0):
     ├── engine-ports/          #   ports, core, adapters, conformance
     ├── engine-core/

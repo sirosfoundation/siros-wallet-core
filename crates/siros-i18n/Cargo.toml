@@ -1,0 +1,69 @@
+[package]
+name = "siros-i18n"
+version = "0.1.0"
+description = "The wallet core's messages and their wording: MessageFormat 2 resources resolved into styled text"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["number", "currency", "date", "derive"]
+# `:number` and `:integer`.
+number = []
+# `:currency`. icu_properties gives the letters that decide a currency symbol's spacing.
+currency = ["dep:siros-syntax", "dep:icu_properties"]
+# `:siros:date`, `:siros:time` and `:siros:datetime`.
+date = ["dep:siros-syntax"]
+# `#[derive(Message)]`.
+derive = ["dep:siros-i18n-derive"]
+# Test builds only: `Context::check` and every derived statement's row.
+check = ["siros-explain/check", "dep:inventory"]
+
+[dependencies]
+siros-explain = { workspace = true }
+siros-syntax = { workspace = true, optional = true }
+siros-i18n-derive = { workspace = true, optional = true }
+thiserror = { workspace = true }
+rustc-hash = { workspace = true }
+icu_properties = { workspace = true, optional = true }
+inventory = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The tests derive statements and check wordings whatever the build's features: cargo turns a
+# package's dev-dependency features on in its own test builds alone.
+siros-i18n = { path = ".", features = ["derive", "check"] }
+siros-syntax = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+# The differential tests' oracle: ICU4X 2.4 over its compiled CLDR 49.0.0 data.
+icu_plurals = { workspace = true }
+icu_decimal = { workspace = true }
+icu_datetime = { workspace = true }
+icu_calendar = { workspace = true }
+icu_time = { workspace = true }
+icu_locale_core = { workspace = true }
+icu_experimental = { workspace = true }
+fixed_decimal = { workspace = true }
+writeable = { workspace = true }
+
+# The ICU4X differential calls `:number`, `:currency` and the date functions.
+[[test]]
+name = "differential"
+required-features = ["number", "currency", "date"]
+
+# The refusal fixtures call `:number` and `:currency`; the formatter fixtures `:siros:date`.
+[[test]]
+name = "engine"
+required-features = ["number", "currency", "date"]
+
+# siros-syntax, whose rows the gate counts, links under `date`.
+[[test]]
+name = "check"
+required-features = ["date"]
+
+[lints]
+workspace = true

@@ -1,0 +1,29 @@
+[package]
+name = "siros-i18n-derive"
+version = "0.1.0"
+description = "The derive of siros-i18n's Message"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+siros-derive-internals = { workspace = true }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }
+
+[dev-dependencies]
+# The examples derive through siros-i18n, and through siros-explain beside thiserror for the
+# refusal of a type that derives both.
+siros-i18n = { workspace = true, features = ["derive"] }
+siros-explain = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
