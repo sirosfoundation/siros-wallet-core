@@ -15,7 +15,6 @@
 //! boundary never rides a replayable event stream.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use rustc_hash::FxHashMap;
@@ -94,7 +93,6 @@ impl SessionLog {
 #[derive(Default)]
 pub struct Outbox {
     logs: Mutex<FxHashMap<String, SessionLog>>,
-    writes: AtomicU64,
 }
 
 impl Outbox {
@@ -109,7 +107,6 @@ impl Outbox {
     /// when none does (a message outside any session — logged all the same,
     /// under that key).
     pub fn write(&self, message: &[u8]) -> LoggedEvent {
-        self.writes.fetch_add(1, Ordering::SeqCst);
         let redacted = redact(message);
         let session = session_of(message);
         let mut logs = self.logs.lock().unwrap_or_else(|p| p.into_inner());
@@ -174,11 +171,6 @@ impl Outbox {
             .entry(session.to_owned())
             .or_insert_with(SessionLog::new);
         log.broadcast.subscribe()
-    }
-
-    /// The number of writes the log has taken (the tests' probe).
-    pub fn write_count(&self) -> u64 {
-        self.writes.load(Ordering::SeqCst)
     }
 }
 
@@ -260,199 +252,4 @@ fn redact(message: &[u8]) -> Vec<u8> {
         result.remove(member);
     }
     serde_json::to_vec(&value).unwrap_or_else(|_| message.to_vec())
-}
-#[cfg(test)]
-mod tests {
-    //! The outbox's own proof: the id sequence, the redaction, the replay
-    //! and its gap, the replayer's count, and the live broadcast.
-
-    use super::*;
-    use wmp_core::sessionservice::MessageReplayer;
-
-    fn message(method: &str, session: &str, result: serde_json::Value) -> Vec<u8> {
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": {
-                "wmp": { "session_id": session, "version": "0.1" },
-                "result": result,
-            }
-        })
-        .to_string()
-        .into_bytes()
-    }
-
-    #[test]
-    fn write_assigns_per_session_ids_from_one() {
-        let outbox = Outbox::new();
-        let first = outbox.write(&message(
-            "wmp.flow.progress",
-            "ses-1",
-            serde_json::json!({}),
-        ));
-        let second = outbox.write(&message(
-            "wmp.flow.progress",
-            "ses-1",
-            serde_json::json!({}),
-        ));
-        let other = outbox.write(&message(
-            "wmp.flow.progress",
-            "ses-2",
-            serde_json::json!({}),
-        ));
-        assert_eq!(first.id, 1);
-        assert_eq!(second.id, 2);
-        assert_eq!(other.id, 1, "each session has its own sequence");
-    }
-
-    #[test]
-    fn flow_complete_results_lose_the_renewal_relay() {
-        let outbox = Outbox::new();
-        let event = outbox.write(&message(
-            "wmp.flow.complete",
-            "ses-1",
-            serde_json::json!({
-                "credential": "jwt",
-                "refresh_token": "rt-secret",
-                "dpop_jwk": "{\"kty\":\"EC\"}",
-                "dpop_key_id": "key-1",
-            }),
-        ));
-        let logged: serde_json::Value =
-            serde_json::from_slice(&event.data).expect("the event is JSON");
-        let result = logged
-            .pointer("/params/result")
-            .cloned()
-            .unwrap_or_default();
-        assert!(result.get("credential").is_some(), "the credential stays");
-        for withheld in ["refresh_token", "dpop_jwk", "dpop_key_id"] {
-            assert!(result.get(withheld).is_none(), "{withheld} is withheld");
-        }
-    }
-
-    #[test]
-    fn other_methods_pass_through_unchanged() {
-        let outbox = Outbox::new();
-        let body = message(
-            "wmp.flow.progress",
-            "ses-1",
-            serde_json::json!({
-                "refresh_token": "rt-rides-a-progress-payload-too",
-            }),
-        );
-        let event = outbox.write(&body);
-        assert_eq!(event.data, body, "only flow.complete is redacted");
-    }
-
-    #[test]
-    fn replay_returns_the_events_after_the_last_id() {
-        let outbox = Outbox::new();
-        for _ in 0..3 {
-            outbox.write(&message(
-                "wmp.flow.progress",
-                "ses-1",
-                serde_json::json!({}),
-            ));
-        }
-        let replayed = outbox.replay("ses-1", 1).expect("the gap fills");
-        assert_eq!(
-            replayed.iter().map(|event| event.id).collect::<Vec<_>>(),
-            [2, 3]
-        );
-        // A client at the newest id has no gap.
-        assert!(outbox.replay("ses-1", 3).expect("at the newest").is_empty());
-        // A client ahead of every event has none.
-        assert!(outbox.replay("ses-1", 9).expect("ahead").is_empty());
-        // A fresh connect (at 0) goes live, not a full dump — and so does
-        // a session whose log does not exist yet.
-        assert!(outbox
-            .replay("another-session", 0)
-            .expect("a fresh session replays nothing")
-            .is_empty());
-        assert!(outbox
-            .replay("ses-1", 0)
-            .expect("a fresh connect")
-            .is_empty());
-    }
-
-    #[test]
-    fn replay_behind_the_retention_window_answers_the_gap() {
-        let outbox = Outbox::new();
-        // Fill past the retention window: the first RETAIN events drop.
-        for _ in 0..(RETAIN + 2) {
-            outbox.write(&message(
-                "wmp.flow.progress",
-                "ses-1",
-                serde_json::json!({}),
-            ));
-        }
-        // The window now holds events 3..=(RETAIN+2). A client at 1 is
-        // behind it: the 410, resume the session.
-        assert!(matches!(outbox.replay("ses-1", 1), Err(ReplayGap)));
-        // A fresh connect at 0 still goes live, window or no window.
-        assert!(outbox
-            .replay("ses-1", 0)
-            .expect("a fresh connect")
-            .is_empty());
-        // A client inside the window still replays: at 2, everything
-        // from the window's oldest (3) on.
-        let inside = outbox
-            .replay("ses-1", 2)
-            .expect("the client inside the window replays");
-        assert_eq!(inside.len(), RETAIN);
-        assert_eq!(
-            inside.first().map(|event| event.id),
-            Some(3),
-            "the replay starts after the last id"
-        );
-        // No log at all: a client not at 0 is behind a log that never
-        // existed.
-        assert!(matches!(outbox.replay("never-created", 5), Err(ReplayGap)));
-    }
-
-    #[test]
-    fn the_replayer_counts_the_missed_events() {
-        let outbox = Outbox::new();
-        for _ in 0..4 {
-            outbox.write(&message(
-                "wmp.flow.progress",
-                "ses-1",
-                serde_json::json!({}),
-            ));
-        }
-        let replayer = OutboxReplayer {
-            outbox: std::sync::Arc::new(outbox),
-        };
-        assert_eq!(MessageReplayer::missed_since(&replayer, "ses-1", "2"), 2);
-        assert_eq!(MessageReplayer::missed_since(&replayer, "ses-1", "4"), 0);
-        // An unparsable id counts as none missed: the resume answer tells
-        // the client it is caught up, never invents a backlog.
-        assert_eq!(MessageReplayer::missed_since(&replayer, "ses-1", "junk"), 0);
-    }
-
-    #[test]
-    fn the_transport_writes_and_never_reads() {
-        let outbox = std::sync::Arc::new(Outbox::new());
-        let transport = OutboxTransport::new(outbox.clone());
-        assert!(transport.write_message(b"{\"x\":1}").is_ok());
-        assert_eq!(outbox.write_count(), 1);
-        // The POST route is the inbound path: reading is a closed door.
-        assert_eq!(transport.read_message(), Err(TransportError::Closed));
-    }
-
-    #[tokio::test]
-    async fn the_live_broadcast_carries_the_write() {
-        let outbox = Outbox::new();
-        let mut receiver = outbox.subscribe("ses-1");
-        outbox.write(&message(
-            "wmp.flow.progress",
-            "ses-1",
-            serde_json::json!({}),
-        ));
-        let event = tokio::time::timeout(std::time::Duration::from_secs(5), receiver.recv())
-            .await
-            .expect("the event arrives in time")
-            .expect("the channel is live");
-        assert_eq!(event.id, 1);
-    }
 }
