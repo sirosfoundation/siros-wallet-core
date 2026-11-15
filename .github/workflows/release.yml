@@ -128,7 +128,16 @@ jobs:
       # read, even on public packages). The central-publish action is
       # siros-sdk-kotlin's - the same one the SDK's native crates
       # (siros-dc-matcher, zk-cred-*, ...) publish through.
+      # The Central publish is non-fatal (2026-11-15): the org hit
+      # Sonatype's monthly release-count quota (grace ended 2026-11-14,
+      # resets 2026-12-01) and the whole release train — this artifact's
+      # consumers included — must not die on the upload alone. The AAR
+      # and POM still land as GH Packages artifacts + release assets;
+      # the Central publish is retried after 2026-12-01 by re-running the
+      # release (or the quota resets and nothing is lost - GH Packages
+      # already serves every consumer that can authenticate).
       - name: Publish AAR to Maven Central
+        continue-on-error: true
         uses: sirosfoundation/siros-sdk-kotlin/.github/actions/central-publish@734063a7d874bb1cb79ebca7e7f642143694ee40
         with:
           artifact-id: siros-wallet-core
