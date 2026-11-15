@@ -504,8 +504,15 @@ pub async fn submit_jarm_response(
         return Ok(location.unwrap_or_default());
     }
 
+    // The error carries the verifier's answer: a 400 without the body
+    // names no cause (the 2026-11-15 on-device regression triage spent
+    // an hour blind because the reason was discarded here).
+    let body_excerpt: String = String::from_utf8_lossy(&response.body)
+        .chars()
+        .take(400)
+        .collect();
     Err(ResponseError::Fetch(format!(
-        "JARM response submission failed with status {}",
-        response.status
+        "JARM response submission failed with status {} body: {}",
+        response.status, body_excerpt
     )))
 }
