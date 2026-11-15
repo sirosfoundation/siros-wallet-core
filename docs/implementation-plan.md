@@ -74,6 +74,7 @@ siros-wallet-engine/
     ├── siros-explain/         # the error contract: a stable id and named arguments
     ├── siros-explain-derive/
     ├── siros-derive-internals/
+    ├── siros-syntax/          # values in their literal forms; keyed and non-empty lists
     ├── wmp-core/              # engine stubs until the spike opens (S0):
     ├── engine-ports/          #   ports, core, adapters, conformance
     ├── engine-core/
