@@ -116,13 +116,17 @@ jobs:
           EOF
           AAR=$(ls target/siros-wallet-core-*.aar)
           POM=$(ls target/siros-wallet-core-*.pom)
+          # Non-fatal: a re-run 409s when the artifact is already
+          # published (GH Packages is overwrite-hostile); the Central
+          # publish below carries the same non-fatal flag and the same
+          # rationale (2026-11-15).
           mvn -B deploy:deploy-file \
             --settings /tmp/settings.xml \
             -DrepositoryId=github \
             -Durl="https://maven.pkg.github.com/${GITHUB_REPOSITORY}" \
             -DpomFile="$POM" \
             -Dfile="$AAR" \
-            -Dpackaging=aar
+            -Dpackaging=aar || echo "::warning::GH Packages publish skipped (already published or failed) - the release assets still carry the artifact"
       # Central alongside GitHub Packages: the consumer-facing registry,
       # readable without a token (GitHub Packages authenticates every
       # read, even on public packages). The central-publish action is
