@@ -600,3 +600,39 @@ F. **The language picker + the i18n migration it needs (2026-11-16).** The
 3. **go-trust#249** — assign or pick up; small, high consent-UX value.
 4. **The #549 spec edit** — the backend owner; unblocks four repos.
 5. The P1 sweep as capacity allows, starting with the parity set (#399/#277).
+
+## The 2026-11-16 settings restructure — state and remainder (post-review)
+
+The Kotlin sample app's settings is now a menu of sub-menus over the audited
+WalletConfig surface (sdk-kotlin `53c191f5` + `d40e2422`, device-validated):
+General (facts, Appearance, passkeys, accounts), Backends (the multi-backend
+registry + connection tuning incl. the TS11 registry URL and the TS11
+credential-tier catalog with its cache windows), Security & Trust (RICAL/VICAL
+modes + roots + the WSCD/18045 entries), Credentials, Profiles (TS12),
+Request Policy / ZKP & Proofs (split), Devices, Diagnostics (toggles + the
+journal cap), Danger Zone. The journal surface owns the aggregate
+presentations; each credential's detail view links its own filtered history.
+
+Still open from the review (in order):
+
+- **G. TS11 discovery re-homing** — the discovery card (`discoverTs11Schemas`)
+  still lives inside the WSCD screen while its registry URL and tier catalog
+  sit in Backends: incoherent. Move discovery into Backends (a registry
+  concern), or its own sub-menu if the card is too heavy.
+- **H. Devices 404** — the SDK has called `GET /user/session/instances` since
+  v0.13; the deployed wallet-backend (v0.25.2) does not serve it (the route
+  lives on the unreleased `feat/wallet-instance-lifecycle`). Graceful
+  degradation in the sample (catch 404 → "not supported by this backend")
+  now; the backend lifecycle release is its own train.
+- **I. Credential-registry dedup** — four consumers read registry-ish data
+  (verifierIdRegistry/RICAL, TS11 discovery, the issuer-catalog cache,
+  `registryUrl`): audit for overlapping caches and conflicting reads.
+- **J. Local RICAL/VICAL defaults from the PDP** — deferred 2026-11-16:
+  go-trust's `/registries` lists anchors as identifiers, no PEM-serving
+  endpoint found on main; revisit what the support actually is before
+  building the client fetch.
+- **K. Remaining unexposed knobs** — `useLegacyAuth`, `wscdPluginClaims`,
+  `circuitZkVerifierIdSources`, `circuitZkPredicateFunctions`,
+  `circuitZkProfiles`, `R2psConfig` (clientId/context/keys/authMode),
+  `softkeyKeysFile` path. Plus the Swift parity pass for the whole tree
+  (minus the Android-only backends registry).
