@@ -615,18 +615,20 @@ presentations; each credential's detail view links its own filtered history.
 
 Still open from the review (in order):
 
-- **G. TS11 discovery re-homing** — the discovery card (`discoverTs11Schemas`)
-  still lives inside the WSCD screen while its registry URL and tier catalog
-  sit in Backends: incoherent. Move discovery into Backends (a registry
-  concern), or its own sub-menu if the card is too heavy.
-- **H. Devices 404** — the SDK has called `GET /user/session/instances` since
-  v0.13; the deployed wallet-backend (v0.25.2) does not serve it (the route
-  lives on the unreleased `feat/wallet-instance-lifecycle`). Graceful
-  degradation in the sample (catch 404 → "not supported by this backend")
-  now; the backend lifecycle release is its own train.
-- **I. Credential-registry dedup** — four consumers read registry-ish data
-  (verifierIdRegistry/RICAL, TS11 discovery, the issuer-catalog cache,
-  `registryUrl`): audit for overlapping caches and conflicting reads.
+- ~~**G. TS11 discovery re-homing**~~ — resolved differently (2026-11-16,
+  sdk-kotlin `d0a67c3c`): the discovery card STAYS in the WSCD screen (it is
+  the mapping tool — its discovered list feeds the user overrides/TOFU
+  machinery directly), but the incoherence is fixed at the root: the
+  configured TS11 registry URL now feeds the discovery (see I).
+- ~~**H. Devices 404**~~ — done (2026-11-16, sdk-kotlin `d0a67c3c`): the
+  screen degrades to "this backend does not support wallet instances" on
+  404. The backend lifecycle release (`feat/wallet-instance-lifecycle`,
+  which serves the route) remains its own train.
+- **I. Credential-registry dedup** — first cut done (the discovery now
+  reads the configured registry URL, the public catalog as fallback;
+  2026-11-16, sdk-kotlin `d0a67c3c`). Remaining: audit the other two
+  consumers (verifierIdRegistry/RICAL paths, the issuer-catalog
+  `no_backup` cache) for overlapping caches and conflicting reads.
 - **J. Local RICAL/VICAL defaults from the PDP** — deferred 2026-11-16:
   go-trust's `/registries` lists anchors as identifiers, no PEM-serving
   endpoint found on main; revisit what the support actually is before
