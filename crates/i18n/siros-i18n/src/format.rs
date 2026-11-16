@@ -95,13 +95,13 @@ impl Formatters {
 
     /// The function a value of the type `of` takes where the wording names none: the first
     /// formatter's default, else `:string`.
-    pub(crate) fn default(&self, of: TypeId) -> Function {
+    pub(crate) fn default_for(&self, of: TypeId) -> Function {
         self.0
             .iter()
             .enumerate()
             .find_map(|(by, formatter)| {
                 formatter
-                    .default(of)
+                    .default_for(of)
                     .map(|id| Function::Formatted { by, id })
             })
             .unwrap_or(Function::String)
@@ -136,6 +136,20 @@ impl Formatters {
         }
     }
 
+    /// Checks a literal operand of a call of `function`: `:string` takes every literal.
+    ///
+    /// # Errors
+    ///
+    /// The formatter's [`Refusal`].
+    pub(crate) fn literal(&self, function: Function, text: &str) -> Result<(), Refusal> {
+        match function {
+            Function::String => Ok(()),
+            Function::Formatted { by, id } => {
+                self.formatter(by).ok_or(Refusal::Operand)?.literal(id, text)
+            }
+        }
+    }
+
     /// Checks a variant key of a selector calling `function`: `:string` matches any key.
     ///
     /// # Errors
@@ -163,13 +177,15 @@ impl Formatters {
 ///
 /// # Errors
 ///
-/// [`Refusal::Operand`] for a chain without an operand, or a chain of `:string` with a call of
-/// another function.
-pub(crate) fn check(chain: &Chain<'_>) -> Result<(), Refusal> {
-    match chain.outer.function {
-        Function::String => crate::string::check(chain),
-        Function::Formatted { .. } if chain.root == Root::None => Err(Refusal::Operand),
-        Function::Formatted { .. } => Ok(()),
+/// [`Refusal::Operand`] for a chain without an operand, a chain of `:string` with a call of
+/// another function, and a literal operand the function refuses.
+pub(crate) fn check(chain: &Chain<'_>, formatters: &Formatters) -> Result<(), Refusal> {
+    let function = chain.outer.function;
+    match (function, chain.root) {
+        (Function::String, _) => crate::string::check(chain),
+        (Function::Formatted { .. }, Root::None) => Err(Refusal::Operand),
+        (Function::Formatted { .. }, Root::Literal(text)) => formatters.literal(function, text),
+        (Function::Formatted { .. }, Root::Argument(_)) => Ok(()),
     }
 }
 
@@ -179,7 +195,7 @@ pub(crate) fn check(chain: &Chain<'_>) -> Result<(), Refusal> {
 ///
 /// The [`Refusal`] of [`check`], and [`Refusal::Selector`] for a function that does not select.
 pub(crate) fn selecting(chain: &Chain<'_>, formatters: &Formatters) -> Result<Function, Refusal> {
-    check(chain)?;
+    check(chain, formatters)?;
     let function = chain.outer.function;
     if formatters.selects(function) {
         Ok(function)

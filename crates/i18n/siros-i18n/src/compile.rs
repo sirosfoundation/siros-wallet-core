@@ -271,7 +271,8 @@ impl<'a> Compiler<'_, 'a> {
             (_, Bound::Variable(name)) => {
                 if let Some(link) = self.declared.call(name) {
                     let chain = self.declared.chain(link);
-                    crate::format::check(&chain).map_err(|refusal| fault(&chain.outer, refusal))?;
+                    crate::format::check(&chain, self.formatters)
+                        .map_err(|refusal| fault(&chain.outer, refusal))?;
                     if self.reading.insert(name) {
                         self.read.push(name.into());
                     }
@@ -310,7 +311,8 @@ impl<'a> Compiler<'_, 'a> {
             }),
         };
         let chain = self.declared.site(&site);
-        crate::format::check(&chain).map_err(|refusal| fault(&chain.outer, refusal))?;
+        crate::format::check(&chain, self.formatters)
+            .map_err(|refusal| fault(&chain.outer, refusal))?;
         Ok(site)
     }
 

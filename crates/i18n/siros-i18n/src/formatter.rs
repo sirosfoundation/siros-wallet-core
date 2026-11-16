@@ -90,7 +90,7 @@ pub trait Formatter: 'static {
     fn name(&self, function: FunctionId) -> &str;
 
     /// The function a value of the type `of` takes where the wording names none.
-    fn default(&self, of: TypeId) -> Option<FunctionId>;
+    fn default_for(&self, of: TypeId) -> Option<FunctionId>;
 
     /// Whether `function` takes a value of the type `of`.
     fn takes(&self, function: FunctionId, of: TypeId) -> bool;
@@ -103,6 +103,13 @@ pub trait Formatter: 'static {
     /// [`Refusal::Option`] for an option the function does not take, or a literal it refuses.
     fn option(&self, function: FunctionId, name: &str, text: Option<&str>)
     -> Result<(), Refusal>;
+
+    /// Checks `text`, a literal operand of a call of `function`, when a module loads.
+    ///
+    /// # Errors
+    ///
+    /// [`Refusal::Operand`] for a literal the function does not read.
+    fn literal(&self, function: FunctionId, text: &str) -> Result<(), Refusal>;
 
     /// Checks `key`, a variant key of a selector that calls `function`.
     ///

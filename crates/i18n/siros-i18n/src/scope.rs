@@ -57,7 +57,7 @@ impl<'m> Scope<'m> {
             .type_of(key)
             .ok_or_else(|| Failure::Unresolved(key.to_owned()))?;
         let chain = if unwritten {
-            let function = self.formatters.default(of);
+            let function = self.formatters.default_for(of);
             chain.written(bare(function, self.formatters.name(function)))
         } else {
             chain
