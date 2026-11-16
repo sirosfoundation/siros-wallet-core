@@ -35,8 +35,22 @@ impl AskedType {
     }
 
     /// Whether `credential` is of this format and type.
+    ///
+    /// The type names compare URN-qualified-spelling-insensitively: the
+    /// ARF's type identifiers circulate in both spellings - the plain
+    /// form issuers put in a payload `vct` (`eudi:eucc:1`, what Spherity's
+    /// EUCC SD-JWT metadata advertises) and the URN-qualified form a
+    /// verifier's `vct_values` names (`urn:eudi:eucc:1`, what Accredify's
+    /// ACRA UAT requests). A literal compare rejects the credential that
+    /// is exactly what the query asks for (found on-device 2026-11-16:
+    /// the presentation 400'd "no matching credential" while the wallet
+    /// held the credential). `urn:` alone is stripped, no case folding -
+    /// the type identifier is case-sensitive in both spellings.
     pub(crate) fn holds(&self, credential: &impl MatchCredential) -> bool {
-        credential.format() == self.format && credential.credential_type() == self.name
+        fn bare(name: &str) -> &str {
+            name.strip_prefix("urn:").unwrap_or(name)
+        }
+        credential.format() == self.format && bare(credential.credential_type()) == bare(&self.name)
     }
 
     /// The types `query` asks for (A1): an mdoc of `doctype_value` for `mso_mdoc`, an SD-JWT VC
