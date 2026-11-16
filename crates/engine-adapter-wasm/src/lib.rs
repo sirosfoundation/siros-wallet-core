@@ -54,8 +54,11 @@ use ports::{JsClock, JsFetchHttp, JsKeyValue, JsPdp, JsRng, NoTelemetry};
 ///   answer's headers are flat `[name, value, ...]` arrays).
 /// - `host`: `{sign, match, consent, txCode, openAuthorization, vp,
 ///   dpopProof, attestation}` — the sub-flows, each
-///   `(params) -> Promise<answer>`; and the optional `progress`
-///   notification callback.
+///   `(params) -> Promise<answer>`; the optional `signingKey`
+///   (`{flow_id, key_id?, fresh} -> Promise<{jwk}>`, the public JWK —
+///   with its `kid` — for the proof headers; `fresh` asks for a new key,
+///   the batch rule); and the optional `progress` notification
+///   callback.
 /// - `pdp`: `{evaluate(request) -> Promise<{trusted, decision?}>}`.
 /// - `kv` (optional): `{get, put, del}` — the flow stash; without it
 ///   the stash is in-memory and the authorization-code resume does
@@ -118,6 +121,7 @@ impl WasmEngine {
                 dpop_proof: optional(&host, "dpopProof").unwrap_or_else(no_refuse),
                 attestation: optional(&host, "attestation").unwrap_or_else(no_refuse),
                 progress: optional(&host, "progress"),
+                signing_key: optional(&host, "signingKey"),
             }),
             Err(err) => return Err(err),
         };
