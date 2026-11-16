@@ -169,11 +169,12 @@ async fn the_did_request_verifies_against_the_resolved_document() {
 
     assert!(run(&pdp, &request).await.expect("the DID verifies"));
 
-    // The resolution: the DID, behind the port, as a did_document.
+    // The resolution: the DID, behind the port, with NO resource_type
+    // (the frontend's shape - the proxy defaults it itself).
     let resolutions = pdp.resolutions.lock().expect("lock");
     assert_eq!(resolutions.len(), 1);
     assert_eq!(resolutions[0].uri, "did:web:verifier.example");
-    assert_eq!(resolutions[0].resource_type, "did_document");
+    assert_eq!(resolutions[0].resource_type, "");
 
     // The evaluation's key material: the MATCHED key (the resolved
     // document's publicKeyJwk that verified the request).

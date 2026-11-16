@@ -10,14 +10,6 @@ use engine_ports::{
 
 use super::types::{AuthorizationRequest, ClientIdScheme};
 
-/// The DID document resource type of the `Pdp::resolve` port (the
-/// recorded gap-A2 architecture, docs/engine-parity.md §1): the DID
-/// document resolution moves behind the port, and the engine verifies
-/// the request JWT against the resolved keys itself — the same split
-/// the Go engine makes between resolution (`TrustSvc.ResolveDID`) and
-/// trust (`evaluate`).
-pub const RESOURCE_TYPE_DID_DOCUMENT: &str = "did_document";
-
 /// The maximum size of a client metadata document: 1 MiB. The Go engine
 /// reads this stream unbounded (a Go bug class the sans-network core
 /// closes); every fetch the core makes declares a bound.
@@ -323,7 +315,7 @@ fn did_of(client_id: &str) -> Option<String> {
 /// verification methods itself, the matched key being what the PDP
 /// evaluates.
 ///
-/// **A PDP that does not implement `did_document` resolutions** answers
+/// **A PDP that does not implement DID resolutions** answers
 /// `NotImplemented`: the engine treats the verifier as best-effort,
 /// the documented transition state — the key material falls back to
 /// the client metadata's `jwks`, the request JWT unverified, the same
@@ -352,7 +344,17 @@ async fn did_key_material(
     match pdp
         .resolve(ResolveRequest {
             uri: did,
-            resource_type: RESOURCE_TYPE_DID_DOCUMENT.to_owned(),
+            // NO resource_type - the wallet FRONTEND's own resolve shape
+            // (wallet-common AuthZENClient: subject_id + subject_type
+            // "key", nothing else): the backend proxy defaults an absent
+            // resource_type to "resolution" for key subjects, its SPOCP
+            // rules allow that for did: subjects, and go-trust answers
+            // resolution-only with the DID document under
+            // context.trust_metadata. A bespoke "did_document" type was
+            // denied 403 at the proxy (found on-device 2026-11-16: every
+            // DID-schemed presentation failed closed, while the
+            // frontend's identical-resolution worked).
+            resource_type: String::new(),
         })
         .await
     {
@@ -363,7 +365,7 @@ async fn did_key_material(
             let matched = verify_request_against_did(jwt, &response.metadata)?;
             Ok(matched.to_string().into_bytes())
         }
-        // Until a Pdp implementation answers did_document resolutions
+        // Until a Pdp implementation answers DID resolutions
         // (the wasm mini host among them), the did-schemed verifier is
         // best-effort: the key material the client metadata published,
         // the request JWT unverified.

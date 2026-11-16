@@ -261,7 +261,7 @@ async fn the_resolve_binds_the_route_shape_and_reads_trust_metadata() {
     let answer = pdp
         .resolve(ResolveRequest {
             uri: "did:web:verifier.example".to_owned(),
-            resource_type: "did_document".to_owned(),
+            resource_type: String::new(),
         })
         .await
         .expect("the resolve binds and answers");
@@ -295,9 +295,11 @@ async fn the_resolve_binds_the_route_shape_and_reads_trust_metadata() {
         bound["subject_type"], "key",
         "the DID subject is the key type: {bound}"
     );
-    assert_eq!(
-        bound["resource_type"], "did_document",
-        "the engine's DID resource type rides: {bound}"
+    // NO resource_type on the wire: the wallet frontend's own resolve
+    // shape - the proxy defaults an absent one to "resolution" itself.
+    assert!(
+        bound.get("resource_type").is_none(),
+        "the resource_type is omitted (the frontend's shape, the proxy defaults it): {bound}"
     );
 }
 

@@ -533,11 +533,30 @@ impl Pdp for BackendProxyPdp {
         // resource_type (+ credential_types) and returns the resolved
         // metadata under context.trust_metadata.
         let url = format!("{}/v1/resolve", self.proxy_url);
-        let mut builder = self.client.post(&url).json(&serde_json::json!({
-            "subject_id": request.uri,
-            "subject_type": if request.resource_type == "did_document" { "key" } else { "url" },
-            "resource_type": request.resource_type,
-        }));
+        // The wire shape the wallet FRONTEND's AuthZENClient sends
+        // (wallet-common): subject_id + subject_type, and the
+        // resource_type ONLY when the caller named one - the proxy
+        // defaults an absent one to "resolution" for key subjects.
+        let mut body = serde_json::Map::new();
+        body.insert("subject_id".to_owned(), serde_json::json!(request.uri));
+        body.insert(
+            "subject_type".to_owned(),
+            serde_json::json!(if request.uri.starts_with("did:") {
+                "key"
+            } else {
+                "url"
+            }),
+        );
+        if !request.resource_type.is_empty() {
+            body.insert(
+                "resource_type".to_owned(),
+                serde_json::json!(request.resource_type),
+            );
+        }
+        let mut builder = self
+            .client
+            .post(&url)
+            .json(&serde_json::Value::Object(body));
         if let Some(token) = &self.token {
             builder = builder.bearer_auth(token);
         }
