@@ -1,10 +1,10 @@
 //! `Context::check` over the rows of every derived error and statement this binary links: the rows
-//! are the derives' ids, and the check refuses a formatter whose options no module defines, a row
-//! no module words and a wording that names an argument its row lacks.
+//! are the derives' ids, and the check refuses a row no module words and a wording that names an
+//! argument its row lacks.
 
 use std::path::Path;
 
-use siros_i18n::{CheckError, Context, Formatters};
+use siros_i18n::{CheckError, Context};
 
 siros_i18n::scope!("checked");
 
@@ -47,14 +47,13 @@ fn attributes(path: &Path) -> usize {
         .count()
 }
 
-/// The linked crates that derive are siros-i18n, siros-syntax and siros-explain, and this file.
+/// The linked crates that derive are siros-i18n and siros-explain, and this file.
 #[test]
 fn the_rows_are_the_linked_crates_derives() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let crates = manifest.ancestors().nth(2).expect("the crates directory");
     let counted = [
         manifest.join("src"),
-        crates.join("siros-syntax/src"),
         crates.join("error/siros-explain/src"),
         manifest.join("tests/check.rs"),
     ]
@@ -101,22 +100,6 @@ fn check_refuses_an_unworded_row_and_an_unknown_key() {
         Err(CheckError::Unknown {
             id: "checked.greeting".to_owned(),
             key: "nobody".to_owned()
-        })
-    );
-}
-
-#[test]
-fn check_refuses_a_formatter_without_its_options() {
-    let context = Context::new().formatters(
-        Formatters::new()
-            .default_formatter::<u32>("siros:date")
-            .expect("the build has :siros:date"),
-    );
-    assert_eq!(
-        context.check(),
-        Err(CheckError::Undefined {
-            of: "u32",
-            function: "siros:date".to_owned()
         })
     );
 }

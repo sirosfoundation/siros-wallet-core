@@ -11,6 +11,7 @@ members = [
     "crates/error/siros-explain-derive",
     "crates/i18n/siros-i18n",
     "crates/i18n/siros-i18n-derive",
+    "crates/i18n/siros-i18n-formats",
     "crates/i18n/siros-cldr",
     "crates/credentials/siros-mdoc",
     "crates/presentation/siros-oid4vp",
@@ -50,6 +51,7 @@ siros-explain = { path = "crates/error/siros-explain" }
 siros-explain-derive = { path = "crates/error/siros-explain-derive" }
 siros-i18n = { path = "crates/i18n/siros-i18n", default-features = false }
 siros-i18n-derive = { path = "crates/i18n/siros-i18n-derive" }
+siros-i18n-formats = { path = "crates/i18n/siros-i18n-formats" }
 siros-mdoc = { path = "crates/credentials/siros-mdoc" }
 siros-oid4vp = { path = "crates/presentation/siros-oid4vp" }
 siros-presentation = { path = "crates/presentation/siros-presentation", default-features = false }

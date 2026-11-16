@@ -1,0 +1,756 @@
+# The formats of de from CLDR 49.0.0 (unicode-org/cldr-json), written by siros-cldr.
+@locale de
+@dir ltr
+---
+
+[tables]
+digits = 0123456789
+decimal = ,
+group = .
+minus = -
+plus = +
+grouping = 1
+plural.cardinal =
+  one: i = 1 and v = 0
+plural.ordinal =
+currency.digits =
+  * 2
+  AFN 0
+  ALL 0
+  AMD 2
+  BHD 3
+  BIF 0
+  BYN 2
+  CAD 2
+  CHF 2
+  CLF 4
+  CLP 0
+  COP 0
+  CRC 2
+  CZK 2
+  DJF 0
+  DKK 2
+  GNF 0
+  GYD 2
+  HUF 0
+  IDR 0
+  IQD 0
+  IRR 0
+  ISK 0
+  JOD 3
+  JPY 0
+  KMF 0
+  KPW 0
+  KRW 0
+  KWD 3
+  LAK 0
+  LBP 0
+  LYD 3
+  MGA 0
+  MMK 0
+  MNT 2
+  MRU 2
+  MUR 2
+  NOK 2
+  OMR 3
+  PKR 2
+  PYG 0
+  RSD 2
+  RWF 0
+  SEK 2
+  SLE 2
+  SOS 0
+  SYP 0
+  TND 3
+  TWD 2
+  TZS 2
+  UGX 0
+  UYI 0
+  UYW 4
+  UZS 2
+  VND 0
+  VUV 0
+  XAD 2
+  XAF 0
+  XAU 2
+  XOF 0
+  XPF 0
+  YER 0
+currency.symbol =
+  AUD AU$
+  BRL R$
+  CAD CA$
+  CNY CN¥
+  EUR €
+  GBP £
+  HKD HK$
+  ILS ₪
+  INR ₹
+  JPY ¥
+  KRW ₩
+  MXN MX$
+  NZD NZ$
+  THB ฿
+  TWD NT$
+  USD $
+  VND ₫
+  XAF FCFA
+  XCD EC$
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+currency.symbol.tight =
+  AUD AU$
+  BRL R$
+  CAD CA$
+  CNY CN¥
+  EUR €
+  GBP £
+  HKD HK$
+  ILS ₪
+  INR ₹
+  JPY ¥
+  KRW ₩
+  MXN MX$
+  NZD NZ$
+  THB ฿
+  TWD NT$
+  USD $
+  VND ₫
+  XAF FCFA
+  XCD EC$
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+currency.narrow =
+  AFN ؋
+  AMD ֏
+  AOA Kz
+  ARS $
+  AUD $
+  AZN ₼
+  BAM KM
+  BBD $
+  BDT ৳
+  BMD $
+  BND $
+  BOB Bs
+  BRL R$
+  BSD $
+  BWP P
+  BYN р.
+  BZD $
+  CAD $
+  CHF Fr.
+  CLP $
+  CNY ¥
+  COP $
+  CRC ₡
+  CUP $
+  CZK Kč
+  DKK kr
+  DOP $
+  EGP E£
+  EUR €
+  FJD $
+  FKP Fl£
+  GBP £
+  GEL ₾
+  GHS ₵
+  GIP £
+  GNF F.G.
+  GTQ Q
+  GYD $
+  HKD $
+  HNL L
+  HUF Ft
+  IDR Rp
+  ILS ₪
+  INR ₹
+  ISK kr
+  JMD $
+  JPY ¥
+  KGS ⃀
+  KHR ៛
+  KMF FC
+  KPW ₩
+  KRW ₩
+  KYD $
+  KZT ₸
+  LAK ₭
+  LBP L£
+  LKR Rs
+  LRD $
+  MGA Ar
+  MMK K
+  MNT ₮
+  MUR Rs
+  MXN $
+  MYR RM
+  NAD $
+  NGN ₦
+  NIO C$
+  NOK kr
+  NPR Rs
+  NZD $
+  PHP ₱
+  PKR Rs
+  PLN zł
+  PYG ₲
+  RON L
+  RUB ₽
+  RWF F.Rw
+  SBD $
+  SEK kr
+  SGD $
+  SHP £
+  SRD $
+  SSP £
+  STN Db
+  THB ฿
+  TOP T$
+  TRY ₺
+  TTD $
+  TWD NT$
+  UAH ₴
+  USD $
+  UYU $
+  VND ₫
+  XAF FCFA
+  XCD $
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+  ZAR R
+  ZMW K
+currency.narrow.tight =
+  AFN ؋
+  AMD ֏
+  AOA Kz
+  ARS $
+  AUD $
+  AZN ₼
+  BAM KM
+  BBD $
+  BDT ৳
+  BMD $
+  BND $
+  BOB Bs
+  BRL R$
+  BSD $
+  BWP P
+  BYN р.
+  BZD $
+  CAD $
+  CHF Fr.
+  CLP $
+  CNY ¥
+  COP $
+  CRC ₡
+  CUP $
+  CZK Kč
+  DKK kr
+  DOP $
+  EGP E£
+  EUR €
+  FJD $
+  FKP Fl£
+  GBP £
+  GEL ₾
+  GHS ₵
+  GIP £
+  GNF F.G.
+  GTQ Q
+  GYD $
+  HKD $
+  HNL L
+  HUF Ft
+  IDR Rp
+  ILS ₪
+  INR ₹
+  ISK kr
+  JMD $
+  JPY ¥
+  KGS ⃀
+  KHR ៛
+  KMF FC
+  KPW ₩
+  KRW ₩
+  KYD $
+  KZT ₸
+  LAK ₭
+  LBP L£
+  LKR Rs
+  LRD $
+  MGA Ar
+  MMK K
+  MNT ₮
+  MUR Rs
+  MXN $
+  MYR RM
+  NAD $
+  NGN ₦
+  NIO C$
+  NOK kr
+  NPR Rs
+  NZD $
+  PHP ₱
+  PKR Rs
+  PLN zł
+  PYG ₲
+  RON L
+  RUB ₽
+  RWF F.Rw
+  SBD $
+  SEK kr
+  SGD $
+  SHP £
+  SRD $
+  SSP £
+  STN Db
+  THB ฿
+  TOP T$
+  TRY ₺
+  TTD $
+  TWD NT$
+  UAH ₴
+  USD $
+  UYU $
+  VND ₫
+  XAF FCFA
+  XCD $
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+  ZAR R
+  ZMW K
+currency.name.one =
+  AFN Afghanischer Afghani
+  ALL Albanischer Lek
+  AMD Armenischer Dram
+  AOA Angolanischer Kwanza
+  ARS Argentinischer Peso
+  AUD Australischer Dollar
+  BIF Burundi-Franc
+  BOB Bolivianischer Boliviano
+  BOV Boliviansiche Mvdol
+  BRL Brasilianischer Real
+  BWP Botswanischer Pula
+  BYN Weißrussischer Rubel
+  CAD Kanadischer Dollar
+  CDF Kongo-Franc
+  CLP Chilenischer Peso
+  CNY Chinesischer Yuan
+  COP Kolumbianischer Peso
+  COU Kolumbianische Unidad de valor real
+  CUP Kubanischer Peso
+  CVE Cabo-Verde-Escudo
+  CZK Tschechische Krone
+  DKK Dänische Krone
+  DOP Dominikanischer Peso
+  DZD Algerischer Dinar
+  EGP Ägyptisches Pfund
+  ERN Eritreischer Nakfa
+  ETB Äthiopischer Birr
+  GBP Britisches Pfund
+  GEL Georgischer Lari
+  GHS Ghanaischer Cedi
+  GTQ Guatemaltekischer Quetzal
+  HTG Haitianische Gourde
+  HUF Ungarischer Forint
+  ILS Israelischer Neuer Schekel
+  INR Indische Rupie
+  IQD Irakischer Dinar
+  IRR Iranischer Rial
+  ISK Isländische Krone
+  JOD Jordanischer Dinar
+  JPY Japanischer Yen
+  KGS Kirgisischer Som
+  KHR Kambodschanischer Riel
+  KMF Komoren-Franc
+  KPW Nordkoreanischer Won
+  KRW Südkoreanischer Won
+  KZT Kasachischer Tenge
+  LAK Laotischer Kip
+  LBP Libanesisches Pfund
+  LKR Sri-Lanka-Rupie
+  LRD Liberianischer Dollar
+  LYD Libyscher Dinar
+  MAD Marokkanischer Dirham
+  MKD Mazedonischer Denar
+  MMK Myanmarischer Kyat
+  MNT Mongolischer Tögrög
+  MRU Mauretanischer Ouguiya
+  MUR Mauritius-Rupie
+  MXN Mexikanischer Peso
+  MXV Mexicanischer Unidad de Inversion (UDI)
+  MYR Malaysischer Ringgit
+  MZN Mosambikanischer Metical
+  NGN Nigerianischer Naira
+  NIO Nicaragua-Córdoba
+  NOK Norwegische Krone
+  NPR Nepalesische Rupie
+  OMR Omanischer Rial
+  PAB Panamaischer Balboa
+  PEN Peruanischer Sol
+  PHP Philippinischer Peso
+  PKR Pakistanische Rupie
+  PLN Polnischer Złoty
+  PYG Paraguayischer Guaraní
+  RON Rumänischer Leu
+  RSD Serbischer Dinar
+  RUB Russischer Rubel
+  RWF Ruanda-Franc
+  SCR Seychellen-Rupie
+  SDG Sudanesisches Pfund
+  SEK Schwedische Krone
+  SLE Sierra-leonischer Leone
+  SSP Südsudanesisches Pfund
+  STN São-toméischer Dobra
+  SVC El Salvador-Colon
+  SYP Syrisches Pfund
+  SZL Swasiländischer Lilangeni
+  THB Thailändischer Baht
+  TND Tunesischer Dinar
+  TOP Tongaischer Paʻanga
+  TWD Neuer Taiwan-Dollar
+  UAH Ukrainische Hrywnja
+  USN US-Dollar (Nächster Tag)
+  UYI Uruguayischer Peso (Indexierte Rechnungseinheiten)
+  UYU Uruguayischer Peso
+  VES Venezolanischer Bolívar
+  VND Vietnamesischer Dong
+  WST Samoanischer Tala
+  XAG Unze Silber
+  XAU Unze Gold
+  XBA Europäische Rechnungseinheiten
+  XBB Europäische Währungseinheiten (XBB)
+  XBC Europäische Rechnungseinheiten (XBC)
+  XBD Europäische Rechnungseinheiten (XBD)
+  XCD Ostkaribischer Dollar
+  XCG Karibischer Gulden
+  XOF CFA-Franc (BCEAO)
+  XPD Unze Palladium
+  XPT Unze Platin
+  XUA Rechnungseinheit der AfEB
+  XXX (unbekannte Währung)
+  ZAR Südafrikanischer Rand
+currency.name.other =
+  AED VAE-Dirham
+  AFN Afghanische Afghani
+  ALL Albanische Lek
+  AMD Armenische Dram
+  AOA Angolanische Kwanza
+  ARS Argentinische Pesos
+  AUD Australische Dollar
+  AWG Aruba-Florin
+  AZN Aserbaidschan-Manat
+  BAM Konvertible Mark Bosnien und Herzegowina
+  BBD Barbados-Dollar
+  BDT Bangladesch-Taka
+  BHD Bahrain-Dinar
+  BIF Burundi-Francs
+  BMD Bermuda-Dollar
+  BND Brunei-Dollar
+  BOB Bolivianische Bolivianos
+  BOV Bolivianische Mvdol
+  BRL Brasilianische Real
+  BSD Bahamas-Dollar
+  BTN Bhutan-Ngultrum
+  BWP Botswanische Pula
+  BYN Weißrussische Rubel
+  BZD Belize-Dollar
+  CAD Kanadische Dollar
+  CDF Kongo-Francs
+  CHE WIR-Euro
+  CHF Schweizer Franken
+  CHW WIR Franken
+  CLF Chilenische Unidades de Fomento
+  CLP Chilenische Pesos
+  CNY Renminbi Yuan
+  COP Kolumbianische Pesos
+  COU Kolumbianische Unidades de valor real
+  CRC Costa-Rica-Colón
+  CUP Kubanische Pesos
+  CVE Cabo-Verde-Escudos
+  CZK Tschechische Kronen
+  DJF Dschibuti-Franc
+  DKK Dänische Kronen
+  DOP Dominikanische Pesos
+  DZD Algerische Dinar
+  EGP Ägyptische Pfund
+  ERN Eritreische Nakfa
+  ETB Äthiopische Birr
+  EUR Euro
+  FJD Fidschi-Dollar
+  FKP Falkland-Pfund
+  GBP Britische Pfund
+  GEL Georgische Lari
+  GHS Ghanaische Cedi
+  GIP Gibraltar-Pfund
+  GMD Gambia-Dalasi
+  GNF Guinea-Franc
+  GTQ Guatemaltekische Quetzales
+  GYD Guyana-Dollar
+  HKD Hongkong-Dollar
+  HNL Honduras-Lempira
+  HTG Haitianische Gourdes
+  HUF Ungarische Forint
+  IDR Indonesische Rupiah
+  ILS Israelische Neue Schekel
+  INR Indische Rupien
+  IQD Irakische Dinar
+  IRR Iranische Rial
+  ISK Isländische Kronen
+  JMD Jamaika-Dollar
+  JOD Jordanische Dinar
+  JPY Japanische Yen
+  KES Kenia-Schilling
+  KGS Kirgisische Som
+  KHR Kambodschanische Riel
+  KMF Komoren-Francs
+  KPW Nordkoreanische Won
+  KRW Südkoreanische Won
+  KWD Kuwait-Dinar
+  KYD Kaiman-Dollar
+  KZT Kasachische Tenge
+  LAK Laotische Kip
+  LBP Libanesische Pfund
+  LKR Sri-Lanka-Rupien
+  LRD Liberianische Dollar
+  LSL Loti
+  LYD Libysche Dinar
+  MAD Marokkanische Dirham
+  MDL Moldau-Leu
+  MGA Madagaskar-Ariary
+  MKD Mazedonische Denari
+  MMK Myanmarische Kyat
+  MNT Mongolische Tögrög
+  MOP Macao-Pataca
+  MRU Mauretanische Ouguiya
+  MUR Mauritius-Rupien
+  MVR Malediven-Rufiyaa
+  MWK Malawi-Kwacha
+  MXN Mexikanische Pesos
+  MXV Mexikanische Unidad de Inversion (UDI)
+  MYR Malaysische Ringgit
+  MZN Mosambikanische Meticais
+  NAD Namibia-Dollar
+  NGN Nigerianische Naira
+  NIO Nicaragua-Córdobas
+  NOK Norwegische Kronen
+  NPR Nepalesische Rupien
+  NZD Neuseeland-Dollar
+  OMR Omanische Rials
+  PAB Panamaische Balboas
+  PEN Peruanische Sol
+  PGK Papua-neuguineischer Kina
+  PHP Philippinische Pesos
+  PKR Pakistanische Rupien
+  PLN Polnische Złoty
+  PYG Paraguayische Guaraníes
+  QAR Katar-Riyal
+  RON Rumänische Leu
+  RSD Serbische Dinaren
+  RUB Russische Rubel
+  RWF Ruanda-Francs
+  SAR Saudi-Rial
+  SBD Salomonen-Dollar
+  SCR Seychellen-Rupien
+  SDG Sudanesische Pfund
+  SEK Schwedische Kronen
+  SGD Singapur-Dollar
+  SHP St.-Helena-Pfund
+  SLE Sierra-leonische Leones
+  SOS Somalia-Schilling
+  SRD Suriname-Dollar
+  SSP Südsudanesische Pfund
+  STN São-toméische Dobras
+  SVC El Salvador-Colon
+  SYP Syrische Pfund
+  SZL Swasiländische Emalangeni
+  THB Thailändische Baht
+  TJS Tadschikistan-Somoni
+  TMT Turkmenistan-Manat
+  TND Tunesische Dinar
+  TOP Tongaische Paʻanga
+  TRY Türkische Lira
+  TTD Trinidad-und-Tobago-Dollar
+  TWD Neue Taiwan-Dollar
+  TZS Tansania-Schilling
+  UAH Ukrainische Hrywen
+  UGX Uganda-Schilling
+  USD US-Dollar
+  USN US-Dollar (Nächster Tag)
+  UYI Uruguayische Pesos (Indexierte Rechnungseinheiten)
+  UYU Uruguayische Pesos
+  UZS Usbekistan-Sum
+  VES Venezolanische Bolívares
+  VND Vietnamesische Dong
+  VUV Vanuatu-Vatu
+  WST Samoanische Tala
+  XAF CFA-Franc (BEAC)
+  XAG Unzen Silber
+  XAU Unzen Gold
+  XBA Europäische Rechnungseinheiten
+  XBB Europäische Währungseinheiten (XBB)
+  XBC Europäische Rechnungseinheiten (XBC)
+  XBD Europäische Rechnungseinheiten (XBD)
+  XCD Ostkaribische Dollar
+  XCG Karibische Gulden
+  XDR Sonderziehungsrechte
+  XOF CFA-Francs (BCEAO)
+  XPD Unzen Palladium
+  XPF CFP-Franc
+  XPT Unzen Platin
+  XSU SUCRE
+  XTS Testwährung
+  XUA Rechnungseinheiten der AfEB
+  XXX (unbekannte Währung)
+  YER Jemen-Rial
+  ZAR Südafrikanische Rand
+  ZMW Kwacha
+  ZWG Simbabwe-Gold
+months.wide =
+  1 Januar
+  2 Februar
+  3 März
+  4 April
+  5 Mai
+  6 Juni
+  7 Juli
+  8 August
+  9 September
+  10 Oktober
+  11 November
+  12 Dezember
+months.abbreviated =
+  1 Jan.
+  2 Feb.
+  3 März
+  4 Apr.
+  5 Mai
+  6 Juni
+  7 Juli
+  8 Aug.
+  9 Sept.
+  10 Okt.
+  11 Nov.
+  12 Dez.
+days.wide =
+  1 Montag
+  2 Dienstag
+  3 Mittwoch
+  4 Donnerstag
+  5 Freitag
+  6 Samstag
+  7 Sonntag
+days.abbreviated =
+  1 Mo.
+  2 Di.
+  3 Mi.
+  4 Do.
+  5 Fr.
+  6 Sa.
+  7 So.
+periods =
+  0 AM
+  1 PM
+eras =
+  0 v. Chr.
+  1 n. Chr.
+
+[formats.number]
+of = number
+default = yes
+select = plural
+pattern =
+  {sign}{int:group=3}{frac}
+
+[formats.integer]
+of = number
+maximumFractionDigits = 0
+select = plural
+pattern =
+  {sign}{int:group=3}{frac}
+
+[formats.currency]
+of = amount
+default = yes
+option.currencyDisplay = symbol narrowSymbol code name never
+option.currencySign = standard accounting
+minimumFractionDigits = {currency:table=currency.digits}
+maximumFractionDigits = {currency:table=currency.digits}
+pattern =
+  [currencyDisplay=never currencySign=accounting] {sign}{int:group=3}{frac}
+  [currencyDisplay=never] {sign}{int:group=3}{frac}
+  [currencyDisplay=name plural=one] {sign}{int:group=3}{frac} {currency:table=currency.name.one|currency.name.other}
+  [currencyDisplay=name] {sign}{int:group=3}{frac} {currency:table=currency.name.other}
+  [currencyDisplay=narrowSymbol currencySign=accounting currency@currency.narrow.tight] {sign}{int:group=3}{frac} {currency:table=currency.narrow}
+  [currencyDisplay=narrowSymbol currencySign=accounting] {sign}{int:group=3}{frac} {currency:table=currency.narrow}
+  [currencyDisplay=narrowSymbol currency@currency.narrow.tight] {sign}{int:group=3}{frac} {currency:table=currency.narrow}
+  [currencyDisplay=narrowSymbol] {sign}{int:group=3}{frac} {currency:table=currency.narrow}
+  [currencyDisplay=symbol currencySign=accounting currency@currency.symbol.tight] {sign}{int:group=3}{frac} {currency:table=currency.symbol}
+  [currencyDisplay=symbol currencySign=accounting] {sign}{int:group=3}{frac} {currency:table=currency.symbol}
+  [currencyDisplay=symbol currency@currency.symbol.tight] {sign}{int:group=3}{frac} {currency:table=currency.symbol}
+  [currencyDisplay=symbol] {sign}{int:group=3}{frac} {currency:table=currency.symbol}
+  [currencyDisplay=code currencySign=accounting] {sign}{int:group=3}{frac} {currency}
+  [currencyDisplay=code] {sign}{int:group=3}{frac} {currency}
+
+[formats.date]
+of = date
+default = yes
+option.length = medium short long full
+pattern =
+  [length=medium year<1000] {day:pad=2}.{month:pad=2}.{era-year} {era:table=eras}
+  [length=medium] {day:pad=2}.{month:pad=2}.{year}
+  [length=short year<1000] {day:pad=2}.{month:pad=2}.{era-year} {era:table=eras}
+  [length=short year>=1950 year<2050] {day:pad=2}.{month:pad=2}.{year:last=2,pad=2}
+  [length=short] {day:pad=2}.{month:pad=2}.{year}
+  [length=long year<1000] {day}. {month:table=months.wide} {era-year} {era:table=eras}
+  [length=long] {day}. {month:table=months.wide} {year}
+  [length=full year<1000] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} {era:table=eras}
+  [length=full] {weekday:table=days.wide}, {day}. {month:table=months.wide} {year}
+
+[formats.time]
+of = time
+default = yes
+option.length = medium short long full
+pattern =
+  [length=medium] {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=short] {hour:pad=2}:{minute:pad=2}
+  [length=long offset? offset-sign=1 offset-minutes>0] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset? offset-sign=1] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
+  [length=long offset? offset-minutes>0] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset?] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
+  [length=long] {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=full offset? offset-sign=1] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full offset?] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full] {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+
+[formats.datetime]
+of = datetime
+default = yes
+option.length = medium short long full
+pattern =
+  [length=medium year<1000] {day:pad=2}.{month:pad=2}.{era-year} {era:table=eras}, {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=medium] {day:pad=2}.{month:pad=2}.{year}, {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=short year<1000] {day:pad=2}.{month:pad=2}.{era-year} {era:table=eras}, {hour:pad=2}:{minute:pad=2}
+  [length=short year>=1950 year<2050] {day:pad=2}.{month:pad=2}.{year:last=2,pad=2}, {hour:pad=2}:{minute:pad=2}
+  [length=short] {day:pad=2}.{month:pad=2}.{year}, {hour:pad=2}:{minute:pad=2}
+  [length=long year<1000 offset? offset-sign=1 offset-minutes>0] {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
+  [length=long year<1000 offset? offset-sign=1] {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
+  [length=long year<1000 offset? offset-minutes>0] {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
+  [length=long year<1000 offset?] {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
+  [length=long year<1000] {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=long offset? offset-sign=1 offset-minutes>0] {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset? offset-sign=1] {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
+  [length=long offset? offset-minutes>0] {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset?] {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
+  [length=long] {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=full year<1000 offset? offset-sign=1] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full year<1000 offset?] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full year<1000] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=full offset? offset-sign=1] {weekday:table=days.wide}, {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full offset?] {weekday:table=days.wide}, {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full] {weekday:table=days.wide}, {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}

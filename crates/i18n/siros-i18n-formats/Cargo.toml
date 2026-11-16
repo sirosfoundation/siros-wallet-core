@@ -1,0 +1,32 @@
+[package]
+name = "siros-i18n-formats"
+version = "0.1.0"
+description = "A general pattern formatter for siros-i18n: value types expose fields, locale files say how they read"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+siros-i18n = { workspace = true }
+siros-explain = { workspace = true }
+siros-syntax = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+siros-i18n = { workspace = true, features = ["derive"] }
+# The ICU4X differential's oracle: ICU4X 2.4 over its compiled CLDR 49.0.0 data.
+icu_plurals = { workspace = true }
+icu_decimal = { workspace = true }
+icu_datetime = { workspace = true }
+icu_calendar = { workspace = true }
+icu_time = { workspace = true }
+icu_locale_core = { workspace = true }
+icu_experimental = { workspace = true }
+fixed_decimal = { workspace = true }
+writeable = { workspace = true }
+
+[lints]
+workspace = true

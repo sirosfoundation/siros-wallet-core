@@ -1,7 +1,7 @@
 //! `:string` (spec/functions/string.md): it formats its operand's text as given and selects the
 //! key equal to it. It ignores the options a call writes, as spec/functions/README.md permits.
 
-use crate::chain::{Chain, Failure, Refused, Root};
+use crate::chain::{Chain, Failure, Root};
 use crate::error::Refusal;
 use crate::format::Function;
 use crate::scope::Scope;
@@ -11,9 +11,9 @@ use crate::scope::Scope;
 /// # Errors
 ///
 /// [`Refusal::Operand`] for a chain without an operand or with a call of another function.
-pub(crate) fn check(chain: &Chain<'_>) -> Result<(), Refused> {
+pub(crate) fn check(chain: &Chain<'_>) -> Result<(), Refusal> {
     if chain.root == Root::None || chain.calls().any(|call| call.function != Function::String) {
-        return Err(Refusal::Operand.into());
+        return Err(Refusal::Operand);
     }
     Ok(())
 }
@@ -27,7 +27,7 @@ pub(crate) fn check(chain: &Chain<'_>) -> Result<(), Refused> {
 pub(crate) fn value<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<&'m str, Failure> {
     match chain.root {
         Root::None => Err(Failure::Operand),
-        Root::Literal(text) => Ok(text),
+        Root::Literal(text) => Ok(text.as_ref()),
         Root::Argument(key) => scope.argument(key),
     }
 }

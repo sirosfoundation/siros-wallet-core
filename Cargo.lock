@@ -3555,6 +3555,7 @@ checksum = "38b58827f4464d87d377d175e90bf58eb00fd8716ff0a62f80356b5e61555d0d"
 name = "siros-cldr"
 version = "0.1.0"
 dependencies = [
+ "icu_properties",
  "serde_json",
  "siros-explain",
  "siros-syntax",
@@ -3647,15 +3648,6 @@ dependencies = [
 name = "siros-i18n"
 version = "0.1.0"
 dependencies = [
- "fixed_decimal",
- "icu_calendar",
- "icu_datetime",
- "icu_decimal",
- "icu_experimental",
- "icu_locale_core",
- "icu_plurals",
- "icu_properties",
- "icu_time",
  "inventory",
  "rand 0.9.5",
  "rand_chacha 0.9.0",
@@ -3663,9 +3655,7 @@ dependencies = [
  "siros-explain",
  "siros-i18n",
  "siros-i18n-derive",
- "siros-syntax",
  "thiserror 2.0.21",
- "writeable",
 ]
 
 [[package]]
@@ -3679,6 +3669,25 @@ dependencies = [
  "siros-i18n",
  "syn 3.0.9",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "siros-i18n-formats"
+version = "0.1.0"
+dependencies = [
+ "fixed_decimal",
+ "icu_calendar",
+ "icu_datetime",
+ "icu_decimal",
+ "icu_experimental",
+ "icu_locale_core",
+ "icu_plurals",
+ "icu_time",
+ "rustc-hash",
+ "siros-explain",
+ "siros-i18n",
+ "siros-syntax",
+ "writeable",
 ]
 
 [[package]]

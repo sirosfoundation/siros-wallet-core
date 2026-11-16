@@ -32,36 +32,52 @@ All notable changes to this workspace. The format follows
   MessageFormat 2 sources of one locale, each loaded whole and checked
   (`LoadError`); `Context::resolve` makes a `Text`, styled spans, from an error
   or a statement (`ResolveError`), and no other code makes one. A statement
-  derives `Message` (`siros-i18n-derive`). Every argument is typed: the
-  context's `Formatters` give each type the functions a call may name on it and
-  at most one default, which a placeholder, a declaration and a selector that
-  name no function take (`ResolveError::Unformatted`, `ResolveError::Selector`,
-  `RegisterError`). Every type takes `:string`, which writes its `Display` as
-  given, by default where it registers no other. The functions read the
-  argument's text: `:number` and `:integer` parse an MF2 number literal and
-  show its fraction digits as written; `:currency` (its `currency` option
-  literal or variable), `:siros:date`, `:siros:time` and `:siros:datetime`
-  parse their operand. An option's value is a literal or a variable's value: an
-  argument's text, a literal, or the value of a declared call. The load refuses
-  an option of the `u:` namespace. Names, variant keys and selector literals
-  compare as written. A load takes memory in proportion to its source, and time
-  in proportion to its source and, for each use of a call, to the calls its
-  operand's value applies. Each function sits behind its feature: `number`,
-  `currency` and `date`, the defaults with `derive`. `check` holds
-  `Context::check`. `escape` writes a resource value that resolves to a given
-  text, and `Context::bidi` takes the app's bidi strategy. ICU4X 2.4 over CLDR
-  49.0.0 is its oracle.
+  derives `Message` (`siros-i18n-derive`). The core defines `:string`, which
+  writes its operand's `Display` as given; every other function comes from a
+  `Formatter`, which `Context::builder()` takes with the app's bidi strategy. A
+  formatter reads the module sections it claims (`LoadError::Format`), defines
+  functions, checks each call's options, literal operand and variant keys when
+  the module loads (`LoadError::Call`), and formats and selects typed values.
+  Every argument is typed: a placeholder, a declaration and a selector that
+  name no function take the first formatter's default for the argument's type,
+  else `:string`; a call of a function that takes no value of the type refuses
+  (`ResolveError::Unformatted`). The outermost call of a chain formats the value
+  the chain starts from, with the options of every call of its function along
+  the chain. An option's value is a literal or a variable's value: an
+  argument's text, a literal, or the operand text of a declared call. The load
+  refuses an option of the `u:` namespace. Names, variant keys and selector
+  literals compare as written. A load takes memory in proportion to its source,
+  and time in proportion to its source and, for each use of a call, to the
+  calls its operand's value applies. `derive`, the default, gives
+  `#[derive(Message)]`; `check` holds `Context::check`. `escape` writes a
+  resource value that resolves to a given text.
 - siros-i18n's `check` feature is the wallet's one completeness test: each
   derive registers its id and argument names, and `Context::check` refuses an
-  id two crates share, an id no source words, a message that names an
-  argument its row lacks, and a formatter whose options no module defines.
+  id two crates share, an id no source words, and a message that names an
+  argument its row lacks.
 - `siros-i18n-derive`: `#[derive(Message)]` on a statement, its id under the
   crate's scope and its named fields as arguments. A repeated id fails the
   build; under `check` each id registers a row for `Context::check`.
-- `siros-cldr` writes a language's format options from CLDR's JSON release
-  49.0.0 as MF2 source: a resource head and `[formats.<format>]` sections.
+- `siros-i18n-formats`: `Patterns`, one formatter configured by its modules.
+  A value type exposes typed fields (`Fields`: numbers, integers, texts) under
+  a schema name; `Patterns::standard()` takes its `Number`, siros-syntax's
+  `Decimal`, `Count` and Rust's integers (`number`), `Amount` (`amount`),
+  `Date` (`date`), `OffsetTime` and `Time` (`time`) and `DateTime`
+  (`datetime`). A `[tables]` section holds named texts and maps: digits,
+  signs, separators, grouping and CLDR plural rules among them. Each
+  `[formats.<name>]` section defines `:<name>`: the schema it takes, whether
+  that schema takes it by default, the options a call may give and their
+  values, MF2's numeric options as defaults written over the value's fields,
+  and pattern lines, each guarded by tests on fields and options, writing
+  fields through tables. A number rounds once, by the format's and the call's
+  options, and selects by its plural category when the format sets `select`.
+  ICU4X 2.4 over CLDR 49.0.0 is its oracle for English and German.
+- `siros-cldr` writes a language's formats from CLDR's JSON release 49.0.0 for
+  siros-i18n-formats: its `[tables]` and the formats `number`, `integer`,
+  `currency`, `date`, `time` and `datetime`. Currency spacing is resolved into
+  the `currency.symbol.tight` and `currency.narrow.tight` tables.
 - Each is edition 2024 and unpublished.
-- CI's per-merge job runs siros-i18n's ignored tests on a push to `main`.
+- CI's per-merge job runs siros-i18n-formats' ignored tests on a push to `main`.
 - The architecture contract's messages component (§4.19, layer L0): an error
   is a stable id and named arguments, a statement a `Message` of the same
   shape, and the wallet words both in MessageFormat 2 sources that a `Context`

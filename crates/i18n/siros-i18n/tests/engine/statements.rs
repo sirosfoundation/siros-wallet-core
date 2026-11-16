@@ -24,8 +24,9 @@ enum Shown {
 #[test]
 fn a_statement_gives_its_named_fields() {
     let source = "@locale en\n---\n[fixture]\nhello = Hello\nasks = {$name} asks for {$for}.\n";
-    let context = Context::new()
+    let context = Context::builder()
         .bidi(Bidi::None)
+        .build()
         .module(source)
         .expect("the module loads");
     let asks = |r#for| Shown::Asks {

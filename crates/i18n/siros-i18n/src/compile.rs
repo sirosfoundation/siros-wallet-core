@@ -13,13 +13,13 @@ use std::borrow::Cow;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 use crate::args::Args;
-use crate::chain::{Call, Chain, Declared, Failure, Link, Operand, Opt, Site, Value};
+use crate::chain::{Call, Chain, Declared, Failure, Link, Operand, Opt, Site, Value, fault};
 use crate::context::Bidi;
 use crate::error::{Fault, Refusal, ResolveError};
-use crate::format::{Direction, Formats, Function, Selected, Selecting};
+use crate::format::{Formatters, Function};
+use crate::formatter::{Direction, Selection};
 use crate::mf2::ast::{self, MarkupKind};
 use crate::mf2::valid::{Shape, Valid};
-use crate::registry::Formatters;
 use crate::scope::Scope;
 use crate::text::{Style, Text, Writer};
 
@@ -51,13 +51,12 @@ struct Select {
     fallback: Pattern,
 }
 
-/// A selector: its variable, and how its declared call's function selects; `None` for an
-/// argument whose call the wording leaves unwritten, which selects by its type's default
-/// formatter.
+/// A selector: its variable, and its declared call's function; `None` for an argument whose call
+/// the wording leaves unwritten, which selects by its type's default function.
 #[derive(Debug, Clone)]
 struct Selector {
     variable: Box<str>,
-    selecting: Option<Selecting>,
+    selecting: Option<Function>,
 }
 
 /// A variant with a literal key: one key per selector, and its pattern.
@@ -85,7 +84,7 @@ enum Rank {
 impl Variant {
     /// The rank of each key over its selector's value; `None` for a key the value does not
     /// match.
-    fn ranks(&self, selected: &[Selected<'_>]) -> impl Iterator<Item = Option<Rank>> {
+    fn ranks(&self, selected: &[Selection]) -> impl Iterator<Item = Option<Rank>> {
         self.keys
             .iter()
             .zip(selected)
@@ -115,11 +114,11 @@ enum Bound<'a> {
     Variable(&'a str),
 }
 
-/// The compilation of one message: the context's formats, what each declared variable stands
+/// The compilation of one message: the context's formatters, what each declared variable stands
 /// for, the declared calls, the variables of those options read, and the keys of the arguments
 /// the message names.
 struct Compiler<'c, 'a> {
-    formats: &'c Formats,
+    formatters: &'c Formatters,
     bound: FxHashMap<&'a str, Bound<'a>>,
     declared: Declared,
     reading: FxHashSet<&'a str>,
@@ -131,12 +130,12 @@ struct Compiler<'c, 'a> {
 ///
 /// # Errors
 ///
-/// The [`Fault`] of a function the build lacks, a function whose section no module defined, a
-/// call its function refuses, and markup outside the styles or not nested.
+/// The [`Fault`] of a function no formatter defines, a call its function refuses, and markup
+/// outside the styles or not nested.
 pub(crate) fn compile<'a>(
     message: &Valid<'a, '_>,
     direction: Direction,
-    formats: &Formats,
+    formatters: &Formatters,
 ) -> Result<Compiled, Fault> {
     let declarations = message.declarations;
     let calls = declarations
@@ -147,7 +146,7 @@ pub(crate) fn compile<'a>(
         })
         .count();
     let mut compiler = Compiler {
-        formats,
+        formatters,
         bound: FxHashMap::with_capacity_and_hasher(declarations.len(), FxBuildHasher),
         declared: Declared::with_capacity(calls),
         reading: FxHashSet::default(),
@@ -245,32 +244,35 @@ impl<'a> Compiler<'_, 'a> {
         }
     }
 
-    /// The call of `function`.
+    /// The call of `function`, its options checked by the function.
     fn call(&mut self, function: &'a ast::Function<'_>) -> Result<Call, Fault> {
         let name = function.name.as_ref();
-        let called = Function::named(name).ok_or_else(|| Fault::Function(name.to_owned()))?;
-        if !self.formats.defines(called) {
-            return Err(Fault::Undefined(called.name()));
-        }
+        let called = self
+            .formatters
+            .named(name)
+            .ok_or_else(|| Fault::Function(name.to_owned()))?;
         let options = function
             .options
             .iter()
-            .map(|option| self.option(called, option))
+            .map(|option| self.option(name, option))
             .collect::<Result<_, _>>()?;
-        Ok(Call::new(called, options))
+        let call = Call::new(called, Cow::Owned(name.to_owned()), options);
+        call.check_options(|option, text| self.formatters.option(called, option, text))
+            .map_err(|refusal| fault(&call, refusal))?;
+        Ok(call)
     }
 
-    /// An option of a call of `called`: its value, a literal or a variable, whose declared call
-    /// is checked to give a value; and its name, outside the `u:` namespace.
-    fn option(&mut self, called: Function, option: &'a ast::Opt<'_>) -> Result<Opt, Fault> {
+    /// An option of a call of the function `called`: its value, a literal or a variable, whose
+    /// declared call is checked to give a value; and its name, outside the `u:` namespace.
+    fn option(&mut self, called: &str, option: &'a ast::Opt<'_>) -> Result<Opt, Fault> {
         let value = match (&option.value, self.bound(&option.value)) {
             (ast::Operand::Literal(_), Bound::Literal(text)) => Value::Literal(text.into()),
             (_, Bound::Literal(text)) => Value::Bound(text.into()),
             (_, Bound::Variable(name)) => {
                 if let Some(link) = self.declared.call(name) {
                     let chain = self.declared.chain(link);
-                    crate::format::check(&chain, self.formats)
-                        .map_err(|refused| refused.fault(chain.outer.function))?;
+                    crate::format::check(&chain, self.formatters)
+                        .map_err(|refusal| fault(&chain.outer, refusal))?;
                     if self.reading.insert(name) {
                         self.read.push(name.into());
                     }
@@ -281,7 +283,7 @@ impl<'a> Compiler<'_, 'a> {
         let name = option.name.as_ref();
         if name.starts_with("u:") {
             let option = name.to_owned();
-            return Err(Fault::Call(called.name(), Refusal::Option { option }));
+            return Err(Fault::Call(called.to_owned(), Refusal::Option { option }));
         }
         Ok(Opt {
             name: name.into(),
@@ -309,8 +311,8 @@ impl<'a> Compiler<'_, 'a> {
             }),
         };
         let chain = self.declared.site(&site);
-        crate::format::check(&chain, self.formats)
-            .map_err(|refused| refused.fault(chain.outer.function))?;
+        crate::format::check(&chain, self.formatters)
+            .map_err(|refusal| fault(&chain.outer, refusal))?;
         Ok(site)
     }
 
@@ -330,8 +332,8 @@ impl<'a> Compiler<'_, 'a> {
         let selecting = match self.declared.call(variable) {
             Some(link) => {
                 let chain = self.declared.chain(link);
-                let selecting = Selecting::of(&chain, self.formats)
-                    .map_err(|refused| refused.fault(chain.outer.function))?;
+                let selecting = crate::format::selecting(&chain, self.formatters)
+                    .map_err(|refusal| fault(&chain.outer, refusal))?;
                 Some(selecting)
             }
             None => None,
@@ -365,12 +367,12 @@ impl<'a> Compiler<'_, 'a> {
                         ast::Key::CatchAll => Ok(Key::CatchAll),
                         ast::Key::Literal(key) => match selector
                             .selecting
-                            .map_or(Ok(()), |selecting| selecting.reads(key))
+                            .map_or(Ok(()), |selecting| self.formatters.key(selecting, key))
                         {
                             Ok(()) => Ok(Key::Literal(key.as_ref().into())),
                             Err(refusal) => {
                                 let chain = self.declared.variable(&selector.variable);
-                                Err(Fault::Call(chain.outer.function.name(), refusal))
+                                Err(fault(&chain.outer, refusal))
                             }
                         },
                     })
@@ -441,8 +443,7 @@ fn isolation(bidi: Bidi, value: Direction, message: Direction) -> Option<&'stati
 }
 
 impl Compiled {
-    /// The message `id` resolved over its arguments `args`, with the context's format sections
-    /// `formats`.
+    /// The message `id` resolved over its arguments `args`, with the context's formatters.
     ///
     /// # Errors
     ///
@@ -452,11 +453,10 @@ impl Compiled {
         &self,
         id: &str,
         args: &Args<'_>,
-        formats: &Formats,
         formatters: &Formatters,
         bidi: Bidi,
     ) -> Result<Text, ResolveError> {
-        let mut scope = Scope::new(args, formats, formatters, &self.declared);
+        let mut scope = Scope::new(args, formatters, &self.declared);
         for variable in &self.read {
             scope.hold(variable);
         }
@@ -508,10 +508,7 @@ impl Compiled {
         let chain = scope
             .typed(self.declared.site(site))
             .map_err(|failure| self.declared.site(site).error(id, failure))?;
-        chain
-            .texts(scope)
-            .and_then(|texts| crate::format::format(&chain, &texts, scope))
-            .map_err(|failure| chain.error(id, failure))
+        crate::format::format(&chain, scope).map_err(|failure| chain.error(id, failure))
     }
 
     /// The keys of the arguments the message names: each `.input` declaration's, and each
@@ -532,7 +529,7 @@ impl Select {
         declared: &'m Declared,
         scope: &Scope<'m>,
         id: &str,
-    ) -> Result<Vec<Selected<'m>>, ResolveError> {
+    ) -> Result<Vec<Selection>, ResolveError> {
         self.selectors
             .iter()
             .enumerate()
@@ -541,40 +538,33 @@ impl Select {
                     .typed(declared.variable(&selector.variable))
                     .map_err(|failure| declared.variable(&selector.variable).error(id, failure))?;
                 self.selecting(column, selector, &chain, scope)
-                    .and_then(|selecting| {
-                        let texts = chain.texts(scope)?;
-                        selecting.selected(&chain, &texts, scope)
-                    })
+                    .and_then(|_| crate::format::selected(&chain, scope))
                     .map_err(|failure| chain.error(id, failure))
             })
             .collect()
     }
 
-    /// How the selector in `column` selects: by its declared call's function, else by the
-    /// default formatter of its argument's type, which reads each key of the column.
+    /// The function the selector in `column` selects by: its declared call's, else the default
+    /// function of its argument's type, which reads each key of the column.
     ///
     /// # Errors
     ///
-    /// [`Failure::Selector`] for a default formatter that refuses the selector or a key, and
-    /// [`Failure::Operand`] for one whose options no module defines.
+    /// [`Failure::Selector`] for a default function that refuses the selector or a key.
     fn selecting(
         &self,
         column: usize,
         selector: &Selector,
         chain: &Chain<'_>,
         scope: &Scope<'_>,
-    ) -> Result<Selecting, Failure> {
+    ) -> Result<Function, Failure> {
         if let Some(selecting) = selector.selecting {
             return Ok(selecting);
         }
-        let function = chain.outer.function;
-        let selecting =
-            Selecting::of(chain, scope.formats).map_err(|refused| refused.failure(function))?;
+        let refused = |refusal| Failure::Selector(chain.outer.name.to_string(), refusal);
+        let selecting = crate::format::selecting(chain, scope.formatters).map_err(refused)?;
         for variant in &self.variants {
             if let Some(Key::Literal(key)) = variant.keys.get(column) {
-                selecting
-                    .reads(key)
-                    .map_err(|refusal| Failure::Selector(function, refusal))?;
+                scope.formatters.key(selecting, key).map_err(refused)?;
             }
         }
         Ok(selecting)

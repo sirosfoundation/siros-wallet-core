@@ -4,35 +4,35 @@ use std::any::{Any, TypeId};
 use std::fmt::Write as _;
 
 use rustc_hash::FxHashMap;
+use siros_explain::Arg;
 
 use crate::message::Message;
 
-/// The arguments a message's wording names: each key with its value's text and type.
-pub(crate) struct Args<'k>(FxHashMap<&'k str, Given>);
+/// The arguments a message's wording names: each key with its value and the value's text.
+pub(crate) struct Args<'k>(FxHashMap<&'k str, Given<'k>>);
 
-/// An argument: its value's `Display`, and the value's type.
-struct Given {
+/// An argument: its value, and the value's `Display`.
+struct Given<'k> {
+    value: &'k dyn Arg,
     text: String,
-    of: TypeId,
 }
 
 impl<'k> Args<'k> {
-    /// The arguments `message` has under `keys`, each by its value's `Display` and type.
+    /// The arguments `message` has under `keys`, each with its value's `Display`.
     ///
     /// # Errors
     ///
     /// The first key whose value's `Display` fails.
     pub(crate) fn of(
-        message: &dyn Message,
+        message: &'k dyn Message,
         keys: impl IntoIterator<Item = &'k str>,
     ) -> Result<Self, &'k str> {
-        let mut args: FxHashMap<&'k str, Given> = FxHashMap::default();
+        let mut args: FxHashMap<&'k str, Given<'k>> = FxHashMap::default();
         for key in keys {
             if let Some(value) = message.arg(key) {
                 let mut text = String::new();
                 write!(text, "{value}").map_err(|_| key)?;
-                let of = (value as &dyn Any).type_id();
-                args.extend([(key, Given { text, of })]);
+                args.extend([(key, Given { value, text })]);
             }
         }
         Ok(Self(args))
@@ -43,8 +43,15 @@ impl<'k> Args<'k> {
         self.0.get(key).map(|given| given.text.as_str())
     }
 
+    /// The value of the argument `key`.
+    pub(crate) fn value(&self, key: &str) -> Option<&'k dyn Arg> {
+        self.0.get(key).map(|given| given.value)
+    }
+
     /// The type of the argument `key`'s value.
     pub(crate) fn type_of(&self, key: &str) -> Option<TypeId> {
-        self.0.get(key).map(|given| given.of)
+        self.0
+            .get(key)
+            .map(|given| (given.value as &dyn Any).type_id())
     }
 }

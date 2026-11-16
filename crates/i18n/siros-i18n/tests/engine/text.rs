@@ -3,48 +3,31 @@
 
 use siros_i18n::{Bidi, Context, Span, Style, Styles};
 
-use crate::{Given, cldr};
+use crate::Given;
 
 /// MF2's Default Bidi Strategy (spec/formatting.md, "Handling Bidirectional Text"): a value of
-/// left-to-right direction stands alone in a left-to-right message, and between U+2066 and
-/// U+2069 otherwise; a right-to-left value between U+2067 and U+2069; a value of unknown
-/// direction between U+2068 and U+2069. `:string`'s values are of unknown direction, and a
-/// number takes the direction of its format section's module: English left to right, Hebrew
-/// right to left.
+/// unknown direction, as `:string`'s are, stands between U+2068 and U+2069 in a message of any
+/// direction, and alone under `Bidi::None`.
 #[test]
 fn placeholders_isolate_by_the_default_bidi_strategy() {
-    let body = "\
-number = {$x :number}
-string = {$x}";
-    let context = |language: &str, dir: &str, bidi: Bidi| {
-        let formats = cldr::formats(language).expect("the fixture");
-        Context::new()
-            .formatters(cldr::strings())
+    let context = |dir: &str, bidi: Bidi| {
+        Context::builder()
             .bidi(bidi)
-            .module(&formats)
-            .and_then(|context| context.module(&format!("@locale {language}\n{dir}---\n{body}\n")))
-            .expect("the modules load")
+            .build()
+            .module(&format!("@locale en\n{dir}---\nstring = {{$x}}\n"))
+            .expect("the module loads")
     };
-    let ltr = context("en", "@dir ltr\n", Bidi::Default);
-    let rtl = context("en", "@dir rtl\n", Bidi::Default);
-    let unknown = context("en", "", Bidi::Default);
-    let hebrew_in_ltr = context("he", "@dir ltr\n", Bidi::Default);
-    let hebrew = context("he", "@dir rtl\n", Bidi::Default);
-    let none = context("he", "@dir ltr\n", Bidi::None);
     let cases = [
-        (&ltr, "number", "5"),
-        (&ltr, "string", "\u{2068}5\u{2069}"),
-        (&rtl, "number", "\u{2066}5\u{2069}"),
-        (&rtl, "string", "\u{2068}5\u{2069}"),
-        (&unknown, "number", "\u{2066}5\u{2069}"),
-        (&hebrew_in_ltr, "number", "\u{2067}5\u{2069}"),
-        (&hebrew, "number", "\u{2067}5\u{2069}"),
-        (&none, "number", "5"),
-        (&none, "string", "5"),
+        (context("@dir ltr\n", Bidi::Default), "\u{2068}5\u{2069}"),
+        (context("@dir rtl\n", Bidi::Default), "\u{2068}5\u{2069}"),
+        (context("", Bidi::Default), "\u{2068}5\u{2069}"),
+        (context("@dir rtl\n", Bidi::None), "5"),
     ];
-    for (context, id, expected) in cases {
-        let text = context.resolve(&Given::with(id, "x", "5")).expect("a text");
-        assert_eq!(text.to_string(), expected, "{id}");
+    for (context, expected) in cases {
+        let text = context
+            .resolve(&Given::with("string", "x", "5"))
+            .expect("a text");
+        assert_eq!(text.to_string(), expected);
     }
 }
 
