@@ -354,6 +354,7 @@ pub fn build_authorization_url(
 pub async fn exchange_authorization_code(
     http: &dyn HttpClient,
     as_metadata: &AsMetadata,
+    client_id: &str,
     code: &str,
     redirect_uri: &str,
     code_verifier: &str,
@@ -362,6 +363,10 @@ pub async fn exchange_authorization_code(
     exchange_code_with_headers(
         http,
         as_metadata,
+        // The unauthenticated path's client_id: the PKCE public client's
+        // id, carried beside the grant (apigw rejects the grant without
+        // it - see exchange_code_with_headers's form comment).
+        client_id,
         code,
         redirect_uri,
         code_verifier,
@@ -385,6 +390,7 @@ pub async fn exchange_authorization_code(
 async fn exchange_code_with_headers(
     http: &dyn HttpClient,
     as_metadata: &AsMetadata,
+    client_id: &str,
     code: &str,
     redirect_uri: &str,
     code_verifier: &str,
@@ -396,10 +402,17 @@ async fn exchange_code_with_headers(
         return Err(TokenError::NoTokenEndpoint);
     }
 
+    // The client_id rides the form beside the grant (the GDC drive fix,
+    // 1b78321: apigw's authorization_code grant refuses a token request
+    // without client_id or client_assertion - "requires client_id or
+    // client_assertion"). Swept off once by the #11 tests-out-of-src
+    // merge's conflict resolution (found via wallet-frontend wasm
+    // integration 2026-11-16); restored here.
     let mut form = format!(
-        "grant_type=authorization_code&code={}&redirect_uri={}",
+        "grant_type=authorization_code&code={}&redirect_uri={}&client_id={}",
         url_encode(code),
         url_encode(redirect_uri),
+        url_encode(client_id),
     );
     if !code_verifier.is_empty() {
         form.push_str(&format!("&code_verifier={}", url_encode(code_verifier)));
@@ -586,6 +599,7 @@ pub async fn exchange_authorization_code_with_attestation(
         match exchange_code_with_headers(
             http,
             as_metadata,
+            spec.client_id,
             spec.code,
             spec.redirect_uri,
             spec.code_verifier,

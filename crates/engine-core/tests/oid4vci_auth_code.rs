@@ -601,6 +601,7 @@ async fn the_code_exchanges_with_the_verifier_and_resource() {
     let token = exchange_authorization_code(
         &http,
         &test_as(),
+        "client-1",
         "code-1",
         "https://wallet.example/cb",
         "verifier-1",
@@ -616,6 +617,14 @@ async fn the_code_exchanges_with_the_verifier_and_resource() {
     assert!(body.contains("code=code-1"));
     assert!(body.contains("code_verifier=verifier-1"));
     assert!(body.contains("resource=https%3A%2F%2Fissuer.example"));
+    // The client_id rides the form beside the grant (the GDC drive fix,
+    // 1b78321): apigw refuses the authorization_code grant without it.
+    // Restored 2026-11-16 after the #11 merge swept it off - keep this
+    // assertion so the next sweep cannot land silently.
+    assert!(
+        body.contains("client_id=client-1"),
+        "the form carries client_id: {body}"
+    );
     assert_eq!(requests[0].url, "https://as.example/token");
 }
 
@@ -629,6 +638,7 @@ async fn a_failed_exchange_reports_the_safe_error_code() {
     let err = exchange_authorization_code(
         &http,
         &test_as(),
+        "client-1",
         "code-1",
         "https://wallet.example/cb",
         "verifier-1",
