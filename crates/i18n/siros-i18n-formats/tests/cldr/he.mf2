@@ -1,0 +1,673 @@
+# The formats of he from CLDR 49.0.0 (unicode-org/cldr-json), written by siros-cldr.
+@locale he
+@dir rtl
+---
+
+[tables]
+digits = 0123456789
+decimal = .
+group = ,
+minus = ‎-
+plus = ‎+
+grouping = 1
+plural.cardinal =
+  one: i = 1 and v = 0 or i = 0 and v != 0
+  two: i = 2 and v = 0
+plural.ordinal =
+currency.digits =
+  * 2
+  AFN 0
+  ALL 0
+  AMD 2
+  BHD 3
+  BIF 0
+  BYN 2
+  CAD 2
+  CHF 2
+  CLF 4
+  CLP 0
+  COP 0
+  CRC 2
+  CZK 2
+  DJF 0
+  DKK 2
+  GNF 0
+  GYD 2
+  HUF 0
+  IDR 0
+  IQD 0
+  IRR 0
+  ISK 0
+  JOD 3
+  JPY 0
+  KMF 0
+  KPW 0
+  KRW 0
+  KWD 3
+  LAK 0
+  LBP 0
+  LYD 3
+  MGA 0
+  MMK 0
+  MNT 2
+  MRU 2
+  MUR 2
+  NOK 2
+  OMR 3
+  PKR 2
+  PYG 0
+  RSD 2
+  RWF 0
+  SEK 2
+  SLE 2
+  SOS 0
+  SYP 0
+  TND 3
+  TWD 2
+  TZS 2
+  UGX 0
+  UYI 0
+  UYW 4
+  UZS 2
+  VND 0
+  VUV 0
+  XAD 2
+  XAF 0
+  XAU 2
+  XOF 0
+  XPF 0
+  YER 0
+currency.symbol =
+  AUD A$
+  BRL R$
+  CAD CA$
+  CNY ‎CN¥‎
+  EUR €
+  GBP £
+  HKD HK$
+  ILS ₪
+  INR ₹
+  JPY ¥
+  KRW ₩
+  MXN MX$
+  NZD NZ$
+  THB ฿
+  TWD NT$
+  USD $
+  VND ₫
+  XAF FCFA
+  XCD EC$
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+  XXX ¤
+currency.symbol.tight =
+  AUD A$
+  BRL R$
+  CAD CA$
+  CNY ‎CN¥‎
+  EUR €
+  GBP £
+  HKD HK$
+  ILS ₪
+  INR ₹
+  JPY ¥
+  KRW ₩
+  MXN MX$
+  NZD NZ$
+  THB ฿
+  TWD NT$
+  USD $
+  VND ₫
+  XAF FCFA
+  XCD EC$
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+  XXX ¤
+currency.narrow =
+  AFN ؋
+  AMD ֏
+  AOA Kz
+  ARS $
+  AUD $
+  AZN ₼
+  BAM KM
+  BBD $
+  BDT ৳
+  BMD $
+  BND $
+  BOB Bs
+  BRL R$
+  BSD $
+  BWP P
+  BYN р
+  BZD $
+  CAD $
+  CHF Fr.
+  CLP $
+  CNY ¥
+  COP $
+  CRC ₡
+  CUP $
+  CZK Kč
+  DKK kr
+  DOP $
+  EGP E£
+  EUR €
+  FJD $
+  FKP £
+  GBP £
+  GEL ₾
+  GHS GH₵
+  GIP £
+  GNF FG
+  GTQ Q
+  GYD $
+  HKD $
+  HNL L
+  HUF Ft
+  IDR Rp
+  ILS ₪
+  INR ₹
+  ISK kr
+  JMD $
+  JPY ¥
+  KGS ⃀
+  KHR ៛
+  KMF CF
+  KPW ₩
+  KRW ₩
+  KYD $
+  KZT ₸
+  LAK ₭
+  LBP L£
+  LKR Rs
+  LRD $
+  MGA Ar
+  MMK K
+  MNT ₮
+  MUR Rs
+  MXN $
+  MYR RM
+  NAD $
+  NGN ₦
+  NIO C$
+  NOK kr
+  NPR Rs
+  NZD $
+  PHP ₱
+  PKR Rs
+  PLN zł
+  PYG ₲
+  RON lei
+  RUB ₽
+  RWF RF
+  SBD $
+  SEK kr
+  SGD $
+  SHP £
+  SRD $
+  SSP £
+  STN Db
+  SYP £
+  THB ฿
+  TOP T$
+  TRY ₺
+  TTD $
+  TWD NT$
+  UAH ₴
+  USD $
+  UYU $
+  VND ₫
+  XAF FCFA
+  XCD $
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+  XXX ¤
+  ZAR R
+  ZMW ZK
+currency.narrow.tight =
+  AFN ؋
+  AMD ֏
+  AOA Kz
+  ARS $
+  AUD $
+  AZN ₼
+  BAM KM
+  BBD $
+  BDT ৳
+  BMD $
+  BND $
+  BOB Bs
+  BRL R$
+  BSD $
+  BWP P
+  BYN р
+  BZD $
+  CAD $
+  CHF Fr.
+  CLP $
+  CNY ¥
+  COP $
+  CRC ₡
+  CUP $
+  CZK Kč
+  DKK kr
+  DOP $
+  EGP E£
+  EUR €
+  FJD $
+  FKP £
+  GBP £
+  GEL ₾
+  GHS GH₵
+  GIP £
+  GNF FG
+  GTQ Q
+  GYD $
+  HKD $
+  HNL L
+  HUF Ft
+  IDR Rp
+  ILS ₪
+  INR ₹
+  ISK kr
+  JMD $
+  JPY ¥
+  KGS ⃀
+  KHR ៛
+  KMF CF
+  KPW ₩
+  KRW ₩
+  KYD $
+  KZT ₸
+  LAK ₭
+  LBP L£
+  LKR Rs
+  LRD $
+  MGA Ar
+  MMK K
+  MNT ₮
+  MUR Rs
+  MXN $
+  MYR RM
+  NAD $
+  NGN ₦
+  NIO C$
+  NOK kr
+  NPR Rs
+  NZD $
+  PHP ₱
+  PKR Rs
+  PLN zł
+  PYG ₲
+  RON lei
+  RUB ₽
+  RWF RF
+  SBD $
+  SEK kr
+  SGD $
+  SHP £
+  SRD $
+  SSP £
+  STN Db
+  SYP £
+  THB ฿
+  TOP T$
+  TRY ₺
+  TTD $
+  TWD NT$
+  UAH ₴
+  USD $
+  UYU $
+  VND ₫
+  XAF FCFA
+  XCD $
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+  XXX ¤
+  ZAR R
+  ZMW ZK
+currency.name.one =
+  IDR רופיה אינדונזית
+  ILS שקל חדש
+  LBP לירה לבנונית
+  MVR רופיה מלדיבית
+  MXV יחידת השקעות מקסיקנית
+  SVC קולון סלבדורי
+  SYP לירה סורית
+  TRY לירה טורקית חדשה
+  XXX (מטבע שאינו ידוע)
+currency.name.two =
+  IDR רופיות אינדונזיות
+  ILS שקלים חדשים
+  LBP לירות לבנוניות
+  MVR רופיות מלדיביות
+  MXV יחידות השקעות מקסיקניות
+  SVC קולונים סלבדוריים
+  SYP לירות סוריות
+  TRY לירות טורקיות
+  XXX (מטבע שאינו ידוע)
+currency.name.many =
+  SVC קולון סלבדורי
+currency.name.other =
+  AED דירהם של איחוד הנסיכויות הערביות
+  AFN אפגני אפגני
+  ALL לק אלבני
+  AMD דראם ארמני
+  AOA קואנזה אנגולי
+  ARS פסו ארגנטינאי
+  AUD דולר אוסטרלי
+  AWG פלורין של ארובה
+  AZN מאנאט אזרבייג׳ני
+  BAM מארק סחיר של בוסניה והרצגובינה
+  BBD דולר ברבדיאני
+  BDT טאקה בנגלדשי
+  BHD דינר בחרייני
+  BIF פרנק בורונדי
+  BMD דולר ברמודה
+  BND דולר ברוניי
+  BOB בוליביאנו
+  BRL ריאל ברזילאי
+  BSD דולר בהאמי
+  BTN נגולטרום בהוטני
+  BWP פולה בוטסואני
+  BYN רובל בלרוסי
+  BZD דולר בליזי
+  CAD דולר קנדי
+  CDF פרנק קונגולזי
+  CHF פרנק שוויצרי
+  CLP פסו צ׳ילאני
+  CNY יואן סיני
+  COP פסו קולומביאני
+  CRC קולון קוסטה־ריקני
+  CUP פסו קובני
+  CVE אסקודו כף ורדה
+  CZK קורונה צ׳כית
+  DJF פרנק ג׳יבוטי
+  DKK כתר דני
+  DOP פסו דומיניקני
+  DZD דינר אלג׳ירי
+  EGP לירה מצרית
+  ERN נאקפה אריתראי
+  ETB ביר אתיופי
+  EUR אירו
+  FJD דולר פיג׳י
+  FKP לירה של איי פוקלנד
+  GBP לירה שטרלינג
+  GEL לארי גאורגי
+  GHS סדי גאני
+  GIP פאונד גיברלטר
+  GMD דלסי גמבי
+  GNF פרנק גינאי
+  GTQ קצאל גואטמלי
+  GYD דולר גיאני
+  HKD דולר הונג קונגי
+  HNL למפירה הונדורי
+  HTG גורד האיטי
+  HUF פורינט הונגרי
+  IDR רופיות אינדונזיות
+  ILS שקלים חדשים
+  INR רופי הודי
+  IQD דינר עיראקי
+  IRR ריאל איראני
+  ISK כתר איסלנדי
+  JMD דולר ג׳מייקני
+  JOD דינר ירדני
+  JPY ין יפני
+  KES שילינג קנייתי
+  KGS סום קירגיזי
+  KHR ריל קמבודי
+  KMF פרנק קומורואי
+  KPW וון צפון קוריאני
+  KRW וון דרום קוריאני
+  KWD דינר כוויתי
+  KYD דולר קיימני
+  KZT טנגה קזחסטני
+  LAK קיפ לאי
+  LBP לירות לבנוניות
+  LKR רופי סרי לנקי
+  LRD דולר ליברי
+  LSL לוטי לסותי
+  LYD דינר לובי
+  MAD דירהם מרוקאי
+  MDL לאו מולדובני
+  MGA אריארי מלגשי
+  MKD דינר מקדוני
+  MMK קיאט מיאנמרי
+  MNT טוגרוג מונגולי
+  MOP פטקה של מקאו
+  MRU אואוגויה מאוריטני
+  MUR רופי מאוריציני
+  MVR רופיות מלדיביות
+  MWK קואצ׳ה מלאווי
+  MXN פסו מקסיקני
+  MXV יחידות השקעות מקסיקניות
+  MYR רינגיט מלזי
+  MZN מטיקל מוזמביני
+  NAD דולר נמיבי
+  NGN נאירה ניגרי
+  NIO קורדובה ניקרגואה
+  NOK כתר נורווגי
+  NPR רופי נפאלי
+  NZD דולר ניו זילנדי
+  OMR ריאל עומאני
+  PAB בלבואה פנמי
+  PEN סול פרואני
+  PGK קינה של פפואה גינאה החדשה
+  PHP פסו פיליפיני
+  PKR רופי פקיסטני
+  PLN זלוטי פולני
+  PYG גוארני פרגוואי
+  QAR ריאל קטארי
+  RON לאו רומני
+  RSD דינר סרבי
+  RUB רובל רוסי
+  RWF פרנק רואנדי
+  SAR ריאל סעודי
+  SBD דולר איי שלמה
+  SCR רופי סיישלי
+  SDG לירה סודנית
+  SEK כתר שוודי
+  SGD דולר סינגפורי
+  SHP פאונד סנט הלני
+  SLE ליאון סיירה לאוני
+  SOS שילינג סומלי
+  SRD דולר סורינאמי
+  SSP לירה דרום-סודנית
+  STN דוברה של סאו טומה ופרינסיפה
+  SVC קולונים סלבדוריים
+  SYP לירות סוריות
+  SZL לילנגני סווזילנדי
+  THB בהט תאילנדי
+  TJS סומוני טג׳קיסטני
+  TMT מאנאט טורקמני
+  TND דינר טוניסאי
+  TOP פאנגה טונגי
+  TRY לירות טורקיות
+  TTD דולר טרינידדי
+  TWD דולר טייוואני חדש
+  TZS שילינג טנזני
+  UAH הריבנה אוקראיני
+  UGX שילינג אוגנדי
+  USD דולר אמריקאי
+  USN דולר אמריקאי (היום הבא)
+  UYU פסו אורוגוואי
+  UZS סום אוזבקי
+  VES בוליבר ונצואלי
+  VND דונג וייטנאמי
+  VUV ואטו של ונואטו
+  WST טאלה סמואי
+  XAF פרנק CFA מרכז אפריקני
+  XAG כסף
+  XAU זהב
+  XCD דולר מזרח קריבי
+  XCG גילדר של הקריביים
+  XDR זכויות משיכה מיוחדות
+  XOF פרנק CFA מערב אפריקני
+  XPD פלדיום
+  XPF פרנק פולינזיה הצרפתית
+  XPT פלטינה
+  XTS סימון למטרות בדיקה
+  XXX (מטבע שאינו ידוע)
+  YER ריאל תימני
+  ZAR ראנד דרום אפריקאי
+  ZMW קוואצ׳ה זמבי
+  ZWG זהב של זימבבואה
+months.wide =
+  1 ינואר
+  2 פברואר
+  3 מרץ
+  4 אפריל
+  5 מאי
+  6 יוני
+  7 יולי
+  8 אוגוסט
+  9 ספטמבר
+  10 אוקטובר
+  11 נובמבר
+  12 דצמבר
+months.abbreviated =
+  1 ינו׳
+  2 פבר׳
+  3 מרץ
+  4 אפר׳
+  5 מאי
+  6 יוני
+  7 יולי
+  8 אוג׳
+  9 ספט׳
+  10 אוק׳
+  11 נוב׳
+  12 דצמ׳
+days.wide =
+  1 יום שני
+  2 יום שלישי
+  3 יום רביעי
+  4 יום חמישי
+  5 יום שישי
+  6 יום שבת
+  7 יום ראשון
+days.abbreviated =
+  1 יום ב׳
+  2 יום ג׳
+  3 יום ד׳
+  4 יום ה׳
+  5 יום ו׳
+  6 שבת
+  7 יום א׳
+periods =
+  0 AM
+  1 PM
+eras =
+  0 לפנה״ס
+  1 לספירה
+
+[formats.number]
+of = number
+default = yes
+select = plural
+pattern =
+  {sign}{int:group=3}{frac}
+
+[formats.integer]
+of = number
+maximumFractionDigits = 0
+select = plural
+pattern =
+  {sign}{int:group=3}{frac}
+
+[formats.currency]
+of = amount
+default = yes
+option.currencyDisplay = symbol narrowSymbol code name never
+option.currencySign = standard accounting
+minimumFractionDigits = {currency:table=currency.digits}
+maximumFractionDigits = {currency:table=currency.digits}
+pattern =
+  [currencyDisplay=never currencySign=accounting !sign=none] ‏{sign}{int:group=3}{frac} ‏
+  [currencyDisplay=never currencySign=accounting] {sign}‏{int:group=3}{frac} ‏
+  [currencyDisplay=never !sign=none] ‏{sign}{int:group=3}{frac} ‏
+  [currencyDisplay=never] {sign}‏{int:group=3}{frac} ‏
+  [currencyDisplay=name plural=one] {sign}{int:group=3}{frac} {currency:table=currency.name.one|currency.name.other}
+  [currencyDisplay=name plural=two] {sign}{int:group=3}{frac} {currency:table=currency.name.two|currency.name.other}
+  [currencyDisplay=name] {sign}{int:group=3}{frac} {currency:table=currency.name.other}
+  [currencyDisplay=narrowSymbol currencySign=accounting currency@currency.narrow.tight !sign=none] ‏{sign}{int:group=3}{frac} ‏{currency:table=currency.narrow}
+  [currencyDisplay=narrowSymbol currencySign=accounting currency@currency.narrow.tight] {sign}‏{int:group=3}{frac} ‏{currency:table=currency.narrow}
+  [currencyDisplay=narrowSymbol currencySign=accounting !sign=none] ‏{sign}{int:group=3}{frac} ‏{currency:table=currency.narrow}
+  [currencyDisplay=narrowSymbol currencySign=accounting] {sign}‏{int:group=3}{frac} ‏{currency:table=currency.narrow}
+  [currencyDisplay=narrowSymbol currency@currency.narrow.tight !sign=none] ‏{sign}{int:group=3}{frac} ‏{currency:table=currency.narrow}
+  [currencyDisplay=narrowSymbol currency@currency.narrow.tight] {sign}‏{int:group=3}{frac} ‏{currency:table=currency.narrow}
+  [currencyDisplay=narrowSymbol !sign=none] ‏{sign}{int:group=3}{frac} ‏{currency:table=currency.narrow}
+  [currencyDisplay=narrowSymbol] {sign}‏{int:group=3}{frac} ‏{currency:table=currency.narrow}
+  [currencyDisplay=symbol currencySign=accounting currency@currency.symbol.tight !sign=none] ‏{sign}{int:group=3}{frac} ‏{currency:table=currency.symbol}
+  [currencyDisplay=symbol currencySign=accounting currency@currency.symbol.tight] {sign}‏{int:group=3}{frac} ‏{currency:table=currency.symbol}
+  [currencyDisplay=symbol currencySign=accounting !sign=none] ‏{sign}{int:group=3}{frac} ‏{currency:table=currency.symbol}
+  [currencyDisplay=symbol currencySign=accounting] {sign}‏{int:group=3}{frac} ‏{currency:table=currency.symbol}
+  [currencyDisplay=symbol currency@currency.symbol.tight !sign=none] ‏{sign}{int:group=3}{frac} ‏{currency:table=currency.symbol}
+  [currencyDisplay=symbol currency@currency.symbol.tight] {sign}‏{int:group=3}{frac} ‏{currency:table=currency.symbol}
+  [currencyDisplay=symbol !sign=none] ‏{sign}{int:group=3}{frac} ‏{currency:table=currency.symbol}
+  [currencyDisplay=symbol] {sign}‏{int:group=3}{frac} ‏{currency:table=currency.symbol}
+  [currencyDisplay=code currencySign=accounting !sign=none] ‏{sign}{int:group=3}{frac} ‏{currency}
+  [currencyDisplay=code currencySign=accounting] {sign}‏{int:group=3}{frac} ‏{currency}
+  [currencyDisplay=code !sign=none] ‏{sign}{int:group=3}{frac} ‏{currency}
+  [currencyDisplay=code] {sign}‏{int:group=3}{frac} ‏{currency}
+
+[formats.date]
+of = date
+default = yes
+option.length = medium short long full
+pattern =
+  [length=medium year<1000] {day} ב{month:table=months.abbreviated} {era-year} {era:table=eras}
+  [length=medium] {day} ב{month:table=months.abbreviated} {year}
+  [length=short year<1000] {day}.{month}.{era-year} {era:table=eras}
+  [length=short] {day}.{month}.{year}
+  [length=long year<1000] {day} ב{month:table=months.wide} {era-year} {era:table=eras}
+  [length=long] {day} ב{month:table=months.wide} {year}
+  [length=full year<1000] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} {era:table=eras}
+  [length=full] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {year}
+
+[formats.time]
+of = time
+default = yes
+option.length = medium short long full
+pattern =
+  [length=medium] {hour}:{minute:pad=2}:{second:pad=2}
+  [length=short] {hour}:{minute:pad=2}
+  [length=long offset? offset-sign=1 offset-minutes>0] {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}‎‎
+  [length=long offset? offset-sign=1] {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}‎‎
+  [length=long offset? offset-minutes>0] {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}:{offset-minutes:pad=2}‎
+  [length=long offset?] {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}‎
+  [length=long] {hour}:{minute:pad=2}:{second:pad=2}
+  [length=full offset? offset-sign=1] {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}‎‎
+  [length=full offset?] {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours:pad=2}:{offset-minutes:pad=2}‎
+  [length=full] {hour}:{minute:pad=2}:{second:pad=2}
+
+[formats.datetime]
+of = datetime
+default = yes
+option.length = medium short long full
+pattern =
+  [length=medium year<1000] {day} ב{month:table=months.abbreviated} {era-year} {era:table=eras}, {hour}:{minute:pad=2}:{second:pad=2}
+  [length=medium] {day} ב{month:table=months.abbreviated} {year}, {hour}:{minute:pad=2}:{second:pad=2}
+  [length=short year<1000] {day}.{month}.{era-year} {era:table=eras}, {hour}:{minute:pad=2}
+  [length=short] {day}.{month}.{year}, {hour}:{minute:pad=2}
+  [length=long year<1000 offset? offset-sign=1 offset-minutes>0] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}‎‎
+  [length=long year<1000 offset? offset-sign=1] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}‎‎
+  [length=long year<1000 offset? offset-minutes>0] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}:{offset-minutes:pad=2}‎
+  [length=long year<1000 offset?] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}‎
+  [length=long year<1000] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2}
+  [length=long offset? offset-sign=1 offset-minutes>0] {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}‎‎
+  [length=long offset? offset-sign=1] {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}‎‎
+  [length=long offset? offset-minutes>0] {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}:{offset-minutes:pad=2}‎
+  [length=long offset?] {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}‎
+  [length=long] {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2}
+  [length=full year<1000 offset? offset-sign=1] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}‎‎
+  [length=full year<1000 offset?] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours:pad=2}:{offset-minutes:pad=2}‎
+  [length=full year<1000] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2}
+  [length=full offset? offset-sign=1] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}‎‎
+  [length=full offset?] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours:pad=2}:{offset-minutes:pad=2}‎
+  [length=full] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2}

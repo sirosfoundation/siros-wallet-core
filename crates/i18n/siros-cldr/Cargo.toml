@@ -13,6 +13,8 @@ publish = false
 siros-explain = { workspace = true }
 siros-syntax = { workspace = true }
 serde_json = { workspace = true }
+# The General Category that decides whether a currency symbol stands against its number.
+icu_properties = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

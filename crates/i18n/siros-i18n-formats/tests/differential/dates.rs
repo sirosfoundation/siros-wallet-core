@@ -1,4 +1,4 @@
-//! `:siros:date`, `:siros:time` and `:siros:datetime` at every length, for each day of 2000
+//! `:date`, `:time` and `:datetime` at every length, for each day of 2000
 //! to 2030 at 00:00, 09:05, 12:00 and 23:59, against ICU4X's `DateTimeFormatter` with the field
 //! set each length stands for:
 //!
@@ -25,7 +25,6 @@ use siros_syntax::{Date, DateTime, Offset, OffsetTime, Time};
 
 use crate::{Differences, LANGUAGES, context, plain};
 
-/// Each value is an argument's text: its type's ISO 8601 literal.
 #[derive(Debug, siros_i18n::Message)]
 enum Probe {
     #[message(id = "date_short")]
@@ -56,18 +55,18 @@ enum Probe {
 
 const MESSAGES: &str = "\
 [probe]
-date_short = {$d :siros:date length=short}
-date_medium = {$d :siros:date length=medium}
-date_long = {$d :siros:date length=long}
-date_full = {$d :siros:date length=full}
-time_short = {$t :siros:time length=short}
-time_medium = {$t :siros:time length=medium}
-time_long = {$t :siros:time length=long}
-time_full = {$t :siros:time length=full}
-both_short = {$d :siros:datetime length=short}
-both_medium = {$d :siros:datetime length=medium}
-both_long = {$d :siros:datetime length=long}
-both_full = {$d :siros:datetime length=full}";
+date_short = {$d :date length=short}
+date_medium = {$d :date length=medium}
+date_long = {$d :date length=long}
+date_full = {$d :date length=full}
+time_short = {$t :time length=short}
+time_medium = {$t :time length=medium}
+time_long = {$t :time length=long}
+time_full = {$t :time length=full}
+both_short = {$d :datetime length=short}
+both_medium = {$d :datetime length=medium}
+both_long = {$d :datetime length=long}
+both_full = {$d :datetime length=full}";
 
 const TIMES: [(u8, u8); 4] = [(0, 0), (9, 5), (12, 0), (23, 59)];
 
@@ -265,7 +264,7 @@ fn years() -> Vec<Date> {
 
 /// Whether ICU4X's text is the one cell where its pattern is CLDR 49's German `GyMMMMEd`,
 /// `d MMMM Y G, E`, whose week-based year `Y` ICU4X 2.4 writes as the letter: the full length
-/// before year 1000. `:siros:date` writes the full pattern with CLDR's `Gy`.
+/// before year 1000. `:date` writes the full pattern with CLDR's `Gy`.
 fn week_year_cell(language: &str, length: &str, year: u16, theirs: &str) -> bool {
     language == "de" && length == "full" && year < 1000 && theirs.contains(" Y ")
 }

@@ -27,35 +27,9 @@ inventory = { workspace = true, optional = true }
 # The tests derive statements and check wordings whatever the build's features: cargo turns a
 # package's dev-dependency features on in its own test builds alone.
 siros-i18n = { path = ".", features = ["derive", "check"] }
-siros-syntax = { workspace = true }
 thiserror = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
-# The differential tests' oracle: ICU4X 2.4 over its compiled CLDR 49.0.0 data.
-icu_plurals = { workspace = true }
-icu_decimal = { workspace = true }
-icu_datetime = { workspace = true }
-icu_calendar = { workspace = true }
-icu_time = { workspace = true }
-icu_locale_core = { workspace = true }
-icu_experimental = { workspace = true }
-fixed_decimal = { workspace = true }
-writeable = { workspace = true }
-
-# The ICU4X differential calls `:number`, `:currency` and the date functions.
-[[test]]
-name = "differential"
-required-features = ["number", "currency", "date"]
-
-# The refusal fixtures call `:number` and `:currency`; the formatter fixtures `:siros:date`.
-[[test]]
-name = "engine"
-required-features = ["number", "currency", "date"]
-
-# siros-syntax, whose rows the gate counts, links under `date`.
-[[test]]
-name = "check"
-required-features = ["date"]
 
 [lints]
 workspace = true

@@ -1,6 +1,6 @@
 //! Numbers and amounts: the cardinal and ordinal categories and the texts of the probe's
 //! 153 values, and amounts in every ISO 4217 currency by symbol, narrow symbol, code and name.
-//! Each value is an argument's text, the literal ICU4X parses.
+//! Each value is a siros-syntax `Decimal` or `Amount` read from the text ICU4X parses.
 
 use fixed_decimal::Decimal as Fixed;
 use icu_decimal::DecimalFormatter;
@@ -8,28 +8,28 @@ use icu_experimental::dimension::currency::formatter::CurrencyFormatter;
 use icu_locale_core::Locale;
 use icu_locale_core::preferences::extensions::unicode::keywords::CurrencyType;
 use icu_plurals::{PluralCategory, PluralRules};
-use siros_i18n::ResolveError;
-use siros_syntax::Currency;
+use siros_i18n::{Bidi, LoadError, Refusal};
+use siros_syntax::{Amount, Currency, Decimal};
 use writeable::Writeable as _;
 
-use crate::{Differences, LANGUAGES, context, plain};
+use crate::{Differences, LANGUAGES, cldr, context, plain};
 
 #[derive(siros_i18n::Message)]
 enum Probe {
     #[message(id = "cardinal")]
-    Cardinal { n: String },
+    Cardinal { n: Decimal },
     #[message(id = "ordinal")]
-    Ordinal { n: String },
+    Ordinal { n: Decimal },
     #[message(id = "number")]
-    Number { n: String },
+    Number { n: Decimal },
     #[message(id = "symbol")]
-    Symbol { amount: String, currency: String },
+    Symbol { a: Amount },
     #[message(id = "narrow")]
-    Narrow { amount: String, currency: String },
+    Narrow { a: Amount },
     #[message(id = "code")]
-    Code { amount: String, currency: String },
+    Code { a: Amount },
     #[message(id = "name")]
-    Name { amount: String, currency: String },
+    Name { a: Amount },
 }
 
 const MESSAGES: &str = "\
@@ -37,10 +37,10 @@ const MESSAGES: &str = "\
 cardinal = .input {$n :number} .match $n zero {{zero}} one {{one}} two {{two}} few {{few}} many {{many}} * {{other}}
 ordinal = .input {$n :number select=ordinal} .match $n zero {{zero}} one {{one}} two {{two}} few {{few}} many {{many}} * {{other}}
 number = {$n :number}
-symbol = {$amount :currency currency=$currency}
-narrow = {$amount :currency currency=$currency currencyDisplay=narrowSymbol}
-code = {$amount :currency currency=$currency currencyDisplay=code}
-name = {$amount :currency currency=$currency currencyDisplay=name}";
+symbol = {$a :currency}
+narrow = {$a :currency currencyDisplay=narrowSymbol}
+code = {$a :currency currencyDisplay=code}
+name = {$a :currency currencyDisplay=name}";
 
 /// The probe's 153 values: 0 to 120, then integers, decimals, negatives and large numbers, and
 /// decimals written with trailing zeros or more than three fraction digits, which show as
@@ -112,23 +112,23 @@ fn plural_categories_and_number_texts_equal_icu4x() {
             DecimalFormatter::try_new((&locale).into(), Default::default()).expect("a formatter");
         for text in &values {
             let fixed = Fixed::try_from_str(text).expect("a decimal");
-            let n = text.as_str();
+            let n = Decimal::parse(text).expect("a decimal");
             let at = format!("{language} {text}");
-            let ours = plain(&context, &Probe::Cardinal { n: n.to_owned() });
+            let ours = plain(&context, &Probe::Cardinal { n });
             differences.check(
                 &format!("{at} cardinal"),
                 &ours,
                 keyword(cardinal.category_for(&fixed)),
             );
             if !text.contains('.') && !text.starts_with('-') {
-                let ours = plain(&context, &Probe::Ordinal { n: n.to_owned() });
+                let ours = plain(&context, &Probe::Ordinal { n });
                 differences.check(
                     &format!("{at} ordinal"),
                     &ours,
                     keyword(ordinal.category_for(&fixed)),
                 );
             }
-            let ours = plain(&context, &Probe::Number { n: n.to_owned() });
+            let ours = plain(&context, &Probe::Number { n });
             let theirs = numbers.format(&fixed).write_to_string().into_owned();
             differences.check(&format!("{at} text"), &ours, &theirs);
         }
@@ -136,12 +136,11 @@ fn plural_categories_and_number_texts_equal_icu4x() {
     differences.assert_none("numbers");
 }
 
-/// An argument's literal bounds the text it formats: ICU4X refuses a digit whose power of ten
-/// passes `i16`, and the context refuses the operand where ICU4X does and formats it as ICU4X
-/// does inside. An argument such as `1e999999999` would otherwise write a billion digits.
+/// A literal operand bounds the text it formats: ICU4X refuses a digit whose power of ten passes
+/// `i16`, and the context refuses the operand where ICU4X does and formats it as ICU4X does
+/// inside. A literal such as `1e999999999` would otherwise write a billion digits.
 #[test]
 fn literal_bounds_equal_icu4x() {
-    let context = context("en", MESSAGES);
     let locale: Locale = "en".parse().expect("a locale");
     let numbers =
         DecimalFormatter::try_new((&locale).into(), Default::default()).expect("a formatter");
@@ -157,21 +156,27 @@ fn literal_bounds_equal_icu4x() {
         "1e999999999",
     ];
     for text in texts {
-        match (
-            Fixed::try_from_str(text),
-            context.resolve(&Probe::Number { n: text.to_owned() }),
-        ) {
-            (Ok(fixed), Ok(ours)) => {
+        let loaded = cldr::context("en", Bidi::None, &format!("[probe]\nliteral = {{|{text}| :number}}"));
+        match (Fixed::try_from_str(text), loaded) {
+            (Ok(fixed), Ok(context)) => {
                 let theirs = numbers.format(&fixed).write_to_string().into_owned();
+                let ours = context
+                    .resolve(&Literal)
+                    .expect("the literal resolves");
                 assert_eq!(ours.to_string(), theirs, "{text}");
             }
-            (Err(_), Err(ResolveError::Operand { function, .. })) => {
-                assert_eq!(function, "number", "{text}");
+            (Err(_), Err(LoadError::Call { function, refusal, .. })) => {
+                assert_eq!((function.as_str(), refusal), ("number", Refusal::Operand), "{text}");
             }
-            (theirs, ours) => panic!("{text}: ICU4X {:?}, ours {:?}", theirs.is_ok(), ours),
+            (theirs, ours) => panic!("{text}: ICU4X {:?}, ours {:?}", theirs.is_ok(), ours.err()),
         }
     }
 }
+
+/// The message of the literal probe.
+#[derive(siros_i18n::Message)]
+#[message(id = "literal")]
+struct Literal;
 
 /// The code of every currency ISO 4217's table lists.
 fn currencies() -> Vec<String> {
@@ -225,16 +230,16 @@ fn amounts_in_every_currency_equal_icu4x() {
                 CurrencyFormatter::try_new_code(prefs, kind, Default::default()).expect("data");
             let named = CurrencyFormatter::try_new_name(prefs, kind).expect("data");
             for amount in amounts {
-                let currency = code.as_str();
+                let a = Amount::new(
+                    Decimal::parse(amount).expect("a decimal"),
+                    Currency::parse(code).expect("a currency"),
+                );
                 let fixed = Fixed::try_from_str(amount).expect("a decimal");
                 let at = format!("{language} {code} {amount}");
                 let pairs = [
                     (
                         "symbol",
-                        Probe::Symbol {
-                            amount: amount.to_owned(),
-                            currency: currency.to_owned(),
-                        },
+                        Probe::Symbol { a },
                         symbol
                             .format_fixed_decimal(&fixed)
                             .write_to_string()
@@ -242,10 +247,7 @@ fn amounts_in_every_currency_equal_icu4x() {
                     ),
                     (
                         "narrow",
-                        Probe::Narrow {
-                            amount: amount.to_owned(),
-                            currency: currency.to_owned(),
-                        },
+                        Probe::Narrow { a },
                         narrow
                             .format_fixed_decimal(&fixed)
                             .write_to_string()
@@ -253,10 +255,7 @@ fn amounts_in_every_currency_equal_icu4x() {
                     ),
                     (
                         "code",
-                        Probe::Code {
-                            amount: amount.to_owned(),
-                            currency: currency.to_owned(),
-                        },
+                        Probe::Code { a },
                         coded
                             .format_fixed_decimal(&fixed)
                             .write_to_string()
@@ -264,10 +263,7 @@ fn amounts_in_every_currency_equal_icu4x() {
                     ),
                     (
                         "name",
-                        Probe::Name {
-                            amount: amount.to_owned(),
-                            currency: currency.to_owned(),
-                        },
+                        Probe::Name { a },
                         named
                             .format_fixed_decimal(&fixed)
                             .write_to_string()

@@ -1,6 +1,6 @@
-//! The functions with the CLDR tool's options format as ICU4X 2.4 formats over its compiled data
-//! of the same CLDR release, 49.0.0, for the test app's languages, en and de: plural categories
-//! and number texts, amounts in every ISO 4217 currency, and dates and times at every length.
+//! The CLDR tool's formats write as ICU4X 2.4 writes over its compiled data of the same CLDR
+//! release, 49.0.0, for English and German: plural categories and number texts,
+//! amounts in every ISO 4217 currency, and dates and times at every length.
 
 #[path = "../support/cldr.rs"]
 mod cldr;
@@ -8,24 +8,17 @@ mod dates;
 mod numbers;
 
 use siros_i18n::{Bidi, Context, Message};
-use siros_syntax::{Date, DateTime, OffsetTime};
 
 siros_i18n::scope!("probe");
 
-/// The test app's languages.
+/// The languages compared: siros-cldr writes es, fr and he as CLDR's length patterns give them,
+/// where ICU4X matches skeletons.
 pub const LANGUAGES: [&str; 2] = ["en", "de"];
 
 /// A context of `language` with the tool's formats and a module of `messages`, without bidi
-/// isolation, a date, a time and a date and time taking the date functions.
+/// isolation.
 pub fn context(language: &str, messages: &str) -> Context {
-    let formatters = cldr::strings()
-        .default_formatter::<Date>("siros:date")
-        .and_then(|formatters| formatters.default_formatter::<OffsetTime>("siros:time"))
-        .and_then(|formatters| formatters.default_formatter::<DateTime>("siros:datetime"))
-        .expect("the build has the date functions");
-    cldr::context(language, Bidi::None, messages)
-        .expect("the modules load")
-        .formatters(formatters)
+    cldr::context(language, Bidi::None, messages).expect("the modules load")
 }
 
 /// A message resolved as plain text.

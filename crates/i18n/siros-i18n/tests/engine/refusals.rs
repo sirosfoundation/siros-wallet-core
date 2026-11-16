@@ -3,23 +3,13 @@
 
 use std::fmt::{self, Display};
 
-use siros_i18n::{
-    Arg, Bidi, Context, FormatRule, LoadError, LocaleTag, Message, Refusal, ResolveError,
-    SyntaxRule,
-};
+use siros_i18n::{Arg, Context, LoadError, LocaleTag, Message, Refusal, ResolveError, SyntaxRule};
 
-use crate::{Given, cldr, english};
+use crate::{Given, english};
 
-/// The CLDR tool's English formats with `from` replaced by `to` once.
-fn formats(from: &str, to: &str) -> String {
-    let formats = cldr::formats("en").expect("the en fixture");
-    assert!(formats.contains(from), "the fixture holds {from:?}");
-    formats.replacen(from, to, 1)
-}
-
-/// A context of the English formats and a module of `body`.
+/// A context and a module of `body` in English.
 fn load(body: &str) -> Result<Context, LoadError> {
-    cldr::context("en", Bidi::None, body)
+    Context::new().module(&english(body))
 }
 
 fn syntax(line: usize, rule: SyntaxRule) -> LoadError {
@@ -140,21 +130,6 @@ fn each_load_rule_refuses_its_fixture() {
             },
         ),
         (
-            load("hello = a").and_then(|context| context.module(&cldr::formats("en").expect("en"))),
-            LoadError::Repeated {
-                id: "formats.number".to_owned(),
-            },
-        ),
-        (
-            Context::new().module(&formats(
-                "[formats.number]\n",
-                "[formats.number]\nzero = 0\n",
-            )),
-            LoadError::Repeated {
-                id: "formats.number.zero".to_owned(),
-            },
-        ),
-        (
             Context::new().module("---\nhello = a\n"),
             LoadError::Locale {
                 locale: None,
@@ -173,49 +148,6 @@ fn each_load_rule_refuses_its_fixture() {
             LoadError::Function {
                 id: hello(),
                 function: "nothing".to_owned(),
-            },
-        ),
-        (
-            Context::new().module(&english("hello = {$n :number}")),
-            LoadError::Option {
-                id: hello(),
-                function: "number".to_owned(),
-            },
-        ),
-        (
-            Context::new().module(&formats(
-                "[formats.number]\n",
-                "[formats.colour]\nx = y\n\n[formats.number]\n",
-            )),
-            LoadError::Format {
-                format: "colour".to_owned(),
-                rule: FormatRule::Unknown,
-            },
-        ),
-        (
-            Context::new().module(&formats(
-                "[formats.number]\n",
-                "[formats.number]\ncolour = red\n",
-            )),
-            LoadError::Format {
-                format: "number".to_owned(),
-                rule: FormatRule::Undefined {
-                    option: "colour".to_owned(),
-                },
-            },
-        ),
-        (
-            Context::new().module(&formats("zero = 0\n", "")),
-            LoadError::Format {
-                format: "number".to_owned(),
-                rule: FormatRule::Missing { option: "zero" },
-            },
-        ),
-        (
-            Context::new().module(&formats("grouping = 1", "grouping = 0")),
-            LoadError::Format {
-                format: "number".to_owned(),
-                rule: FormatRule::Text { option: "grouping" },
             },
         ),
         (
@@ -247,12 +179,12 @@ fn each_load_rule_refuses_its_fixture() {
             ),
         ),
         (
-            load("hello = {|1| :number signDisplay=always signDisplay=never}"),
+            load("hello = {|1| :string u:dir=ltr u:dir=rtl}"),
             syntax(
                 4,
                 SyntaxRule::DuplicateOptionName {
                     id: hello(),
-                    option: "signDisplay".to_owned(),
+                    option: "u:dir".to_owned(),
                 },
             ),
         ),
@@ -268,22 +200,6 @@ fn each_load_rule_refuses_its_fixture() {
                 refusal: Refusal::Option {
                     option: "u:locale".to_owned(),
                 },
-            },
-        ),
-        (
-            load("hello = {|abc| :number}"),
-            LoadError::Call {
-                id: hello(),
-                function: "number".to_owned(),
-                refusal: Refusal::Operand,
-            },
-        ),
-        (
-            load("hello = .local $c = {|abc| :number} {{{$a :currency currency=$c}}}"),
-            LoadError::Call {
-                id: hello(),
-                function: "number".to_owned(),
-                refusal: Refusal::Operand,
             },
         ),
     ];
@@ -316,48 +232,15 @@ impl Message for Broken {
 
 #[test]
 fn each_resolution_rule_refuses_its_fixture() {
-    let context = load(
-        "hello = Hello {$name}\n\
-         count = {$n :number}\n\
-         paid = {$amount :currency currency=$code}\n\
-         digits = .input {$n :integer} {{{|1| :number minimumFractionDigits=$n}}}",
-    )
-    .expect("the module loads");
+    let context = load("hello = Hello {$name}\ncount = {$n}").expect("the module loads");
     let id = |id: &str| id.to_owned();
-    let paid = Given {
-        id: "paid",
-        args: vec![("amount", "5".to_owned()), ("code", "euro".to_owned())],
-    };
-    let cases: [(&dyn Message, ResolveError); 6] = [
+    let cases: [(&dyn Message, ResolveError); 3] = [
         (&Given::bare("bye"), ResolveError::Unknown { id: id("bye") }),
         (
             &Given::bare("hello"),
             ResolveError::Unresolved {
                 id: id("hello"),
                 key: "name".to_owned(),
-            },
-        ),
-        (
-            &Given::with("count", "n", "five"),
-            ResolveError::Operand {
-                id: id("count"),
-                function: "number".to_owned(),
-            },
-        ),
-        (
-            &paid,
-            ResolveError::Option {
-                id: id("paid"),
-                function: "currency".to_owned(),
-                option: "currency".to_owned(),
-            },
-        ),
-        (
-            &Given::with("digits", "n", "two"),
-            ResolveError::Option {
-                id: id("digits"),
-                function: "number".to_owned(),
-                option: "minimumFractionDigits".to_owned(),
             },
         ),
         (

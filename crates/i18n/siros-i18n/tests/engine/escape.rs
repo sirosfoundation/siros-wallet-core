@@ -78,7 +78,7 @@ fn an_escaped_text_resolves_to_itself() {
     );
     assert!(matches!(
         resolved("{$amount :currency}"),
-        Err(LoadError::Option { .. })
+        Err(LoadError::Function { .. })
     ));
     let mut rng = ChaCha8Rng::seed_from_u64(0x5150);
     let random: Vec<String> = (0..1000)
