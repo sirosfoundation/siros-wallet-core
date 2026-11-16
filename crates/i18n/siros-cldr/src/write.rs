@@ -10,6 +10,10 @@ use siros_syntax::Currency;
 
 use crate::cldr::{Cldr, CldrError, File};
 
+mod calendar;
+
+use calendar::Calendar;
+
 /// TR35's plural categories, in its order.
 const CATEGORIES: [&str; 6] = ["zero", "one", "two", "few", "many", "other"];
 
@@ -160,7 +164,7 @@ pub(crate) fn resource(cldr: &Cldr, release: &str) -> Result<String, CldrError> 
     out.line("---");
     let numbers = Numbers::read(cldr)?;
     let currencies = Currencies::read(cldr, &numbers)?;
-    let calendar = Calendar::read(cldr, language)?;
+    let calendar = Calendar::read(cldr)?;
     out.section("tables");
     numbers.tables(&mut out)?;
     currencies.tables(&mut out)?;
@@ -184,7 +188,19 @@ pub(crate) fn resource(cldr: &Cldr, release: &str) -> Result<String, CldrError> 
     }
     out.section("formats.currency");
     currencies.format(&numbers, &decimal, &mut out)?;
-    calendar.formats(&mut out)?;
+    // A localized offset writes its hours as a number with its sign (icu_datetime 2.4.0,
+    // `format/time_zone.rs`): the decimal pattern's sign, the plus or minus symbol, stands alone
+    // before the digits.
+    if decimal.negative.is_some() || decimal.positive != (Vec::new(), Vec::new()) {
+        return Err(numbers
+            .file
+            .form(&["decimalFormats", "standard"], &numbers.decimal));
+    }
+    let signs = (
+        numbers.symbol("plusSign")?.to_owned(),
+        numbers.symbol("minusSign")?.to_owned(),
+    );
+    calendar.formats(&mut out, &signs)?;
     Ok(out.text)
 }
 
@@ -609,8 +625,10 @@ impl Currencies {
             }
             let get =
                 |key: &str| file.optional_text(&joined(&currencies_at, &[code.as_str(), key]));
+            // A symbol equal to the code stays in the table: CLDR sets it, and the differential
+            // reads it there.
             let symbol = get("symbol")?;
-            if let Some(symbol) = symbol.filter(|s| s != code) {
+            if let Some(symbol) = symbol {
                 symbols.push((code.clone(), symbol.to_owned()));
             }
             // TR35 Part 3: the narrow symbol falls back to the symbol, and a currency without
@@ -619,7 +637,7 @@ impl Currencies {
                 Some(narrowed) => Some(narrowed),
                 None => symbol,
             };
-            if let Some(symbol) = narrowed.filter(|s| s != code) {
+            if let Some(symbol) = narrowed {
                 narrow.push((code.clone(), symbol.to_owned()));
             }
             // TR35 Part 3: the display name of the count, else of `other`, else without a
@@ -809,396 +827,5 @@ impl Currencies {
             standard_alpha.lines("{currency}")?,
         ));
         out.patterns(&lines)
-    }
-}
-
-/// A field of a date pattern, by its letter and width (TR35 Part 4, "Date Field Symbol Table"),
-/// as the lines that write it.
-fn date_field(letter: char, width: usize, era: bool, year_era: &[Line]) -> Option<Vec<Line>> {
-    let pad = |name: &str| {
-        if width == 2 {
-            format!("{{{name}:pad=2}}")
-        } else {
-            format!("{{{name}}}")
-        }
-    };
-    let one = |text: String| Some(plain(text));
-    match (letter, width) {
-        ('G', 1..=3) => one("{era:table=eras}".to_owned()),
-        // ICU4X's `YearStyle::Auto`: a two-digit year from 1950 to 2049 alone, a year before
-        // 1000 with its era, every other year in full.
-        ('y', _) => {
-            let full = if width > 2 {
-                format!("{{year:pad={width}}}")
-            } else {
-                "{year}".to_owned()
-            };
-            let mut lines = Vec::new();
-            if era {
-                let shown = if width > 2 {
-                    format!("{{era-year:pad={width}}}")
-                } else {
-                    "{era-year}".to_owned()
-                };
-                lines.push((vec!["year<1000".to_owned()], shown));
-            } else {
-                lines.extend(guarded(&["year<1000"], year_era.to_vec()));
-            }
-            if width == 2 {
-                lines.push((
-                    vec!["year>=1950".to_owned(), "year<2050".to_owned()],
-                    "{year:last=2,pad=2}".to_owned(),
-                ));
-            }
-            lines.push((Vec::new(), full));
-            Some(lines)
-        }
-        ('M', 3) => one("{month:table=months.abbreviated}".to_owned()),
-        ('M', 4) => one("{month:table=months.wide}".to_owned()),
-        ('M', 1..=2) => one(pad("month")),
-        ('d', 1..=2) => one(pad("day")),
-        ('E', 1..=3) => one("{weekday:table=days.abbreviated}".to_owned()),
-        ('E', 4) => one("{weekday:table=days.wide}".to_owned()),
-        ('h', 1..=2) => one(pad("hour12")),
-        ('H', 1..=2) => one(pad("hour")),
-        ('K', 1..=2) => one(pad("hour11")),
-        ('k', 1..=2) => one(pad("hour24")),
-        ('m', 1..=2) => one(pad("minute")),
-        ('s', 1..=2) => one(pad("second")),
-        ('a', 1..=3) => one("{period:table=periods}".to_owned()),
-        _ => None,
-    }
-}
-
-/// A TR35 pattern's items: literal text, and each field's letter and width.
-fn items(text: &str) -> Option<Vec<Result<String, (char, usize)>>> {
-    let mut items = Vec::new();
-    let mut text_run = String::new();
-    let mut chars = text.chars().peekable();
-    let mut quoted = false;
-    while let Some(c) = chars.next() {
-        if c == '\'' {
-            if chars.next_if_eq(&'\'').is_some() {
-                text_run.push('\'');
-            } else {
-                quoted = !quoted;
-            }
-        } else if quoted || !c.is_ascii_alphabetic() {
-            text_run.push(c);
-        } else {
-            let mut width = 1;
-            while chars.next_if_eq(&c).is_some() {
-                width += 1;
-            }
-            if !text_run.is_empty() {
-                items.push(Ok(std::mem::take(&mut text_run)));
-            }
-            items.push(Err((c, width)));
-        }
-    }
-    if quoted {
-        return None;
-    }
-    if !text_run.is_empty() {
-        items.push(Ok(text_run));
-    }
-    Some(items)
-}
-
-/// The language's calendar patterns and names.
-struct Calendar {
-    file: File,
-    base: Vec<String>,
-    months_wide: Vec<String>,
-    months_abbreviated: Vec<String>,
-    days_wide: Vec<String>,
-    days_abbreviated: Vec<String>,
-    periods: Vec<String>,
-    eras: Vec<String>,
-    gmt: (String, String),
-    /// The hour formats of a positive offset and of a negative one.
-    hours: (String, String),
-    year_era: String,
-}
-
-impl Calendar {
-    fn read(cldr: &Cldr, language: &str) -> Result<Self, CldrError> {
-        let file = cldr.main("cldr-dates-full", "ca-gregorian.json")?;
-        let base: Vec<String> = ["main", language, "dates", "calendars", "gregorian"]
-            .iter()
-            .map(|s| (*s).to_owned())
-            .collect();
-        let at = |rest: &[&str]| -> Vec<String> {
-            base.iter()
-                .cloned()
-                .chain(rest.iter().map(|s| (*s).to_owned()))
-                .collect()
-        };
-        let text = |rest: &[&str]| -> Result<String, CldrError> {
-            let path = at(rest);
-            let path: Vec<&str> = path.iter().map(String::as_str).collect();
-            file.text(&path).map(str::to_owned)
-        };
-        let names =
-            |path: &[&str], keys: &[&str], numbered: &[&str]| -> Result<Vec<String>, CldrError> {
-                keys.iter()
-                    .zip(numbered)
-                    .map(|(key, number)| {
-                        let mut full = path.to_vec();
-                        full.push(key);
-                        Ok(format!("{number} {}", text(&full)?))
-                    })
-                    .collect()
-            };
-        let months = [
-            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12",
-        ];
-        // The weekdays from Monday, numbered as ISO 8601 numbers them.
-        let days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-        let iso = ["1", "2", "3", "4", "5", "6", "7"];
-        let zones = cldr.main("cldr-dates-full", "timeZoneNames.json")?;
-        let zone = ["main", language, "dates", "timeZoneNames"];
-        let gmt_at = joined(&zone, &["gmtFormat"]);
-        let gmt = zones.text(&gmt_at)?;
-        let (before, after) = gmt
-            .split_once("{0}")
-            .filter(|(_, after)| !after.contains("{0}"))
-            .ok_or_else(|| zones.form(&gmt_at, gmt))?;
-        let hours_at = joined(&zone, &["hourFormat"]);
-        let hours = zones.text(&hours_at)?;
-        let (positive, negative) = hours
-            .split_once(';')
-            .ok_or_else(|| zones.form(&hours_at, hours))?;
-        Ok(Self {
-            months_wide: names(&["months", "format", "wide"], &months, &months)?,
-            months_abbreviated: names(&["months", "format", "abbreviated"], &months, &months)?,
-            days_wide: names(&["days", "format", "wide"], &days, &iso)?,
-            days_abbreviated: names(&["days", "format", "abbreviated"], &days, &iso)?,
-            periods: names(
-                &["dayPeriods", "format", "abbreviated"],
-                &["am", "pm"],
-                &["0", "1"],
-            )?,
-            eras: names(&["eras", "eraAbbr"], &["0", "1"], &["0", "1"])?,
-            gmt: (before.to_owned(), after.to_owned()),
-            hours: (positive.to_owned(), negative.to_owned()),
-            year_era: text(&["dateTimeFormats", "availableFormats", "Gy"])?,
-            file,
-            base,
-        })
-    }
-
-    fn at(&self, rest: &[&str]) -> Vec<String> {
-        self.base
-            .iter()
-            .cloned()
-            .chain(rest.iter().map(|s| (*s).to_owned()))
-            .collect()
-    }
-
-    fn text(&self, rest: &[&str]) -> Result<&str, CldrError> {
-        let path = self.at(rest);
-        let path: Vec<&str> = path.iter().map(String::as_str).collect();
-        self.file.text(&path)
-    }
-
-    fn optional(&self, rest: &[&str]) -> Result<Option<&str>, CldrError> {
-        let path = self.at(rest);
-        let path: Vec<&str> = path.iter().map(String::as_str).collect();
-        self.file.optional_text(&path)
-    }
-
-    fn refused(&self, rest: &[&str], value: &str) -> CldrError {
-        let path = self.at(rest);
-        let path: Vec<&str> = path.iter().map(String::as_str).collect();
-        self.file.form(&path, value)
-    }
-
-    fn tables(&self, out: &mut Out) -> Result<(), CldrError> {
-        out.lines("months.wide", &self.months_wide)?;
-        out.lines("months.abbreviated", &self.months_abbreviated)?;
-        out.lines("days.wide", &self.days_wide)?;
-        out.lines("days.abbreviated", &self.days_abbreviated)?;
-        out.lines("periods", &self.periods)?;
-        out.lines("eras", &self.eras)
-    }
-
-    /// The year with its era, CLDR's `Gy` pattern, as lines.
-    fn year_era(&self) -> Result<Vec<Line>, CldrError> {
-        let at = ["dateTimeFormats", "availableFormats", "Gy"];
-        let refused = || self.refused(&at, &self.year_era);
-        let mut lines = plain(String::new());
-        for item in items(&self.year_era).ok_or_else(refused)? {
-            let part = match item {
-                Ok(text) => plain(literal(&text)),
-                Err(('y', width)) => plain(if width > 2 {
-                    format!("{{era-year:pad={width}}}")
-                } else {
-                    "{era-year}".to_owned()
-                }),
-                Err(('G', 1..=3)) => plain("{era:table=eras}".to_owned()),
-                Err(_) => return Err(refused()),
-            };
-            lines = product(&lines, &part);
-        }
-        Ok(lines)
-    }
-
-    /// The localized GMT format of an offset: `long` pads its hours and always writes its
-    /// minutes; the short format writes them when they are not zero.
-    fn zone(&self, long: bool) -> Result<Vec<Line>, CldrError> {
-        let (before, after) = (literal(&self.gmt.0), literal(&self.gmt.1));
-        let mut lines = Vec::new();
-        for (sign, hours) in [
-            (Some("offset-sign=1"), &self.hours.1),
-            (None, &self.hours.0),
-        ] {
-            let refused = || self.refused(&["hourFormat"], hours);
-            // The text up to the hours and after them, and the minutes with the text before
-            // them.
-            let (mut head, mut minutes, mut tail) = (String::new(), None::<String>, String::new());
-            let mut hours_seen = false;
-            for item in items(hours).ok_or_else(refused)? {
-                match item {
-                    Ok(text) if hours_seen => tail.push_str(&literal(&text)),
-                    Ok(text) => head.push_str(&literal(&text)),
-                    Err(('H', 1..=2)) if !hours_seen => {
-                        hours_seen = true;
-                        head.push_str(if long {
-                            "{offset-hours:pad=2}"
-                        } else {
-                            "{offset-hours}"
-                        });
-                    }
-                    Err(('m', 2)) if hours_seen && minutes.is_none() => {
-                        minutes = Some(format!(
-                            "{}{{offset-minutes:pad=2}}",
-                            std::mem::take(&mut tail)
-                        ));
-                    }
-                    Err(_) => return Err(refused()),
-                }
-            }
-            if !hours_seen {
-                return Err(refused());
-            }
-            let tests: Vec<String> = sign.into_iter().map(str::to_owned).collect();
-            let shown = |minutes: &str| format!("{before}{head}{minutes}{tail}{after}");
-            match minutes {
-                Some(minutes) if long => lines.push((tests, shown(&minutes))),
-                Some(minutes) => {
-                    let mut nonzero = tests.clone();
-                    nonzero.push("offset-minutes>0".to_owned());
-                    lines.push((nonzero, shown(&minutes)));
-                    lines.push((tests, shown("")));
-                }
-                None => lines.push((tests, shown(""))),
-            }
-        }
-        Ok(lines)
-    }
-
-    /// The lines of a date or time pattern.
-    fn pattern(&self, rest: &[&str]) -> Result<Vec<Line>, CldrError> {
-        let text = self.text(rest)?;
-        let refused = || self.refused(rest, text);
-        let items = items(text).ok_or_else(refused)?;
-        let era = items.iter().any(|item| matches!(item, Err(('G', _))));
-        let year_era = self.year_era()?;
-        let mut lines = plain(String::new());
-        for item in items {
-            let part = match item {
-                Ok(text) => plain(literal(&text)),
-                Err(('z', 1..=3) | ('O', 1)) => self.zone(false)?,
-                Err(('z' | 'O', 4)) => self.zone(true)?,
-                Err((letter, width)) => {
-                    date_field(letter, width, era, &year_era).ok_or_else(refused)?
-                }
-            };
-            lines = product(&lines, &part);
-        }
-        Ok(lines)
-    }
-
-    /// The time at `length`: at `long` and `full`, a time without an offset as at `medium`.
-    fn time(&self, length: &str) -> Result<Vec<Line>, CldrError> {
-        let pattern = self.pattern(&["timeFormats", length])?;
-        Ok(match length {
-            "long" | "full" => {
-                let mut lines = guarded(&["offset?"], pattern);
-                lines.extend(self.pattern(&["timeFormats", "medium"])?);
-                lines
-            }
-            _ => pattern,
-        })
-    }
-
-    /// The date and time at `length`: CLDR's `atTime` pattern, else the standard one
-    /// (TR35 Part 4, "dateTimeFormats"), `{0}` the time and `{1}` the date.
-    fn both(&self, length: &str) -> Result<Vec<Line>, CldrError> {
-        let at_time = ["dateTimeFormats-atTime", "standard", length];
-        let (rest, glue): (Vec<&str>, &str) = match self.optional(&at_time)? {
-            Some(glue) => (at_time.to_vec(), glue),
-            None => (
-                vec!["dateTimeFormats", length],
-                self.text(&["dateTimeFormats", length])?,
-            ),
-        };
-        let refused = || self.refused(&rest, glue);
-        let mut lines = plain(String::new());
-        let mut text = glue;
-        let (mut times, mut dates) = (0, 0);
-        while let Some((before, mark)) = text.split_once('{') {
-            lines = product(&lines, &self.literal_run(before).ok_or_else(refused)?);
-            let (part, after) = if let Some(after) = mark.strip_prefix("0}") {
-                times += 1;
-                (self.time(length)?, after)
-            } else if let Some(after) = mark.strip_prefix("1}") {
-                dates += 1;
-                (self.pattern(&["dateFormats", length])?, after)
-            } else {
-                return Err(refused());
-            };
-            lines = product(&lines, &part);
-            text = after;
-        }
-        lines = product(&lines, &self.literal_run(text).ok_or_else(refused)?);
-        if (times, dates) != (1, 1) {
-            return Err(refused());
-        }
-        Ok(lines)
-    }
-
-    /// Text of a pattern without fields: its quoting resolved.
-    fn literal_run(&self, text: &str) -> Option<Vec<Line>> {
-        let mut out = String::new();
-        for item in items(text)? {
-            match item {
-                Ok(text) => out.push_str(&literal(&text)),
-                Err(_) => return None,
-            }
-        }
-        Some(plain(out))
-    }
-
-    fn formats(&self, out: &mut Out) -> Result<(), CldrError> {
-        for (name, of) in [("date", "date"), ("time", "time"), ("datetime", "datetime")] {
-            out.section(&format!("formats.{name}"));
-            out.setting("of", of)?;
-            out.setting("default", "yes")?;
-            out.setting("option.length", &LENGTHS.join(" "))?;
-            let mut lines = Vec::new();
-            for length in LENGTHS {
-                let pattern = match name {
-                    "date" => self.pattern(&["dateFormats", length])?,
-                    "time" => self.time(length)?,
-                    _ => self.both(length)?,
-                };
-                let test = format!("length={length}");
-                lines.extend(guarded(&[test.as_str()], pattern));
-            }
-            out.patterns(&lines)?;
-        }
-        Ok(())
     }
 }

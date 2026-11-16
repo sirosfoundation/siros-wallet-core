@@ -262,11 +262,16 @@ fn years() -> Vec<Date> {
         .collect()
 }
 
-/// Whether ICU4X's text is the one cell where its pattern is CLDR 49's German `GyMMMMEd`,
-/// `d MMMM Y G, E`, whose week-based year `Y` ICU4X 2.4 writes as the letter: the full length
-/// before year 1000. `:date` writes the full pattern with CLDR's `Gy`.
-fn week_year_cell(language: &str, length: &str, year: u16, theirs: &str) -> bool {
-    language == "de" && length == "full" && year < 1000 && theirs.contains(" Y ")
+/// ICU4X's text, with the year of the era in place of the letter `Y` where its pattern is
+/// CLDR 49's German `GyMMMMEd`, `d MMMM Y G, E`: ICU4X 2.4 writes its week-based year `Y` as
+/// the letter, and the fixture writes the year of the era. That pattern writes the full length
+/// before year 1000.
+fn week_year(language: &str, length: &str, year: u16, theirs: String) -> String {
+    if language == "de" && length == "full" && year < 1000 {
+        theirs.replace(" Y ", &format!(" {} ", year.max(1)))
+    } else {
+        theirs
+    }
 }
 
 #[test]
@@ -292,11 +297,9 @@ fn years_equal_icu4x() {
             let input = icu_at(d, 9, 5);
             let theirs = theirs.date.iter().chain(&theirs.both);
             for ((message, theirs), length) in ours.iter().zip(theirs).zip(lengths.iter().cycle()) {
-                let theirs = theirs(&input);
-                if !week_year_cell(language, length, d.year(), &theirs) {
-                    let at = format!("{language} {length} {message:?}");
-                    differences.check(&at, &plain(&context, message), &theirs);
-                }
+                let theirs = week_year(language, length, d.year(), theirs(&input));
+                let at = format!("{language} {length} {message:?}");
+                differences.check(&at, &plain(&context, message), &theirs);
             }
         }
     }

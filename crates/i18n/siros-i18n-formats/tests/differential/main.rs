@@ -1,5 +1,5 @@
 //! The CLDR tool's formats write as ICU4X 2.4 writes over its compiled data of the same CLDR
-//! release, 49.0.0, for English and German: plural categories and number texts,
+//! release, 49.0.0, for each language of the fixtures: plural categories and number texts,
 //! amounts in every ISO 4217 currency, and dates and times at every length.
 
 #[path = "../support/cldr.rs"]
@@ -11,9 +11,8 @@ use siros_i18n::{Bidi, Context, Message};
 
 siros_i18n::scope!("probe");
 
-/// The languages compared: siros-cldr writes es, fr and he as CLDR's length patterns give them,
-/// where ICU4X matches skeletons.
-pub const LANGUAGES: [&str; 2] = ["en", "de"];
+/// The languages compared.
+pub const LANGUAGES: [&str; 5] = ["en", "de", "es", "fr", "he"];
 
 /// A context of `language` with the tool's formats and a module of `messages`, without bidi
 /// isolation.

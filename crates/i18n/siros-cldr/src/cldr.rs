@@ -127,11 +127,12 @@ impl File {
 }
 
 /// The packages the tool reads.
-const PACKAGES: [&str; 4] = [
+const PACKAGES: [&str; 5] = [
     "cldr-core",
     "cldr-numbers-full",
     "cldr-dates-full",
     "cldr-misc-full",
+    "cldr-units-full",
 ];
 
 /// A CLDR JSON directory and the language read from it.

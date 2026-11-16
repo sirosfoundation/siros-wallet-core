@@ -80,29 +80,160 @@ currency.digits =
   XPF 0
   YER 0
 currency.symbol =
+  AED AED
+  AFN AFN
+  ALL ALL
+  AMD AMD
+  AOA AOA
+  ARS ARS
   AUD A$
+  AWG AWG
+  AZN AZN
+  BAM BAM
+  BBD BBD
+  BDT BDT
+  BHD BHD
+  BIF BIF
+  BMD BMD
+  BND BND
+  BOB BOB
   BRL R$
+  BSD BSD
+  BTN BTN
+  BWP BWP
+  BYN BYN
+  BZD BZD
   CAD CA$
+  CDF CDF
+  CHF CHF
+  CLP CLP
   CNY CN¥
+  COP COP
+  CRC CRC
+  CUP CUP
+  CVE CVE
+  CZK CZK
+  DJF DJF
+  DKK DKK
+  DOP DOP
+  DZD DZD
+  EGP EGP
+  ERN ERN
+  ETB ETB
   EUR €
+  FJD FJD
+  FKP FKP
   GBP £
+  GEL GEL
+  GHS GHS
+  GIP GIP
+  GMD GMD
+  GNF GNF
+  GTQ GTQ
+  GYD GYD
   HKD HK$
+  HNL HNL
+  HTG HTG
+  HUF HUF
+  IDR IDR
   ILS ₪
   INR ₹
+  IQD IQD
+  IRR IRR
+  ISK ISK
+  JMD JMD
+  JOD JOD
   JPY ¥
+  KES KES
+  KGS KGS
+  KHR KHR
+  KMF KMF
+  KPW KPW
   KRW ₩
+  KWD KWD
+  KYD KYD
+  KZT KZT
+  LAK LAK
+  LBP LBP
+  LKR LKR
+  LRD LRD
+  LSL LSL
+  LYD LYD
+  MAD MAD
+  MDL MDL
+  MGA MGA
+  MKD MKD
+  MMK MMK
+  MNT MNT
+  MOP MOP
+  MRU MRU
+  MUR MUR
+  MVR MVR
+  MWK MWK
   MXN MX$
+  MYR MYR
+  MZN MZN
+  NAD NAD
+  NGN NGN
+  NIO NIO
+  NOK NOK
+  NPR NPR
   NZD NZ$
+  OMR OMR
+  PAB PAB
+  PEN PEN
+  PGK PGK
   PHP ₱
+  PKR PKR
+  PLN PLN
+  PYG PYG
+  QAR QAR
+  RON RON
+  RSD RSD
+  RUB RUB
+  RWF RWF
+  SAR SAR
+  SBD SBD
+  SCR SCR
+  SDG SDG
+  SEK SEK
+  SGD SGD
+  SHP SHP
+  SLE SLE
+  SOS SOS
+  SRD SRD
+  SSP SSP
+  STN STN
+  SYP SYP
+  SZL SZL
+  THB THB
+  TJS TJS
+  TMT TMT
+  TND TND
+  TOP TOP
+  TRY TRY
+  TTD TTD
   TWD NT$
+  TZS TZS
+  UAH UAH
+  UGX UGX
   USD $
+  UYU UYU
+  UZS UZS
+  VES VES
   VND ₫
+  VUV VUV
+  WST WST
   XAF FCFA
   XCD EC$
   XCG Cg.
   XOF F CFA
   XPF CFPF
   XXX ¤
+  YER YER
+  ZAR ZAR
+  ZMW ZMW
+  ZWG ZWG
 currency.symbol.tight =
   AUD A$
   BRL R$
@@ -125,33 +256,46 @@ currency.symbol.tight =
   XCG Cg.
   XXX ¤
 currency.narrow =
+  AED AED
   AFN ؋
+  ALL ALL
   AMD ֏
   AOA Kz
   ARS $
   AUD $
+  AWG AWG
   AZN ₼
   BAM KM
   BBD $
   BDT ৳
+  BHD BHD
+  BIF BIF
   BMD $
   BND $
   BOB Bs
   BRL R$
   BSD $
+  BTN BTN
   BWP P
+  BYN BYN
   BZD $
   CAD $
+  CDF CDF
   CHF Fr.
   CLP $
   CNY ¥
   COP $
   CRC ₡
   CUP $
+  CVE CVE
   CZK Kč
+  DJF DJF
   DKK kr
   DOP $
+  DZD DZD
   EGP E£
+  ERN ERN
+  ETB ETB
   EUR €
   FJD $
   FKP £
@@ -159,73 +303,113 @@ currency.narrow =
   GEL ₾
   GHS GH₵
   GIP £
+  GMD GMD
   GNF FG
   GTQ Q
   GYD $
   HKD $
   HNL L
+  HTG HTG
   HUF Ft
   IDR Rp
   ILS ₪
   INR ₹
+  IQD IQD
+  IRR IRR
   ISK kr
   JMD $
+  JOD JOD
   JPY ¥
+  KES KES
   KGS ⃀
   KHR ៛
   KMF CF
   KPW ₩
   KRW ₩
+  KWD KWD
   KYD $
   KZT ₸
   LAK ₭
   LBP L£
   LKR Rs
   LRD $
+  LSL LSL
+  LYD LYD
+  MAD MAD
+  MDL MDL
   MGA Ar
+  MKD MKD
   MMK K
   MNT ₮
+  MOP MOP
+  MRU MRU
   MUR Rs
+  MVR MVR
+  MWK MWK
   MXN $
   MYR RM
+  MZN MZN
   NAD $
   NGN ₦
   NIO C$
   NOK kr
   NPR Rs
   NZD $
+  OMR OMR
+  PAB PAB
+  PEN PEN
+  PGK PGK
   PHP ₱
   PKR Rs
   PLN zł
   PYG ₲
+  QAR QAR
   RON lei
+  RSD RSD
   RUB ₽
   RWF RF
+  SAR SAR
   SBD $
+  SCR SCR
+  SDG SDG
   SEK kr
   SGD $
   SHP £
+  SLE SLE
+  SOS SOS
   SRD $
   SSP £
   STN Db
   SYP £
+  SZL SZL
   THB ฿
+  TJS TJS
+  TMT TMT
+  TND TND
   TOP T$
   TRY ₺
   TTD $
   TWD $
+  TZS TZS
   UAH ₴
+  UGX UGX
   USD $
   UYU $
+  UZS UZS
+  VES VES
   VND ₫
+  VUV VUV
+  WST WST
   XAF FCFA
   XCD $
   XCG Cg.
   XOF F CFA
   XPF CFPF
   XXX ¤
+  YER YER
   ZAR R
   ZMW ZK
+  ZWG ZWG
 currency.narrow.tight =
   AFN ؋
   AMD ֏
@@ -751,14 +935,14 @@ default = yes
 option.length = medium short long full
 pattern =
   [length=medium year<1000] {month:table=months.abbreviated} {day}, {era-year} {era:table=eras}
-  [length=medium] {month:table=months.abbreviated} {day}, {year}
+  [length=medium] {month:table=months.abbreviated} {day}, {era-year}
   [length=short year<1000] {month}/{day}/{era-year} {era:table=eras}
-  [length=short year>=1950 year<2050] {month}/{day}/{year:last=2,pad=2}
-  [length=short] {month}/{day}/{year}
+  [length=short year>=1950 year<2050] {month}/{day}/{era-year:last=2,pad=2}
+  [length=short] {month}/{day}/{era-year}
   [length=long year<1000] {month:table=months.wide} {day}, {era-year} {era:table=eras}
-  [length=long] {month:table=months.wide} {day}, {year}
+  [length=long] {month:table=months.wide} {day}, {era-year}
   [length=full year<1000] {weekday:table=days.wide}, {month:table=months.wide} {day}, {era-year} {era:table=eras}
-  [length=full] {weekday:table=days.wide}, {month:table=months.wide} {day}, {year}
+  [length=full] {weekday:table=days.wide}, {month:table=months.wide} {day}, {era-year}
 
 [formats.time]
 of = time
@@ -782,23 +966,23 @@ default = yes
 option.length = medium short long full
 pattern =
   [length=medium year<1000] {month:table=months.abbreviated} {day}, {era-year} {era:table=eras}, {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods}
-  [length=medium] {month:table=months.abbreviated} {day}, {year}, {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods}
+  [length=medium] {month:table=months.abbreviated} {day}, {era-year}, {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods}
   [length=short year<1000] {month}/{day}/{era-year} {era:table=eras}, {hour12}:{minute:pad=2} {period:table=periods}
-  [length=short year>=1950 year<2050] {month}/{day}/{year:last=2,pad=2}, {hour12}:{minute:pad=2} {period:table=periods}
-  [length=short] {month}/{day}/{year}, {hour12}:{minute:pad=2} {period:table=periods}
+  [length=short year>=1950 year<2050] {month}/{day}/{era-year:last=2,pad=2}, {hour12}:{minute:pad=2} {period:table=periods}
+  [length=short] {month}/{day}/{era-year}, {hour12}:{minute:pad=2} {period:table=periods}
   [length=long year<1000 offset? offset-sign=1 offset-minutes>0] {month:table=months.wide} {day}, {era-year} {era:table=eras} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT-{offset-hours}:{offset-minutes:pad=2}
   [length=long year<1000 offset? offset-sign=1] {month:table=months.wide} {day}, {era-year} {era:table=eras} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT-{offset-hours}
   [length=long year<1000 offset? offset-minutes>0] {month:table=months.wide} {day}, {era-year} {era:table=eras} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT+{offset-hours}:{offset-minutes:pad=2}
   [length=long year<1000 offset?] {month:table=months.wide} {day}, {era-year} {era:table=eras} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT+{offset-hours}
   [length=long year<1000] {month:table=months.wide} {day}, {era-year} {era:table=eras} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods}
-  [length=long offset? offset-sign=1 offset-minutes>0] {month:table=months.wide} {day}, {year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT-{offset-hours}:{offset-minutes:pad=2}
-  [length=long offset? offset-sign=1] {month:table=months.wide} {day}, {year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT-{offset-hours}
-  [length=long offset? offset-minutes>0] {month:table=months.wide} {day}, {year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT+{offset-hours}:{offset-minutes:pad=2}
-  [length=long offset?] {month:table=months.wide} {day}, {year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT+{offset-hours}
-  [length=long] {month:table=months.wide} {day}, {year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods}
+  [length=long offset? offset-sign=1 offset-minutes>0] {month:table=months.wide} {day}, {era-year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT-{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset? offset-sign=1] {month:table=months.wide} {day}, {era-year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT-{offset-hours}
+  [length=long offset? offset-minutes>0] {month:table=months.wide} {day}, {era-year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT+{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset?] {month:table=months.wide} {day}, {era-year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT+{offset-hours}
+  [length=long] {month:table=months.wide} {day}, {era-year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods}
   [length=full year<1000 offset? offset-sign=1] {weekday:table=days.wide}, {month:table=months.wide} {day}, {era-year} {era:table=eras} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
   [length=full year<1000 offset?] {weekday:table=days.wide}, {month:table=months.wide} {day}, {era-year} {era:table=eras} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
   [length=full year<1000] {weekday:table=days.wide}, {month:table=months.wide} {day}, {era-year} {era:table=eras} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods}
-  [length=full offset? offset-sign=1] {weekday:table=days.wide}, {month:table=months.wide} {day}, {year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
-  [length=full offset?] {weekday:table=days.wide}, {month:table=months.wide} {day}, {year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
-  [length=full] {weekday:table=days.wide}, {month:table=months.wide} {day}, {year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods}
+  [length=full offset? offset-sign=1] {weekday:table=days.wide}, {month:table=months.wide} {day}, {era-year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full offset?] {weekday:table=days.wide}, {month:table=months.wide} {day}, {era-year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full] {weekday:table=days.wide}, {month:table=months.wide} {day}, {era-year} at {hour12}:{minute:pad=2}:{second:pad=2} {period:table=periods}

@@ -81,6 +81,7 @@ currency.symbol =
   AUD A$
   BRL R$
   CAD CA$
+  CHF CHF
   CNY ‎CN¥‎
   EUR €
   GBP £
@@ -91,6 +92,7 @@ currency.symbol =
   KRW ₩
   MXN MX$
   NZD NZ$
+  PHP PHP
   THB ฿
   TWD NT$
   USD $
@@ -105,6 +107,7 @@ currency.symbol.tight =
   AUD A$
   BRL R$
   CAD CA$
+  CHF CHF
   CNY ‎CN¥‎
   EUR €
   GBP £
@@ -115,6 +118,7 @@ currency.symbol.tight =
   KRW ₩
   MXN MX$
   NZD NZ$
+  PHP PHP
   THB ฿
   TWD NT$
   USD $
@@ -622,13 +626,13 @@ default = yes
 option.length = medium short long full
 pattern =
   [length=medium year<1000] {day} ב{month:table=months.abbreviated} {era-year} {era:table=eras}
-  [length=medium] {day} ב{month:table=months.abbreviated} {year}
-  [length=short year<1000] {day}.{month}.{era-year} {era:table=eras}
-  [length=short] {day}.{month}.{year}
+  [length=medium] {day} ב{month:table=months.abbreviated} {era-year}
+  [length=short year<1000] {day}/{month}/{era-year} {era:table=eras}
+  [length=short] {day}.{month}.{era-year}
   [length=long year<1000] {day} ב{month:table=months.wide} {era-year} {era:table=eras}
-  [length=long] {day} ב{month:table=months.wide} {year}
+  [length=long] {day} ב{month:table=months.wide} {era-year}
   [length=full year<1000] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} {era:table=eras}
-  [length=full] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {year}
+  [length=full] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year}
 
 [formats.time]
 of = time
@@ -637,12 +641,12 @@ option.length = medium short long full
 pattern =
   [length=medium] {hour}:{minute:pad=2}:{second:pad=2}
   [length=short] {hour}:{minute:pad=2}
-  [length=long offset? offset-sign=1 offset-minutes>0] {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}‎‎
-  [length=long offset? offset-sign=1] {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}‎‎
+  [length=long offset? offset-sign=1 offset-minutes>0] {hour}:{minute:pad=2}:{second:pad=2} GMT‎-{offset-hours}:{offset-minutes:pad=2}‎
+  [length=long offset? offset-sign=1] {hour}:{minute:pad=2}:{second:pad=2} GMT‎-{offset-hours}‎
   [length=long offset? offset-minutes>0] {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}:{offset-minutes:pad=2}‎
   [length=long offset?] {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}‎
   [length=long] {hour}:{minute:pad=2}:{second:pad=2}
-  [length=full offset? offset-sign=1] {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}‎‎
+  [length=full offset? offset-sign=1] {hour}:{minute:pad=2}:{second:pad=2} GMT‎-{offset-hours:pad=2}:{offset-minutes:pad=2}‎
   [length=full offset?] {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours:pad=2}:{offset-minutes:pad=2}‎
   [length=full] {hour}:{minute:pad=2}:{second:pad=2}
 
@@ -652,22 +656,22 @@ default = yes
 option.length = medium short long full
 pattern =
   [length=medium year<1000] {day} ב{month:table=months.abbreviated} {era-year} {era:table=eras}, {hour}:{minute:pad=2}:{second:pad=2}
-  [length=medium] {day} ב{month:table=months.abbreviated} {year}, {hour}:{minute:pad=2}:{second:pad=2}
-  [length=short year<1000] {day}.{month}.{era-year} {era:table=eras}, {hour}:{minute:pad=2}
-  [length=short] {day}.{month}.{year}, {hour}:{minute:pad=2}
-  [length=long year<1000 offset? offset-sign=1 offset-minutes>0] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}‎‎
-  [length=long year<1000 offset? offset-sign=1] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}‎‎
+  [length=medium] {day} ב{month:table=months.abbreviated} {era-year}, {hour}:{minute:pad=2}:{second:pad=2}
+  [length=short year<1000] {day}/{month}/{era-year} {era:table=eras}, {hour}:{minute:pad=2}
+  [length=short] {day}.{month}.{era-year}, {hour}:{minute:pad=2}
+  [length=long year<1000 offset? offset-sign=1 offset-minutes>0] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎-{offset-hours}:{offset-minutes:pad=2}‎
+  [length=long year<1000 offset? offset-sign=1] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎-{offset-hours}‎
   [length=long year<1000 offset? offset-minutes>0] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}:{offset-minutes:pad=2}‎
   [length=long year<1000 offset?] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}‎
   [length=long year<1000] {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2}
-  [length=long offset? offset-sign=1 offset-minutes>0] {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}‎‎
-  [length=long offset? offset-sign=1] {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}‎‎
-  [length=long offset? offset-minutes>0] {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}:{offset-minutes:pad=2}‎
-  [length=long offset?] {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}‎
-  [length=long] {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2}
-  [length=full year<1000 offset? offset-sign=1] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}‎‎
+  [length=long offset? offset-sign=1 offset-minutes>0] {day} ב{month:table=months.wide} {era-year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎-{offset-hours}:{offset-minutes:pad=2}‎
+  [length=long offset? offset-sign=1] {day} ב{month:table=months.wide} {era-year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎-{offset-hours}‎
+  [length=long offset? offset-minutes>0] {day} ב{month:table=months.wide} {era-year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}:{offset-minutes:pad=2}‎
+  [length=long offset?] {day} ב{month:table=months.wide} {era-year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours}‎
+  [length=long] {day} ב{month:table=months.wide} {era-year} בשעה {hour}:{minute:pad=2}:{second:pad=2}
+  [length=full year<1000 offset? offset-sign=1] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎-{offset-hours:pad=2}:{offset-minutes:pad=2}‎
   [length=full year<1000 offset?] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours:pad=2}:{offset-minutes:pad=2}‎
   [length=full year<1000] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} {era:table=eras} בשעה {hour}:{minute:pad=2}:{second:pad=2}
-  [length=full offset? offset-sign=1] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}‎‎
-  [length=full offset?] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours:pad=2}:{offset-minutes:pad=2}‎
-  [length=full] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {year} בשעה {hour}:{minute:pad=2}:{second:pad=2}
+  [length=full offset? offset-sign=1] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎-{offset-hours:pad=2}:{offset-minutes:pad=2}‎
+  [length=full offset?] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} בשעה {hour}:{minute:pad=2}:{second:pad=2} GMT‎+{offset-hours:pad=2}:{offset-minutes:pad=2}‎
+  [length=full] {weekday:table=days.wide}, {day} ב{month:table=months.wide} {era-year} בשעה {hour}:{minute:pad=2}:{second:pad=2}

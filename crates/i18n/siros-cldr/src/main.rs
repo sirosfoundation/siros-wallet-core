@@ -1,14 +1,16 @@
 //! Writes the default text of a language's format options for siros-i18n modules from CLDR's
 //! JSON release 49.0.0 (github.com/unicode-org/cldr-json, tag `49.0.0`), the release ICU4X 2.4's
-//! compiled data was generated from. A wallet's author copies the output's head and its
-//! `[formats.<format>]` sections into a module of the language, keeps or edits them, and a
-//! context checks them as it loads the module.
+//! compiled data was generated from, choosing date and time patterns as ICU4X's data generator
+//! chooses them. A wallet's author copies the output's head and its `[formats.<format>]`
+//! sections into a module of the language, keeps or edits them, and a context checks them as it
+//! loads the module.
 //!
 //! Usage: `siros-cldr <cldr-json directory> <language>`, the directory holding `cldr-core`,
-//! `cldr-numbers-full`, `cldr-dates-full` and `cldr-misc-full`. The resource is written to
-//! standard output. siros-i18n's test fixtures `crates/i18n/siros-i18n/tests/cldr/<language>.mf2` are
-//! its output for en, de, es, fr and he, and siros-testkit's `crates/siros-testkit/locales/cldr/`
-//! for en and de.
+//! `cldr-numbers-full`, `cldr-dates-full` (with the language's `ca-gregorian.json`,
+//! `ca-generic.json` and `timeZoneNames.json`), `cldr-misc-full` and `cldr-units-full`. The
+//! resource is written to standard output. siros-i18n-formats' test fixtures
+//! `crates/i18n/siros-i18n-formats/tests/cldr/<language>.mf2` are its output for en, de, es, fr
+//! and he.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -29,6 +31,7 @@
 )]
 
 mod cldr;
+mod skeleton;
 mod write;
 
 use std::io::Write as _;

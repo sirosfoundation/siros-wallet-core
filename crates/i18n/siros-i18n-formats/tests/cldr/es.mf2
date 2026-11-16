@@ -79,19 +79,55 @@ currency.digits =
   XPF 0
   YER 0
 currency.symbol =
+  AUD AUD
+  BRL BRL
+  CAD CAD
+  CHF CHF
+  CNY CNY
   EUR €
+  GBP GBP
+  HKD HKD
+  ILS ILS
+  INR INR
+  JPY JPY
+  KRW KRW
+  MXN MXN
+  NZD NZD
+  PHP PHP
   THB ฿
+  TWD TWD
   USD US$
   VND ₫
+  XAF XAF
+  XCD XCD
   XCG Cg.
+  XOF XOF
   XPF CFPF
   XXX ¤
 currency.symbol.tight =
+  AUD AUD
+  BRL BRL
+  CAD CAD
+  CHF CHF
+  CNY CNY
   EUR €
+  GBP GBP
+  HKD HKD
+  ILS ILS
+  INR INR
+  JPY JPY
+  KRW KRW
+  MXN MXN
+  NZD NZD
+  PHP PHP
   THB ฿
+  TWD TWD
   USD US$
   VND ₫
+  XAF XAF
+  XCD XCD
   XCG Cg.
+  XOF XOF
   XPF CFPF
   XXX ¤
 currency.narrow =
@@ -122,6 +158,7 @@ currency.narrow =
   CZK Kč
   DKK kr
   DOP $
+  EGP EGP
   EUR €
   FJD $
   FKP £
@@ -188,8 +225,10 @@ currency.narrow =
   USD $
   UYU $
   VND ₫
+  XAF XAF
   XCD $
   XCG Cg.
+  XOF XOF
   XPF CFPF
   XXX ¤
   ZAR R
@@ -222,6 +261,7 @@ currency.narrow.tight =
   CZK Kč
   DKK kr
   DOP $
+  EGP EGP
   EUR €
   FJD $
   FKP £
@@ -288,8 +328,10 @@ currency.narrow.tight =
   USD $
   UYU $
   VND ₫
+  XAF XAF
   XCD $
   XCG Cg.
+  XOF XOF
   XPF CFPF
   XXX ¤
   ZAR R
@@ -730,54 +772,54 @@ default = yes
 option.length = medium short long full
 pattern =
   [length=medium year<1000] {day} {month:table=months.abbreviated} {era-year} {era:table=eras}
-  [length=medium] {day} {month:table=months.abbreviated} {year}
+  [length=medium] {day} {month:table=months.abbreviated} {era-year}
   [length=short year<1000] {day}/{month}/{era-year} {era:table=eras}
-  [length=short year>=1950 year<2050] {day}/{month}/{year:last=2,pad=2}
-  [length=short] {day}/{month}/{year}
+  [length=short year>=1950 year<2050] {day}/{month}/{era-year:last=2,pad=2}
+  [length=short] {day}/{month}/{era-year}
   [length=long year<1000] {day} de {month:table=months.wide} de {era-year} {era:table=eras}
-  [length=long] {day} de {month:table=months.wide} de {year}
+  [length=long] {day} de {month:table=months.wide} de {era-year}
   [length=full year<1000] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year} {era:table=eras}
-  [length=full] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {year}
+  [length=full] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year}
 
 [formats.time]
 of = time
 default = yes
 option.length = medium short long full
 pattern =
-  [length=medium] {hour}:{minute:pad=2}:{second:pad=2}
-  [length=short] {hour}:{minute:pad=2}
-  [length=long offset? offset-sign=1 offset-minutes>0] {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
-  [length=long offset? offset-sign=1] {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
-  [length=long offset? offset-minutes>0] {hour}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
-  [length=long offset?] {hour}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
-  [length=long] {hour}:{minute:pad=2}:{second:pad=2}
-  [length=full offset? offset-sign=1] {hour}:{minute:pad=2}:{second:pad=2} (GMT-{offset-hours:pad=2}:{offset-minutes:pad=2})
-  [length=full offset?] {hour}:{minute:pad=2}:{second:pad=2} (GMT+{offset-hours:pad=2}:{offset-minutes:pad=2})
-  [length=full] {hour}:{minute:pad=2}:{second:pad=2}
+  [length=medium] {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=short] {hour:pad=2}:{minute:pad=2}
+  [length=long offset? offset-sign=1 offset-minutes>0] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset? offset-sign=1] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
+  [length=long offset? offset-minutes>0] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset?] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
+  [length=long] {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=full offset? offset-sign=1] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full offset?] {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full] {hour:pad=2}:{minute:pad=2}:{second:pad=2}
 
 [formats.datetime]
 of = datetime
 default = yes
 option.length = medium short long full
 pattern =
-  [length=medium year<1000] {day} {month:table=months.abbreviated} {era-year} {era:table=eras}, {hour}:{minute:pad=2}:{second:pad=2}
-  [length=medium] {day} {month:table=months.abbreviated} {year}, {hour}:{minute:pad=2}:{second:pad=2}
-  [length=short year<1000] {day}/{month}/{era-year} {era:table=eras}, {hour}:{minute:pad=2}
-  [length=short year>=1950 year<2050] {day}/{month}/{year:last=2,pad=2}, {hour}:{minute:pad=2}
-  [length=short] {day}/{month}/{year}, {hour}:{minute:pad=2}
-  [length=long year<1000 offset? offset-sign=1 offset-minutes>0] {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
-  [length=long year<1000 offset? offset-sign=1] {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
-  [length=long year<1000 offset? offset-minutes>0] {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
-  [length=long year<1000 offset?] {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
-  [length=long year<1000] {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour}:{minute:pad=2}:{second:pad=2}
-  [length=long offset? offset-sign=1 offset-minutes>0] {day} de {month:table=months.wide} de {year} a las {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
-  [length=long offset? offset-sign=1] {day} de {month:table=months.wide} de {year} a las {hour}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
-  [length=long offset? offset-minutes>0] {day} de {month:table=months.wide} de {year} a las {hour}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
-  [length=long offset?] {day} de {month:table=months.wide} de {year} a las {hour}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
-  [length=long] {day} de {month:table=months.wide} de {year} a las {hour}:{minute:pad=2}:{second:pad=2}
-  [length=full year<1000 offset? offset-sign=1] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year} {era:table=eras}, {hour}:{minute:pad=2}:{second:pad=2} (GMT-{offset-hours:pad=2}:{offset-minutes:pad=2})
-  [length=full year<1000 offset?] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year} {era:table=eras}, {hour}:{minute:pad=2}:{second:pad=2} (GMT+{offset-hours:pad=2}:{offset-minutes:pad=2})
-  [length=full year<1000] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year} {era:table=eras}, {hour}:{minute:pad=2}:{second:pad=2}
-  [length=full offset? offset-sign=1] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {year}, {hour}:{minute:pad=2}:{second:pad=2} (GMT-{offset-hours:pad=2}:{offset-minutes:pad=2})
-  [length=full offset?] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {year}, {hour}:{minute:pad=2}:{second:pad=2} (GMT+{offset-hours:pad=2}:{offset-minutes:pad=2})
-  [length=full] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {year}, {hour}:{minute:pad=2}:{second:pad=2}
+  [length=medium year<1000] {day} {month:table=months.abbreviated} {era-year} {era:table=eras}, {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=medium] {day} {month:table=months.abbreviated} {era-year}, {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=short year<1000] {day}/{month}/{era-year} {era:table=eras}, {hour:pad=2}:{minute:pad=2}
+  [length=short year>=1950 year<2050] {day}/{month}/{era-year:last=2,pad=2}, {hour:pad=2}:{minute:pad=2}
+  [length=short] {day}/{month}/{era-year}, {hour:pad=2}:{minute:pad=2}
+  [length=long year<1000 offset? offset-sign=1 offset-minutes>0] {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
+  [length=long year<1000 offset? offset-sign=1] {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
+  [length=long year<1000 offset? offset-minutes>0] {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
+  [length=long year<1000 offset?] {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
+  [length=long year<1000] {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=long offset? offset-sign=1 offset-minutes>0] {day} de {month:table=months.wide} de {era-year} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset? offset-sign=1] {day} de {month:table=months.wide} de {era-year} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
+  [length=long offset? offset-minutes>0] {day} de {month:table=months.wide} de {era-year} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset?] {day} de {month:table=months.wide} de {era-year} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
+  [length=long] {day} de {month:table=months.wide} de {era-year} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=full year<1000 offset? offset-sign=1] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full year<1000 offset?] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full year<1000] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year} {era:table=eras} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=full offset? offset-sign=1] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full offset?] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full] {weekday:table=days.wide}, {day} de {month:table=months.wide} de {era-year} a las {hour:pad=2}:{minute:pad=2}:{second:pad=2}

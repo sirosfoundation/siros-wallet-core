@@ -80,6 +80,7 @@ currency.symbol =
   AUD AU$
   BRL R$
   CAD CA$
+  CHF CHF
   CNY CN¥
   EUR €
   GBP £
@@ -90,6 +91,7 @@ currency.symbol =
   KRW ₩
   MXN MX$
   NZD NZ$
+  PHP PHP
   THB ฿
   TWD NT$
   USD $
@@ -99,10 +101,12 @@ currency.symbol =
   XCG Cg.
   XOF F CFA
   XPF CFPF
+  XXX XXX
 currency.symbol.tight =
   AUD AU$
   BRL R$
   CAD CA$
+  CHF CHF
   CNY CN¥
   EUR €
   GBP £
@@ -113,6 +117,7 @@ currency.symbol.tight =
   KRW ₩
   MXN MX$
   NZD NZ$
+  PHP PHP
   THB ฿
   TWD NT$
   USD $
@@ -122,6 +127,7 @@ currency.symbol.tight =
   XCG Cg.
   XOF F CFA
   XPF CFPF
+  XXX XXX
 currency.narrow =
   AFN ؋
   AMD ֏
@@ -207,6 +213,7 @@ currency.narrow =
   SRD $
   SSP £
   STN Db
+  SYP SYP
   THB ฿
   TOP T$
   TRY ₺
@@ -221,6 +228,7 @@ currency.narrow =
   XCG Cg.
   XOF F CFA
   XPF CFPF
+  XXX XXX
   ZAR R
   ZMW K
 currency.narrow.tight =
@@ -308,6 +316,7 @@ currency.narrow.tight =
   SRD $
   SSP £
   STN Db
+  SYP SYP
   THB ฿
   TOP T$
   TRY ₺
@@ -322,6 +331,7 @@ currency.narrow.tight =
   XCG Cg.
   XOF F CFA
   XPF CFPF
+  XXX XXX
   ZAR R
   ZMW K
 currency.name.one =
@@ -703,14 +713,14 @@ default = yes
 option.length = medium short long full
 pattern =
   [length=medium year<1000] {day:pad=2}.{month:pad=2}.{era-year} {era:table=eras}
-  [length=medium] {day:pad=2}.{month:pad=2}.{year}
+  [length=medium] {day:pad=2}.{month:pad=2}.{era-year}
   [length=short year<1000] {day:pad=2}.{month:pad=2}.{era-year} {era:table=eras}
-  [length=short year>=1950 year<2050] {day:pad=2}.{month:pad=2}.{year:last=2,pad=2}
-  [length=short] {day:pad=2}.{month:pad=2}.{year}
+  [length=short year>=1950 year<2050] {day:pad=2}.{month:pad=2}.{era-year:last=2,pad=2}
+  [length=short] {day:pad=2}.{month:pad=2}.{era-year}
   [length=long year<1000] {day}. {month:table=months.wide} {era-year} {era:table=eras}
-  [length=long] {day}. {month:table=months.wide} {year}
-  [length=full year<1000] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} {era:table=eras}
-  [length=full] {weekday:table=days.wide}, {day}. {month:table=months.wide} {year}
+  [length=long] {day}. {month:table=months.wide} {era-year}
+  [length=full year<1000] {day} {month:table=months.wide} {era-year} {era:table=eras}, {weekday:table=days.wide}
+  [length=full] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year}
 
 [formats.time]
 of = time
@@ -734,23 +744,23 @@ default = yes
 option.length = medium short long full
 pattern =
   [length=medium year<1000] {day:pad=2}.{month:pad=2}.{era-year} {era:table=eras}, {hour:pad=2}:{minute:pad=2}:{second:pad=2}
-  [length=medium] {day:pad=2}.{month:pad=2}.{year}, {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=medium] {day:pad=2}.{month:pad=2}.{era-year}, {hour:pad=2}:{minute:pad=2}:{second:pad=2}
   [length=short year<1000] {day:pad=2}.{month:pad=2}.{era-year} {era:table=eras}, {hour:pad=2}:{minute:pad=2}
-  [length=short year>=1950 year<2050] {day:pad=2}.{month:pad=2}.{year:last=2,pad=2}, {hour:pad=2}:{minute:pad=2}
-  [length=short] {day:pad=2}.{month:pad=2}.{year}, {hour:pad=2}:{minute:pad=2}
+  [length=short year>=1950 year<2050] {day:pad=2}.{month:pad=2}.{era-year:last=2,pad=2}, {hour:pad=2}:{minute:pad=2}
+  [length=short] {day:pad=2}.{month:pad=2}.{era-year}, {hour:pad=2}:{minute:pad=2}
   [length=long year<1000 offset? offset-sign=1 offset-minutes>0] {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
   [length=long year<1000 offset? offset-sign=1] {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
   [length=long year<1000 offset? offset-minutes>0] {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
   [length=long year<1000 offset?] {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
   [length=long year<1000] {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}
-  [length=long offset? offset-sign=1 offset-minutes>0] {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
-  [length=long offset? offset-sign=1] {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
-  [length=long offset? offset-minutes>0] {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
-  [length=long offset?] {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
-  [length=long] {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}
-  [length=full year<1000 offset? offset-sign=1] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
-  [length=full year<1000 offset?] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
-  [length=full year<1000] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} {era:table=eras} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}
-  [length=full offset? offset-sign=1] {weekday:table=days.wide}, {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
-  [length=full offset?] {weekday:table=days.wide}, {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
-  [length=full] {weekday:table=days.wide}, {day}. {month:table=months.wide} {year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=long offset? offset-sign=1 offset-minutes>0] {day}. {month:table=months.wide} {era-year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset? offset-sign=1] {day}. {month:table=months.wide} {era-year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours}
+  [length=long offset? offset-minutes>0] {day}. {month:table=months.wide} {era-year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}:{offset-minutes:pad=2}
+  [length=long offset?] {day}. {month:table=months.wide} {era-year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours}
+  [length=long] {day}. {month:table=months.wide} {era-year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=full year<1000 offset? offset-sign=1] {day} {month:table=months.wide} {era-year} {era:table=eras}, {weekday:table=days.wide} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full year<1000 offset?] {day} {month:table=months.wide} {era-year} {era:table=eras}, {weekday:table=days.wide} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full year<1000] {day} {month:table=months.wide} {era-year} {era:table=eras}, {weekday:table=days.wide} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}
+  [length=full offset? offset-sign=1] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT-{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full offset?] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2} GMT+{offset-hours:pad=2}:{offset-minutes:pad=2}
+  [length=full] {weekday:table=days.wide}, {day}. {month:table=months.wide} {era-year} um {hour:pad=2}:{minute:pad=2}:{second:pad=2}

@@ -199,26 +199,30 @@ fn currencies() -> Vec<String> {
         .collect()
 }
 
-/// The cells where CLDR 49 sets a symbol equal to the currency's code: ICU4X 2.4's data
-/// generator keeps a symbol only when it differs from the code (icu_provider_source 2.4.0,
-/// `currency/symbols.rs`), so ICU4X falls back to the root locale's symbol, here given. The
-/// currency section keeps CLDR's: the check replaces root's symbol in ICU4X's text with the code.
-const CODE_SYMBOLS: [(&str, &str, &str, &str); 4] = [
-    ("de", "PHP", "symbol", "\u{20b1}"),
-    ("de", "SYP", "narrow", "\u{a3}"),
-    ("de", "XXX", "symbol", "\u{a4}"),
-    ("de", "XXX", "narrow", "\u{a4}"),
-];
-
-/// ICU4X's text, with root's symbol replaced by the code where CLDR sets the code.
-fn cldr_symbol(language: &str, code: &str, display: &str, theirs: String) -> String {
-    let found = CODE_SYMBOLS
-        .iter()
-        .find(|cell| (cell.0, cell.1, cell.2) == (language, code, display));
-    match found {
-        Some((.., root)) => theirs.replace(root, code),
-        None => theirs,
+/// The currencies whose symbol (`symbol`) or narrow symbol (`narrow`) CLDR 49 sets to the
+/// currency's code, as the fixture's `currency.symbol` and `currency.narrow` tables give them.
+/// ICU4X 2.4's data generator keeps a symbol only when it differs from the code
+/// (icu_provider_source 2.4.0, `currency/symbols.rs`), so ICU4X writes the root locale's symbol
+/// there; the check compares such a cell with ICU4X's text of the code.
+fn code_symbols(language: &str) -> Vec<(String, &'static str)> {
+    let module = cldr::formats(language).expect("a fixture");
+    let mut cells = Vec::new();
+    let mut table = None;
+    for line in module.lines() {
+        match (line.strip_prefix("  "), line) {
+            (Some(entry), _) => {
+                if let (Some(display), Some((code, symbol))) = (table, entry.split_once(' '))
+                    && code == symbol
+                {
+                    cells.push((code.to_owned(), display));
+                }
+            }
+            (None, "currency.symbol =") => table = Some("symbol"),
+            (None, "currency.narrow =") => table = Some("narrow"),
+            (None, _) => table = None,
+        }
     }
+    cells
 }
 
 #[test]
@@ -230,6 +234,7 @@ fn amounts_in_every_currency_equal_icu4x() {
     for language in LANGUAGES {
         let context = context(language, MESSAGES);
         let locale: Locale = language.parse().expect("a locale");
+        let code_symbols = code_symbols(language);
         for code in &currencies {
             let kind = CurrencyType::try_from_str(&code.to_ascii_lowercase()).expect("a code");
             let prefs = (&locale).into();
@@ -247,6 +252,10 @@ fn amounts_in_every_currency_equal_icu4x() {
                 );
                 let fixed = Fixed::try_from_str(amount).expect("a decimal");
                 let at = format!("{language} {code} {amount}");
+                let code_text = coded
+                    .format_fixed_decimal(&fixed)
+                    .write_to_string()
+                    .into_owned();
                 let pairs = [
                     (
                         "symbol",
@@ -264,14 +273,7 @@ fn amounts_in_every_currency_equal_icu4x() {
                             .write_to_string()
                             .into_owned(),
                     ),
-                    (
-                        "code",
-                        Probe::Code { a },
-                        coded
-                            .format_fixed_decimal(&fixed)
-                            .write_to_string()
-                            .into_owned(),
-                    ),
+                    ("code", Probe::Code { a }, code_text.clone()),
                     (
                         "name",
                         Probe::Name { a },
@@ -282,7 +284,12 @@ fn amounts_in_every_currency_equal_icu4x() {
                     ),
                 ];
                 for (display, message, theirs) in pairs {
-                    let theirs = cldr_symbol(language, code, display, theirs);
+                    let cell = (code.clone(), display);
+                    let theirs = if code_symbols.contains(&cell) {
+                        code_text.clone()
+                    } else {
+                        theirs
+                    };
                     differences.check(
                         &format!("{at} {display}"),
                         &plain(&context, &message),

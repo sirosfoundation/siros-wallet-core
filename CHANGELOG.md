@@ -59,7 +59,9 @@ All notable changes to this workspace. The format follows
   crate's scope and its named fields as arguments. A repeated id fails the
   build; under `check` each id registers a row for `Context::check`.
 - `siros-cldr` writes a language's format options from CLDR's JSON release
-  49.0.0 as MF2 source: a resource head and `[formats.<format>]` sections.
+  49.0.0 as MF2 source: a resource head and `[formats.<format>]` sections. Its
+  date and time patterns are the ones ICU4X 2.4's data generator selects from
+  `availableFormats`; it reads `ca-generic.json` and `cldr-units-full` too.
 - Each is edition 2024 and unpublished.
 - CI's per-merge job runs siros-i18n's ignored tests on a push to `main`.
 - The architecture contract's messages component (§4.19, layer L0): an error
