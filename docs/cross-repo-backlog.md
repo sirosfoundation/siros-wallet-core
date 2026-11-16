@@ -632,9 +632,22 @@ Still open from the review (in order):
 - **J. Local RICAL/VICAL defaults from the PDP** — deferred 2026-11-16:
   go-trust's `/registries` lists anchors as identifiers, no PEM-serving
   endpoint found on main; revisit what the support actually is before
-  building the client fetch.
-- **K. Remaining unexposed knobs** — `useLegacyAuth`, `wscdPluginClaims`,
-  `circuitZkVerifierIdSources`, `circuitZkPredicateFunctions`,
-  `circuitZkProfiles`, `R2psConfig` (clientId/context/keys/authMode),
-  `softkeyKeysFile` path. Plus the Swift parity pass for the whole tree
-  (minus the Android-only backends registry).
+  building the client fetch. (2026-11-16b: en route upstream; saved for
+  the NEXT release cycle per review.)
+- ~~**K. Remaining unexposed knobs**~~ — CLOSED 2026-11-16, deliberate
+  scope decision (per review): the remaining WalletConfig knobs
+  (`useLegacyAuth`, `wscdPluginClaims`, `circuitZkVerifierIdSources`,
+  `circuitZkPredicateFunctions`, `circuitZkProfiles`, the `R2psConfig`
+  clientId/context/keys/authMode, `softkeyKeysFile` path) stay
+  INTEGRATION-TIME constants in both sample apps, not settings: each is
+  a deployment/integration fact a host app supplies at construction
+  (which plugin keys the R2PS server owns, which verifier-id sources
+  exist, the proof predicate catalogue, the F.18 tier-forcing
+  configuration), not a preference a user picks. Exposing them as
+  settings would invite misconfiguration of things whose correct values
+  are facts, not choices. The coverage audit's real product was the
+  settings tree + the ~20 knobs it DID surface (trust modes, registry
+  URL, tier catalog, journal cap, connection tuning). The Swift
+  parity pass: done (sdk-swift `d152331`, BUILD SUCCEEDED on the
+  remote build machine - the tree minus the Android-only backends
+  registry and the 18045 editor).
