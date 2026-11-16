@@ -128,7 +128,14 @@ Built by the standard GitHub builders on a `v*` tag
   `org.siros:siros-wallet-core`
 - **iOS**: `make xcframework` — the aarch64 device and simulator slices, the
   FFI header and modulemap, packaged as the XCFramework
-- Both consume the UniFFI bindings the release generates alongside
+- **npm**: `make npm-pkg` — the wasm adapter (wasm-pack `--target web`)
+  composed with the npm metadata, published as
+  [`@sirosfoundation/siros-wallet-core`](https://www.npmjs.com/package/@sirosfoundation/siros-wallet-core)
+  ([npm-publish.yml](.github/workflows/npm-publish.yml); `make npm-publish
+  VERSION=<x.y.z>` is the first, manual publication, the tag-driven runs
+  publish through OIDC trusted publishing)
+- Both mobile artifacts consume the UniFFI bindings the release generates
+  alongside
 
 ## Conformance
 

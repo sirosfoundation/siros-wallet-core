@@ -1,0 +1,60 @@
+name: Publish to npm — @sirosfoundation/siros-wallet-core
+
+# The wasm adapter as an npm package: the release build
+# (wasm-pack --release --target web) composed with the npm metadata
+# overlay (crates/engine-adapter-wasm/npm/), published under the
+# @sirosfoundation scope. The version comes from the release tag — the
+# same version the XCFramework/AAR release (release.yml) carries.
+#
+# The one-time setup (the org admin's, in npmjs.com → the sirosfoundation
+# organization → Trusted Publishers): add this repository, this
+# workflow, and the `npm` environment for the package name
+# @sirosfoundation/siros-wallet-core — BEFORE the first tag-driven run.
+# Alternatively, publish the first version manually:
+#   make npm-publish VERSION=<x.y.z>
+# (an npm login with the org's publish rights), then add the trusted
+# publisher; the tag-driven runs take over from the next tag.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  # npm provenance (SLSA attestations): the OIDC token npm verifies.
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    # The trusted-publisher environment the org's other npm packages
+    # (dc-api, wmp-js) publish through.
+    environment: npm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Build the wasm package
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          case "$TAG_VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::the tag $GITHUB_REF_NAME is not a semver (vX.Y.Z) tag"; exit 1 ;;
+          esac
+          make npm-pkg VERSION="$TAG_VERSION"
+
+      - name: Verify the package
+        run: cd target/npm-pkg && npm publish --dry-run
+
+      - name: Publish to npm
+        run: cd target/npm-pkg && npm publish --access public

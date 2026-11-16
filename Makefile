@@ -90,6 +90,27 @@ wasm-page:
 	sed 's|../pkg/engine_adapter_wasm.js|./pkg/engine_adapter_wasm.js|' \
 		crates/engine-adapter-wasm/page/wallet_glue.js > target/wasm-page/wallet_glue.js
 
+# ── the npm package (@sirosfoundation/siros-wallet-core) ─────────────────
+# The release build composes with the npm metadata overlay into
+# target/npm-pkg: `make npm-publish-dry` validates the tarball,
+# `make npm-publish VERSION=<x.y.z>` publishes it (the first, manual
+# publication — npm login required; the tag-driven workflow publishes
+# the rest through OIDC trusted publishing, .github/workflows/npm-publish.yml).
+.PHONY: npm-pkg npm-publish-dry npm-publish
+
+npm-pkg:
+	wasm-pack build --release --target web crates/engine-adapter-wasm --out-dir $(CURDIR)/target/npm-pkg
+	node crates/engine-adapter-wasm/npm/prepare.mjs $(CURDIR)/target/npm-pkg --version $(VERSION)
+
+npm-publish-dry:
+	$(MAKE) npm-pkg VERSION=$(VERSION)
+	cd target/npm-pkg && npm publish --dry-run
+
+npm-publish:
+	@test -n "$(VERSION)" || (echo 'usage: make npm-publish VERSION=<x.y.z>'; exit 1)
+	$(MAKE) npm-pkg VERSION=$(VERSION)
+	cd target/npm-pkg && npm publish --access public
+
 # ── the mobile packaging (AAR / XCFramework) ──────────────────────────────
 # Cross-compiles the engine-adapter-sdk for Android arm64 and iOS, and
 # packages the bindings. Mirrors siros-wscd-manager's Makefile.
