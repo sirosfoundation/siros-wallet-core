@@ -56,28 +56,28 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - name: The errors, syntax and message libraries without their default features
-        run: cargo clippy --locked -p siros-derive-internals -p siros-explain -p siros-explain-derive -p siros-syntax -p siros-i18n -p siros-i18n-derive --lib --no-default-features -- -D warnings
+        run: cargo clippy --locked -p siros-derive-internals -p siros-explain -p siros-explain-derive -p siros-syntax -p siros-i18n -p siros-i18n-derive -p siros-i18n-formats --lib --no-default-features -- -D warnings
       # The clippy steps enforce the lints each crate root denies outside its
       # tests; the script fails on a root without them and on an allow of them
       # outside the tests, and finds the panics no lint covers.
       - name: No panic outside the tests
         run: python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
       - name: The errors, syntax and message crates' documentation builds
-        run: cargo doc --no-deps --locked --all-features -p siros-derive-internals -p siros-explain -p siros-explain-derive -p siros-syntax -p siros-i18n -p siros-i18n-derive -p siros-cldr
+        run: cargo doc --no-deps --locked --all-features -p siros-derive-internals -p siros-explain -p siros-explain-derive -p siros-syntax -p siros-i18n -p siros-i18n-derive -p siros-i18n-formats -p siros-cldr
         env:
           RUSTDOCFLAGS: -D warnings
 
   per-merge:
     name: Per-merge tier
-    # siros-i18n's ignored tests: its differentials against ICU4X 2.4 over CLDR 49.0.0 (dates,
-    # times and years; plural categories, numbers and amounts in every currency).
+    # siros-i18n-formats' ignored tests: its differentials against ICU4X 2.4 over CLDR 49.0.0
+    # (dates, times and years; plural categories, numbers and amounts in every currency).
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - run: cargo test --locked -p siros-i18n --all-features -- --ignored
+      - run: cargo test --locked -p siros-i18n-formats --all-features -- --ignored
 
   wasm:
     name: WASM (browser engine, Node)
@@ -158,7 +158,7 @@ jobs:
           RUSTFLAGS: -D warnings
         run: |
           set -euo pipefail
-          for crate in siros-derive-internals siros-explain siros-explain-derive siros-syntax siros-i18n siros-i18n-derive siros-cldr; do
+          for crate in siros-derive-internals siros-explain siros-explain-derive siros-syntax siros-i18n siros-i18n-derive siros-i18n-formats siros-cldr; do
             cargo check --locked -p "$crate"
             cargo check --locked -p "$crate" --no-default-features
           done

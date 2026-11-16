@@ -309,10 +309,10 @@ impl Scope<'_> {
             Some(text) => (true, text),
             None => (false, text),
         };
-        let at = text
+        let (name, rest) = text
             .find(['=', '<', '>', '?', '@'])
+            .and_then(|at| text.split_at_checked(at))
             .ok_or_else(|| self.text())?;
-        let (name, rest) = text.split_at(at);
         let name = self.name(name)?;
         let integer = |value: &str| value.parse::<i64>().map_err(|_| self.text());
         let check = if let Some(value) = rest.strip_prefix("<=") {

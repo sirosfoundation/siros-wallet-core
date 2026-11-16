@@ -83,7 +83,8 @@ a socket, a clock, or a keystore.
 | --- | --- |
 | `siros-i18n` | The wallet's texts: a `Context` of MessageFormat 2 sources resolves an error or a statement (`Message`) to `Text` |
 | `siros-i18n-derive` | `#[derive(Message)]` for statements |
-| `siros-cldr` | Writes a language's CLDR format options as MF2 source |
+| `siros-i18n-formats` | `Patterns`, the formatter whose modules say how each value type reads: numbers, amounts, dates and times |
+| `siros-cldr` | Writes a language's CLDR formats as a siros-i18n-formats module |
 
 The rest stand alone in `crates/`:
 
@@ -94,11 +95,10 @@ The rest stand alone in `crates/`:
 | `siros-trust` | The trust store, issuer chains, path validation, issuer admission |
 | `siros-wallet-state` | The decrypted wallet state of the private data container |
 
-siros-i18n's format functions are features, which an app turns on as its
-wording calls them: `number` (`:number`, `:integer`), `currency` (`:currency`)
-and `date` (`:siros:date`, `:siros:time`, `:siros:datetime`). `derive` gives
-`#[derive(Message)]`. All four are defaults. `check` adds `Context::check`, the
-wallet's completeness test.
+siros-i18n defines `:string`; an app adds formatters to its `Context` for
+every other function its wording calls. `derive`, the default, gives
+`#[derive(Message)]`; `check` adds `Context::check`, the wallet's completeness
+test.
 
 Rust 1.89 is the floor of every crate (`rust-version` in `Cargo.toml`).
 
@@ -124,12 +124,12 @@ cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml
 ```
 
-On a push to `main`, CI's per-merge tier also runs siros-i18n's ignored tests, its
-differentials against ICU4X 2.4: dates, times and years, plural categories, numbers and
-amounts in every currency.
+On a push to `main`, CI's per-merge tier also runs siros-i18n-formats' ignored tests,
+its differentials against ICU4X 2.4: dates, times and years, plural categories, numbers
+and amounts in every currency.
 
 ```sh
-cargo test --locked -p siros-i18n --all-features -- --ignored
+cargo test --locked -p siros-i18n-formats --all-features -- --ignored
 ```
 
 Nothing panics outside the tests: a type makes the impossible state
