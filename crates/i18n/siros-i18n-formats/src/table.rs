@@ -96,8 +96,12 @@ impl Tables {
                     let digits = setting.text.parse().ok().filter(|n| (1..=9).contains(n));
                     self.grouping = Some(digits.ok_or_else(text)?);
                 }
-                "plural.cardinal" => self.cardinal = Some(Rules::parse(setting.text).ok_or_else(text)?),
-                "plural.ordinal" => self.ordinal = Some(Rules::parse(setting.text).ok_or_else(text)?),
+                "plural.cardinal" => {
+                    self.cardinal = Some(Rules::parse(setting.text).ok_or_else(text)?)
+                }
+                "plural.ordinal" => {
+                    self.ordinal = Some(Rules::parse(setting.text).ok_or_else(text)?)
+                }
                 _ => {}
             }
             if self

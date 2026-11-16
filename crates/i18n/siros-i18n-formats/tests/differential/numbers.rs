@@ -156,17 +156,28 @@ fn literal_bounds_equal_icu4x() {
         "1e999999999",
     ];
     for text in texts {
-        let loaded = cldr::context("en", Bidi::None, &format!("[probe]\nliteral = {{|{text}| :number}}"));
+        let loaded = cldr::context(
+            "en",
+            Bidi::None,
+            &format!("[probe]\nliteral = {{|{text}| :number}}"),
+        );
         match (Fixed::try_from_str(text), loaded) {
             (Ok(fixed), Ok(context)) => {
                 let theirs = numbers.format(&fixed).write_to_string().into_owned();
-                let ours = context
-                    .resolve(&Literal)
-                    .expect("the literal resolves");
+                let ours = context.resolve(&Literal).expect("the literal resolves");
                 assert_eq!(ours.to_string(), theirs, "{text}");
             }
-            (Err(_), Err(LoadError::Call { function, refusal, .. })) => {
-                assert_eq!((function.as_str(), refusal), ("number", Refusal::Operand), "{text}");
+            (
+                Err(_),
+                Err(LoadError::Call {
+                    function, refusal, ..
+                }),
+            ) => {
+                assert_eq!(
+                    (function.as_str(), refusal),
+                    ("number", Refusal::Operand),
+                    "{text}"
+                );
             }
             (theirs, ours) => panic!("{text}: ICU4X {:?}, ours {:?}", theirs.is_ok(), ours.err()),
         }

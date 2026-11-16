@@ -239,11 +239,23 @@ impl Scope<'_> {
             self.digits()?;
         }
         match (name, &ops) {
-            (Name::Int, Ops { groups: Some(_), sep: None, .. }) => {
+            (
+                Name::Int,
+                Ops {
+                    groups: Some(_),
+                    sep: None,
+                    ..
+                },
+            ) => {
                 self.table("group", false)?;
                 self.table("grouping", false)?;
             }
-            (Name::Int, Ops { groups: Some(_), .. }) => self.table("grouping", false)?,
+            (
+                Name::Int,
+                Ops {
+                    groups: Some(_), ..
+                },
+            ) => self.table("grouping", false)?,
             (Name::Frac, Ops { sep: None, .. }) => self.table("decimal", false)?,
             _ => {}
         }
@@ -325,7 +337,9 @@ impl Scope<'_> {
             (Name::Field(_, Kind::Integer), _) => true,
             (Name::Field(..), Check::Present) => true,
             (Name::Field(_, Kind::Text), Check::Equals(_) | Check::In(_)) => true,
-            (Name::Sign, Check::Equals(value)) => matches!(value.as_ref(), "none" | "minus" | "plus"),
+            (Name::Sign, Check::Equals(value)) => {
+                matches!(value.as_ref(), "none" | "minus" | "plus")
+            }
             (Name::Plural, Check::Equals(value)) => Category::of_keyword(value).is_some(),
             (Name::Choice(at), Check::Equals(value)) => self
                 .choices
@@ -388,8 +402,9 @@ impl Check {
         match self {
             Self::Present => text.is_some(),
             Self::Equals(value) => text == Some(value.as_ref()),
-            Self::In(table) => text
-                .is_some_and(|text| tables.get(table).is_some_and(|table| table.has(text))),
+            Self::In(table) => {
+                text.is_some_and(|text| tables.get(table).is_some_and(|table| table.has(text)))
+            }
             Self::Less(n) => integer.is_some_and(|v| v < *n),
             Self::LessEqual(n) => integer.is_some_and(|v| v <= *n),
             Self::Greater(n) => integer.is_some_and(|v| v > *n),

@@ -144,9 +144,10 @@ impl Formatters {
     pub(crate) fn literal(&self, function: Function, text: &str) -> Result<(), Refusal> {
         match function {
             Function::String => Ok(()),
-            Function::Formatted { by, id } => {
-                self.formatter(by).ok_or(Refusal::Operand)?.literal(id, text)
-            }
+            Function::Formatted { by, id } => self
+                .formatter(by)
+                .ok_or(Refusal::Operand)?
+                .literal(id, text),
         }
     }
 
@@ -262,8 +263,9 @@ pub(crate) fn format(chain: &Chain<'_>, scope: &Scope<'_>) -> Result<(String, Di
 /// [`Failure`] as [`format`].
 pub(crate) fn selected(chain: &Chain<'_>, scope: &Scope<'_>) -> Result<Selection, Failure> {
     match chain.outer.function {
-        Function::String => crate::string::value(chain, scope)
-            .map(|text| Selection::new(text.to_owned(), None)),
+        Function::String => {
+            crate::string::value(chain, scope).map(|text| Selection::new(text.to_owned(), None))
+        }
         Function::Formatted { by, id } => {
             let options = chain.options(scope)?;
             let value = operand(chain, scope)?;
@@ -275,5 +277,9 @@ pub(crate) fn selected(chain: &Chain<'_>, scope: &Scope<'_>) -> Result<Selection
 
 /// The call of `function` without options, named `name`.
 pub(crate) fn bare(function: Function, name: &str) -> Call {
-    Call::new(function, std::borrow::Cow::Owned(name.to_owned()), Vec::new())
+    Call::new(
+        function,
+        std::borrow::Cow::Owned(name.to_owned()),
+        Vec::new(),
+    )
 }

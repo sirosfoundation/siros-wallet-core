@@ -89,8 +89,8 @@ mod text;
 pub use context::{Bidi, Builder, Context};
 pub use error::{CheckError, FormatRule, LoadError, Refusal, ResolveError, SyntaxRule};
 pub use escape::escape;
-pub use locale::{InvalidTag, LocaleTag};
 pub use formatter::{Direction, Formatter, FunctionId, Selection, Setting};
+pub use locale::{InvalidTag, LocaleTag};
 pub use message::Message;
 pub use siros_explain::{Arg, scope};
 #[cfg(feature = "derive")]

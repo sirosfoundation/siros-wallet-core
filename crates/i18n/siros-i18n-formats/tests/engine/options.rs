@@ -17,7 +17,11 @@ fn euros(text: &str) -> Amount {
 /// Each message, the argument `d` it takes when it reads one, and the text MF2 gives it over
 /// 12.5 euros or the number 1.5. CLDR's English names 12.50 euros "euros".
 const CASES: [(&str, Option<&str>, &str); 7] = [
-    ("{$a :currency currencyDisplay=$d}", Some("name"), "12.50 euros"),
+    (
+        "{$a :currency currencyDisplay=$d}",
+        Some("name"),
+        "12.50 euros",
+    ),
     (
         ".local $c = {$d} {{{$a :currency currencyDisplay=$c}}}",
         Some("name"),

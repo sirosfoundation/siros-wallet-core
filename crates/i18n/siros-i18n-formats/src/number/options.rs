@@ -94,9 +94,7 @@ impl Opt {
             Self::MinimumIntegerDigits
             | Self::MinimumSignificantDigits
             | Self::MaximumSignificantDigits => digit_count(text).is_some(),
-            Self::MinimumFractionDigits | Self::MaximumFractionDigits => {
-                digit_size(text).is_some()
-            }
+            Self::MinimumFractionDigits | Self::MaximumFractionDigits => digit_size(text).is_some(),
             Self::FractionDigits => text == "auto" || digit_size(text).is_some(),
             Self::TrailingZeroDisplay => matches!(text, "auto" | "stripIfInteger"),
             Self::RoundingPriority => matches!(text, "auto" | "morePrecision" | "lessPrecision"),
@@ -526,8 +524,9 @@ pub(crate) fn write_int(
     let len = fixed.int.len();
     let groups = match grouping {
         Grouping::Never => None,
-        Grouping::From(minimum) => groups
-            .filter(|(groups, _)| len >= usize::from(groups.primary) + usize::from(minimum)),
+        Grouping::From(minimum) => {
+            groups.filter(|(groups, _)| len >= usize::from(groups.primary) + usize::from(minimum))
+        }
     };
     for (index, d) in fixed.int.iter().enumerate() {
         if let Some((groups, separator)) = groups

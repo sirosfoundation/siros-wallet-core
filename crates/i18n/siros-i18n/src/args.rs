@@ -50,6 +50,8 @@ impl<'k> Args<'k> {
 
     /// The type of the argument `key`'s value.
     pub(crate) fn type_of(&self, key: &str) -> Option<TypeId> {
-        self.0.get(key).map(|given| (given.value as &dyn Any).type_id())
+        self.0
+            .get(key)
+            .map(|given| (given.value as &dyn Any).type_id())
     }
 }

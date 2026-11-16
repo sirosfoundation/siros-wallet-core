@@ -181,7 +181,10 @@ impl Formatter for Patterns {
     }
 
     fn function(&self, name: &str) -> Option<FunctionId> {
-        let at = self.formats.iter().position(|format| *format.name == *name)?;
+        let at = self
+            .formats
+            .iter()
+            .position(|format| *format.name == *name)?;
         u32::try_from(at).ok().map(FunctionId)
     }
 

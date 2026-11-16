@@ -24,7 +24,9 @@ fn placeholders_isolate_by_the_default_bidi_strategy() {
         (context("@dir rtl\n", Bidi::None), "5"),
     ];
     for (context, expected) in cases {
-        let text = context.resolve(&Given::with("string", "x", "5")).expect("a text");
+        let text = context
+            .resolve(&Given::with("string", "x", "5"))
+            .expect("a text");
         assert_eq!(text.to_string(), expected);
     }
 }

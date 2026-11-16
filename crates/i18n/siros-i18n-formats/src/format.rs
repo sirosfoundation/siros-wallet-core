@@ -123,17 +123,18 @@ impl Format {
             .filter_map(|setting| {
                 let name = setting.key.strip_prefix("option.")?;
                 let values: Vec<Box<str>> = setting.text.split(' ').map(Into::into).collect();
-                let distinct = values
-                    .iter()
-                    .enumerate()
-                    .all(|(at, value)| !value.is_empty() && !values.iter().skip(at + 1).any(|v| v == value));
-                Some(if distinct && Opt::named(name).is_none() && !name.is_empty() {
-                    Ok((Box::from(name), values))
-                } else {
-                    Err(FormatRule::Text {
-                        key: setting.key.to_owned(),
-                    })
-                })
+                let distinct = values.iter().enumerate().all(|(at, value)| {
+                    !value.is_empty() && !values.iter().skip(at + 1).any(|v| v == value)
+                });
+                Some(
+                    if distinct && Opt::named(name).is_none() && !name.is_empty() {
+                        Ok((Box::from(name), values))
+                    } else {
+                        Err(FormatRule::Text {
+                            key: setting.key.to_owned(),
+                        })
+                    },
+                )
             })
             .collect::<Result<Vec<_>, _>>()?;
         let scope = |key| Scope {
@@ -189,10 +190,12 @@ impl Format {
             number: number.filter(|_| numeric_types),
         };
         if let Some(select) = format.fixed(Opt::Select) {
-            format.selection_tables(select, tables).map_err(|_| FormatRule::Unknown {
-                key: "select".to_owned(),
-                name: "plural".to_owned(),
-            })?;
+            format
+                .selection_tables(select, tables)
+                .map_err(|_| FormatRule::Unknown {
+                    key: "select".to_owned(),
+                    name: "plural".to_owned(),
+                })?;
         }
         Ok(format)
     }
@@ -234,7 +237,12 @@ impl Format {
     ///
     /// [`Refusal::Option`] for an option the format does not take, a literal it refuses, and
     /// `select` given by a variable: MF2 sets it by a literal alone.
-    pub(crate) fn option(&self, name: &str, text: Option<&str>, tables: &Tables) -> Result<(), Refusal> {
+    pub(crate) fn option(
+        &self,
+        name: &str,
+        text: Option<&str>,
+        tables: &Tables,
+    ) -> Result<(), Refusal> {
         let refused = || Refusal::Option {
             option: name.to_owned(),
         };
@@ -317,7 +325,10 @@ impl Format {
             }
             written.push((*opt, text));
         }
-        let format: Vec<(Opt, &str)> = written.iter().map(|(opt, text)| (*opt, text.as_str())).collect();
+        let format: Vec<(Opt, &str)> = written
+            .iter()
+            .map(|(opt, text)| (*opt, text.as_str()))
+            .collect();
         let options = Options {
             format: &format,
             call: &call,
@@ -395,7 +406,12 @@ impl Format {
             Some(Select::Plural) => Some(tables.cardinal().ok_or(Refusal::Selector)?),
             Some(Select::Ordinal) => Some(tables.ordinal().ok_or(Refusal::Selector)?),
         }
-        .map(|rules| rules.category(&Operands::of(&rounded.fixed)).keyword().to_owned());
+        .map(|rules| {
+            rules
+                .category(&Operands::of(&rounded.fixed))
+                .keyword()
+                .to_owned()
+        });
         Ok(Selection::new(
             options::serial(&rounded.fixed, rounded.integer_keys),
             category,
@@ -505,7 +521,9 @@ impl Resolved<'_> {
             Name::Int => {
                 let number = number()?;
                 let groups = match ops.groups {
-                    Some(groups) => Some((groups, self.table(ops.sep.as_deref().unwrap_or("group"))?)),
+                    Some(groups) => {
+                        Some((groups, self.table(ops.sep.as_deref().unwrap_or("group"))?))
+                    }
                     None => None,
                 };
                 options::write_int(&number.fixed, numerals()?, groups, number.grouping, out);

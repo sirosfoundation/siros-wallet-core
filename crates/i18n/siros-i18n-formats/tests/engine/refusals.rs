@@ -64,7 +64,12 @@ fn each_format_rule_refuses_its_fixture() {
         ),
         (
             modules(&["[tables]\ngrouping = 0"]),
-            format("tables", FormatRule::Text { key: key("grouping") }),
+            format(
+                "tables",
+                FormatRule::Text {
+                    key: key("grouping"),
+                },
+            ),
         ),
         (
             modules(&[&format!("{TABLES}\n{NUMBER}"), NUMBER]),

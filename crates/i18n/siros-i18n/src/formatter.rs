@@ -101,8 +101,7 @@ pub trait Formatter: 'static {
     /// # Errors
     ///
     /// [`Refusal::Option`] for an option the function does not take, or a literal it refuses.
-    fn option(&self, function: FunctionId, name: &str, text: Option<&str>)
-    -> Result<(), Refusal>;
+    fn option(&self, function: FunctionId, name: &str, text: Option<&str>) -> Result<(), Refusal>;
 
     /// Checks `text`, a literal operand of a call of `function`, when a module loads.
     ///

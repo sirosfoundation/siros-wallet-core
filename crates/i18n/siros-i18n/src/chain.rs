@@ -133,7 +133,10 @@ pub(crate) enum Root<'m> {
     None,
     /// A literal's string value, boxed as the message holds it: a formatter takes it as a
     /// `&dyn Arg`, which `str` cannot be.
-    #[expect(clippy::borrowed_box, reason = "a &Box<str> coerces to &dyn Arg; a &str does not")]
+    #[expect(
+        clippy::borrowed_box,
+        reason = "a &Box<str> coerces to &dyn Arg; a &str does not"
+    )]
     Literal(&'m Box<str>),
     /// The argument of this key.
     Argument(&'m str),
@@ -179,7 +182,11 @@ pub(crate) struct Call {
 
 impl Call {
     /// The call of `function`, named `name`, with `options`.
-    pub(crate) const fn new(function: Function, name: Cow<'static, str>, options: Vec<Opt>) -> Self {
+    pub(crate) const fn new(
+        function: Function,
+        name: Cow<'static, str>,
+        options: Vec<Opt>,
+    ) -> Self {
         Self {
             function,
             name,
@@ -245,9 +252,15 @@ impl<'m> Chain<'m> {
     ///
     /// [`Failure::Unresolved`] for an argument the message does not give, and
     /// [`Failure::Option`] for a variable whose value fails.
-    pub(crate) fn options<'s>(&'s self, scope: &'s Scope<'m>) -> Result<Vec<(&'s str, &'s str)>, Failure> {
+    pub(crate) fn options<'s>(
+        &'s self,
+        scope: &'s Scope<'m>,
+    ) -> Result<Vec<(&'s str, &'s str)>, Failure> {
         let mut options: Vec<(&str, &str)> = Vec::new();
-        for call in self.calls().filter(|call| call.function == self.outer.function) {
+        for call in self
+            .calls()
+            .filter(|call| call.function == self.outer.function)
+        {
             for option in &call.options {
                 let text = scope
                     .text(&option.value)

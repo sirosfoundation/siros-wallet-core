@@ -165,8 +165,11 @@ pub(crate) fn resource(cldr: &Cldr, release: &str) -> Result<String, CldrError> 
     numbers.tables(&mut out)?;
     currencies.tables(&mut out)?;
     calendar.tables(&mut out)?;
-    let decimal = NumberPattern::parse(&numbers.decimal)
-        .ok_or_else(|| numbers.file.form(&["decimalFormats", "standard"], &numbers.decimal))?;
+    let decimal = NumberPattern::parse(&numbers.decimal).ok_or_else(|| {
+        numbers
+            .file
+            .form(&["decimalFormats", "standard"], &numbers.decimal)
+    })?;
     for (name, extra) in [
         ("number", &[("default", "yes")][..]),
         ("integer", &[("maximumFractionDigits", "0")][..]),
@@ -481,7 +484,11 @@ impl NumberPattern {
         Ok(match &self.negative {
             None => plain(positive),
             Some(negative) => {
-                let signed = negative.0.iter().chain(&negative.1).any(|a| *a == Affix::Minus);
+                let signed = negative
+                    .0
+                    .iter()
+                    .chain(&negative.1)
+                    .any(|a| *a == Affix::Minus);
                 let test = if signed { "!sign=none" } else { "sign=minus" };
                 vec![
                     (vec![test.to_owned()], write(negative)),
@@ -600,7 +607,8 @@ impl Currencies {
             if !listed(code) {
                 continue;
             }
-            let get = |key: &str| file.optional_text(&joined(&currencies_at, &[code.as_str(), key]));
+            let get =
+                |key: &str| file.optional_text(&joined(&currencies_at, &[code.as_str(), key]));
             let symbol = get("symbol")?;
             if let Some(symbol) = symbol.filter(|s| s != code) {
                 symbols.push((code.clone(), symbol.to_owned()));
@@ -660,7 +668,9 @@ impl Currencies {
 
     fn tables(&self, out: &mut Out) -> Result<(), CldrError> {
         let entries = |list: &[(String, String)]| -> Vec<String> {
-            list.iter().map(|(code, text)| format!("{code} {text}")).collect()
+            list.iter()
+                .map(|(code, text)| format!("{code} {text}"))
+                .collect()
         };
         out.lines("currency.digits", &self.digits)?;
         if !self.increments.is_empty() {
@@ -696,10 +706,18 @@ impl Currencies {
         }
     }
 
-    fn format(&self, numbers: &Numbers, decimal: &NumberPattern, out: &mut Out) -> Result<(), CldrError> {
+    fn format(
+        &self,
+        numbers: &Numbers,
+        decimal: &NumberPattern,
+        out: &mut Out,
+    ) -> Result<(), CldrError> {
         out.setting("of", "amount")?;
         out.setting("default", "yes")?;
-        out.setting("option.currencyDisplay", "symbol narrowSymbol code name never")?;
+        out.setting(
+            "option.currencyDisplay",
+            "symbol narrowSymbol code name never",
+        )?;
         out.setting("option.currencySign", "standard accounting")?;
         let digits = "{currency:table=currency.digits}";
         out.setting("minimumFractionDigits", digits)?;
@@ -707,8 +725,14 @@ impl Currencies {
         if !self.increments.is_empty() {
             out.setting("roundingIncrement", "{currency:table=currency.increment}")?;
         }
-        let [standard, standard_alpha, accounting, accounting_alpha, plain, plain_accounting] =
-            &self.patterns;
+        let [
+            standard,
+            standard_alpha,
+            accounting,
+            accounting_alpha,
+            plain,
+            plain_accounting,
+        ] = &self.patterns;
         let mut lines = Vec::new();
         lines.extend(guarded(
             &["currencyDisplay=never", "currencySign=accounting"],
@@ -720,7 +744,11 @@ impl Currencies {
             .iter()
             .find(|(c, _)| c == "other")
             .map(|(_, unit)| unit.as_str())
-            .ok_or_else(|| numbers.file.missing(&["currencyFormats", "unitPattern-count-other"]))?;
+            .ok_or_else(|| {
+                numbers
+                    .file
+                    .missing(&["currencyFormats", "unitPattern-count-other"])
+            })?;
         for category in numbers.categories() {
             let unit = self
                 .units
@@ -741,17 +769,27 @@ impl Currencies {
             let tests: Vec<String> = if category == "other" {
                 vec!["currencyDisplay=name".to_owned()]
             } else {
-                vec!["currencyDisplay=name".to_owned(), format!("plural={category}")]
+                vec![
+                    "currencyDisplay=name".to_owned(),
+                    format!("plural={category}"),
+                ]
             };
             let tests: Vec<&str> = tests.iter().map(String::as_str).collect();
             lines.extend(guarded(&tests, written));
         }
-        for (display, table) in [("narrowSymbol", "currency.narrow"), ("symbol", "currency.symbol")] {
+        for (display, table) in [
+            ("narrowSymbol", "currency.narrow"),
+            ("symbol", "currency.symbol"),
+        ] {
             let symbol = format!("{{currency:table={table}}}");
             let display = format!("currencyDisplay={display}");
             let tight = format!("currency@{table}.tight");
             for (sign, tight_pattern, alpha_pattern) in [
-                (Some("currencySign=accounting"), accounting, accounting_alpha),
+                (
+                    Some("currencySign=accounting"),
+                    accounting,
+                    accounting_alpha,
+                ),
                 (None, standard, standard_alpha),
             ] {
                 let mut tests = vec![display.as_str()];
@@ -766,7 +804,10 @@ impl Currencies {
             &["currencyDisplay=code", "currencySign=accounting"],
             accounting_alpha.lines("{currency}")?,
         ));
-        lines.extend(guarded(&["currencyDisplay=code"], standard_alpha.lines("{currency}")?));
+        lines.extend(guarded(
+            &["currencyDisplay=code"],
+            standard_alpha.lines("{currency}")?,
+        ));
         out.patterns(&lines)
     }
 }
@@ -898,17 +939,20 @@ impl Calendar {
             let path: Vec<&str> = path.iter().map(String::as_str).collect();
             file.text(&path).map(str::to_owned)
         };
-        let names = |path: &[&str], keys: &[&str], numbered: &[&str]| -> Result<Vec<String>, CldrError> {
-            keys.iter()
-                .zip(numbered)
-                .map(|(key, number)| {
-                    let mut full = path.to_vec();
-                    full.push(key);
-                    Ok(format!("{number} {}", text(&full)?))
-                })
-                .collect()
-        };
-        let months = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+        let names =
+            |path: &[&str], keys: &[&str], numbered: &[&str]| -> Result<Vec<String>, CldrError> {
+                keys.iter()
+                    .zip(numbered)
+                    .map(|(key, number)| {
+                        let mut full = path.to_vec();
+                        full.push(key);
+                        Ok(format!("{number} {}", text(&full)?))
+                    })
+                    .collect()
+            };
+        let months = [
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12",
+        ];
         // The weekdays from Monday, numbered as ISO 8601 numbers them.
         let days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
         let iso = ["1", "2", "3", "4", "5", "6", "7"];
@@ -930,7 +974,11 @@ impl Calendar {
             months_abbreviated: names(&["months", "format", "abbreviated"], &months, &months)?,
             days_wide: names(&["days", "format", "wide"], &days, &iso)?,
             days_abbreviated: names(&["days", "format", "abbreviated"], &days, &iso)?,
-            periods: names(&["dayPeriods", "format", "abbreviated"], &["am", "pm"], &["0", "1"])?,
+            periods: names(
+                &["dayPeriods", "format", "abbreviated"],
+                &["am", "pm"],
+                &["0", "1"],
+            )?,
             eras: names(&["eras", "eraAbbr"], &["0", "1"], &["0", "1"])?,
             gmt: (before.to_owned(), after.to_owned()),
             hours: (positive.to_owned(), negative.to_owned()),
@@ -1001,7 +1049,10 @@ impl Calendar {
     fn zone(&self, long: bool) -> Result<Vec<Line>, CldrError> {
         let (before, after) = (literal(&self.gmt.0), literal(&self.gmt.1));
         let mut lines = Vec::new();
-        for (sign, hours) in [(Some("offset-sign=1"), &self.hours.1), (None, &self.hours.0)] {
+        for (sign, hours) in [
+            (Some("offset-sign=1"), &self.hours.1),
+            (None, &self.hours.0),
+        ] {
             let refused = || self.refused(&["hourFormat"], hours);
             // The text up to the hours and after them, and the minutes with the text before
             // them.
@@ -1020,7 +1071,10 @@ impl Calendar {
                         });
                     }
                     Err(('m', 2)) if hours_seen && minutes.is_none() => {
-                        minutes = Some(format!("{}{{offset-minutes:pad=2}}", std::mem::take(&mut tail)));
+                        minutes = Some(format!(
+                            "{}{{offset-minutes:pad=2}}",
+                            std::mem::take(&mut tail)
+                        ));
                     }
                     Err(_) => return Err(refused()),
                 }
@@ -1085,7 +1139,10 @@ impl Calendar {
         let at_time = ["dateTimeFormats-atTime", "standard", length];
         let (rest, glue): (Vec<&str>, &str) = match self.optional(&at_time)? {
             Some(glue) => (at_time.to_vec(), glue),
-            None => (vec!["dateTimeFormats", length], self.text(&["dateTimeFormats", length])?),
+            None => (
+                vec!["dateTimeFormats", length],
+                self.text(&["dateTimeFormats", length])?,
+            ),
         };
         let refused = || self.refused(&rest, glue);
         let mut lines = plain(String::new());
