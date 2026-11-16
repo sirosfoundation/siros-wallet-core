@@ -98,3 +98,48 @@ fn the_urn_spelling_of_the_vct_matches() {
         "the plain spelling matches the URN-qualified one"
     );
 }
+
+#[test]
+fn the_urn_spelling_shim_is_scoped_to_the_eudi_namespace() {
+    // The normalization is an EUDI-ecosystem compat shim, NOT a general
+    // rule: SD-JWT VC's `vct` is a case-sensitive identifier and two
+    // spellings are formally two types. A `urn:` strip outside the
+    // `eudi:` namespace would merge distinctions the spec deliberately
+    // draws - so this pair must NOT match, in either direction.
+    let claims = [("given_name", json!("Erika"))];
+    // A no-match plan surfaces as NoOffer(Unsatisfied) here, not an
+    // empty offers list: assert the refusal, not just the count.
+    let wallet = Wallet::new(vec![Held::new(
+        1,
+        "dc+sd-jwt",
+        sd_jwt("foo:bar:1", &claims),
+    )]);
+    let request = redirect_unsigned(&json!({
+        "response_type": "vp_token", "response_mode": "direct_post", "nonce": NONCE,
+        "state": STATE,
+        "dcql_query": {"credentials": [{"id": "x", "format": "dc+sd-jwt",
+            "meta": {"vct_values": ["urn:foo:bar:1"]},
+            "claims": [{"path": ["given_name"]}]}]}
+    }));
+    assert!(
+        ready(&wallet.input(&request)).is_err(),
+        "a non-eudi URN spelling does not match the bare one"
+    );
+    // Case stays significant in both spellings (no folding anywhere).
+    let wallet = Wallet::new(vec![Held::new(
+        1,
+        "dc+sd-jwt",
+        sd_jwt("eudi:Eucc:1", &claims),
+    )]);
+    let request = redirect_unsigned(&json!({
+        "response_type": "vp_token", "response_mode": "direct_post", "nonce": NONCE,
+        "state": STATE,
+        "dcql_query": {"credentials": [{"id": "x", "format": "dc+sd-jwt",
+            "meta": {"vct_values": ["urn:eudi:eucc:1"]},
+            "claims": [{"path": ["given_name"]}]}]}
+    }));
+    assert!(
+        ready(&wallet.input(&request)).is_err(),
+        "case is significant: Eucc != eucc even inside the eudi namespace"
+    );
+}

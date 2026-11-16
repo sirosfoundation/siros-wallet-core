@@ -36,21 +36,44 @@ impl AskedType {
 
     /// Whether `credential` is of this format and type.
     ///
-    /// The type names compare URN-qualified-spelling-insensitively: the
-    /// ARF's type identifiers circulate in both spellings - the plain
-    /// form issuers put in a payload `vct` (`eudi:eucc:1`, what Spherity's
-    /// EUCC SD-JWT metadata advertises) and the URN-qualified form a
-    /// verifier's `vct_values` names (`urn:eudi:eucc:1`, what Accredify's
-    /// ACRA UAT requests). A literal compare rejects the credential that
-    /// is exactly what the query asks for (found on-device 2026-11-16:
-    /// the presentation 400'd "no matching credential" while the wallet
-    /// held the credential). `urn:` alone is stripped, no case folding -
-    /// the type identifier is case-sensitive in both spellings.
+    /// The type names compare EUDI-URN-spelling-insensitively - a
+    /// deliberately SCOPED compat shim, not a general rule: SD-JWT VC's
+    /// `vct` is a case-sensitive collision-resistant identifier and
+    /// `eudi:eucc:1` vs `urn:eudi:eucc:1` are formally two types. But the
+    /// EUDI ARF rulebooks mandate URN-qualified type identifiers
+    /// (e.g. PID_14: "a URN within the `urn:eudi:pid:` namespace"), while
+    /// issuers in the same ecosystem keep shipping the unprefixed
+    /// spelling (Spherity's EUCC SD-JWT metadata declares
+    /// `vct: eudi:eucc:1`; Accredify's ACRA UAT request names
+    /// `urn:eudi:eucc:1`, found on-device 2026-11-16: the wallet held
+    /// exactly the credential the query asked for and the literal
+    /// compare 400'd "no matching credential").
+    ///
+    /// Scope: the `urn:` prefix is stripped ONLY where the remainder
+    /// starts `eudi:` - the one namespace this interoperability gap is
+    /// actually observed in, and the one the ARF itself defines as
+    /// URN-native. A general `urn:` strip would merge identifier
+    /// distinctions for every other namespace, which the spec
+    /// deliberately draws (and a future ecosystem could rely on).
+    /// No case folding anywhere - `vct` is case-sensitive.
+    ///
+    /// TIME-BOXED: the issuer-side fix exists (Spherity: correct the
+    /// `vct`, or add `aka_vcts: ["urn:eudi:eucc:1"]` - SD-JWT VC §2.2.2.2's
+    /// own mechanism for "this credential is also of type X"). When the
+    /// corrected issuer has landed, re-visit: either drop this shim and
+    /// return to literal matching, or keep it as EUDI-ecosystem policy.
+    /// The Kotlin SharedDcqlMatcher's reportDifference logs every match
+    /// the literal built-in would not have offered - that is this
+    /// shim's loud firing record.
     pub(crate) fn holds(&self, credential: &impl MatchCredential) -> bool {
-        fn bare(name: &str) -> &str {
-            name.strip_prefix("urn:").unwrap_or(name)
+        fn eudi_bare(name: &str) -> &str {
+            match name.strip_prefix("urn:") {
+                Some(rest) if rest.starts_with("eudi:") => rest,
+                _ => name,
+            }
         }
-        credential.format() == self.format && bare(credential.credential_type()) == bare(&self.name)
+        credential.format() == self.format
+            && eudi_bare(credential.credential_type()) == eudi_bare(&self.name)
     }
 
     /// The types `query` asks for (A1): an mdoc of `doctype_value` for `mso_mdoc`, an SD-JWT VC
