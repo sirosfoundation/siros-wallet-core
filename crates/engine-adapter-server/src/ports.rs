@@ -28,6 +28,17 @@ impl ServerHttpClient {
         Self {
             client: reqwest::Client::builder()
                 .use_rustls_tls()
+                // A UA-less request reads as a bot to verifier-side WAFs
+                // (found on-device 2026-11-16: accredify's UAT answered
+                // 403 to the request-object fetch while a UA-carrying
+                // curl passed to the app's own 404; Spherity's API has no
+                // such rule, which is why their presentations worked).
+                // reqwest sends no UA unless one is configured.
+                .user_agent(concat!(
+                    "SIROS-Wallet-Engine/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (+https://github.com/sirosfoundation/siros-wallet-core)"
+                ))
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
                 .unwrap_or_default(),
