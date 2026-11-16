@@ -99,7 +99,16 @@ jobs:
     # authorization_code failure and cancelled the whole run.
     name: OIDF conformance (vci)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # 90m (2026-11-17): the 45m cap killed the vci job four times in one
+    # day (v0.2.18's and v0.2.19's tag runs, #42's branch runs) - every
+    # "cancellation" was the timeout firing mid-suite, which reads as
+    # someone cancelling and cost hours of triage. The suite's real wall
+    # time has grown past 45m on the current runner generation (dep-tree
+    # compile + the variants); 90 gives it the headroom the vp half's
+    # shorter runs never needed. The step-back review's A.5 retired the
+    # 45m cap for the release matrix; this is the same fix for the
+    # PR/tag job.
+    timeout-minutes: 90
     env:
       # The suite's TLS host — the suite validates callbacks against
       # this name (docs/oidf-conformance.md's prerequisite).
