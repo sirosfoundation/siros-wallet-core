@@ -18,7 +18,7 @@ use engine_ports::{
     AttestationParams, AttestationResult, ConsentParams, ConsentResult, DpopProofParams,
     DpopProofResult, EvaluationRequest, EvaluationResponse, Host, HostError, HttpClient, HttpError,
     HttpRequest, HttpResponse, KeyValue, KeyValueEntry, MatchParams, MatchResult, Pdp, PdpError,
-    Rng, SignParams, SignResult, VpParams, VpResult,
+    Rng, SignParams, SignResult, SigningKeyParams, SigningKeyResult, VpParams, VpResult,
 };
 
 /// Spawns a non-Send (JS) future on the JS event loop and hands its
@@ -185,6 +185,11 @@ pub struct JsHost {
     pub attestation: js_sys::Function,
     #[allow(missing_docs)]
     pub progress: Option<js_sys::Function>,
+    /// The optional `signingKey(params) -> Promise<{jwk}>`: the public
+    /// JWK of the key the engine is about to sign with, for the proof
+    /// header's `jwk` / `kid`. Absent, the engine falls back to the
+    /// Host default (the proof goes out without key identification).
+    pub signing_key: Option<js_sys::Function>,
 }
 
 impl JsHost {
@@ -219,6 +224,18 @@ impl JsHost {
 impl Host for JsHost {
     async fn request_sign(&self, params: SignParams) -> Result<SignResult, HostError> {
         Self::call(&self.sign, &params).await
+    }
+
+    async fn request_signing_key(
+        &self,
+        params: SigningKeyParams,
+    ) -> Result<SigningKeyResult, HostError> {
+        match &self.signing_key {
+            Some(signing_key) => Self::call(signing_key, &params).await,
+            None => Err(HostError::Cannot(
+                "the page did not provide the signingKey host callback".to_owned(),
+            )),
+        }
     }
 
     async fn request_match(&self, params: MatchParams) -> Result<MatchResult, HostError> {
