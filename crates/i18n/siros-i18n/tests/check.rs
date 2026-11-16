@@ -51,11 +51,11 @@ fn attributes(path: &Path) -> usize {
 #[test]
 fn the_rows_are_the_linked_crates_derives() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let crates = manifest.parent().expect("the crates directory");
+    let crates = manifest.ancestors().nth(2).expect("the crates directory");
     let counted = [
-        crates.join("siros-i18n/src"),
+        manifest.join("src"),
         crates.join("siros-syntax/src"),
-        crates.join("siros-explain/src"),
+        crates.join("error/siros-explain/src"),
         manifest.join("tests/check.rs"),
     ]
     .map(|path| attributes(&path));
