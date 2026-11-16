@@ -129,6 +129,38 @@ fn test_token() -> TokenResponse {
 }
 
 #[tokio::test]
+async fn a_batch_shaped_answer_is_the_credential() {
+    // The GDC apigw answers a single-credential request with the BATCH
+    // shape (credentials[] rather than a flat credential) - 1b78321's
+    // finding, restored 2026-11-16 after the #11 tests-out-of-src merge
+    // swept the decoding (found via the wallet-frontend wasm: the
+    // issuance answered "the issuer returned no credential" while the
+    // credential sat in credentials[0]). This test pins the fallback so
+    // the next test-relocating merge cannot land silently (backlog E).
+    let http = FakeHttp {
+        status: 200,
+        body: br#"{"credentials":[{"credential":"eyJhbGciOiJFUzI1NiJ9.batch.sig","format":"dc+sd-jwt"}]}"#.to_vec(),
+    };
+    let response = request_credential(
+        &http,
+        &FakeHost,
+        &test_metadata(),
+        &test_token(),
+        "UniversityDegree",
+        "flow-1",
+        None,
+        Some("nonce-1"),
+    )
+    .await
+    .expect("request");
+    assert_eq!(
+        response.credential.as_deref(),
+        Some("eyJhbGciOiJFUzI1NiJ9.batch.sig"),
+        "the first credentials[] entry IS the credential"
+    );
+}
+
+#[tokio::test]
 async fn requests_a_credential_with_the_host_signed_proof() {
     let http = FakeHttp {
         status: 200,
