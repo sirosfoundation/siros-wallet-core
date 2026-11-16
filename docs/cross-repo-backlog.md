@@ -581,6 +581,17 @@ E. **Merge-swept regression guards — a recurring failure class (2026-11-16,
    against a permissive AS and does not require client_id, so the swept guard
    was the only one. When filing: the rule belongs in the merge checklist of
    whichever repo owns the tests.
+F. **The language picker + the i18n migration it needs (2026-11-16).** The
+   settings restructure (sdk-kotlin `14edd7ac`) covered every audited
+   WalletConfig knob EXCEPT the language picker — deferred deliberately:
+   much of the sample apps' Compose UI uses literal English strings (the
+   res/values-{sv,fi,el,pt} translations cover only part of the surface), so
+   a per-app locale switch (LocaleManager on API 33+; the apps are
+   ComponentActivity, not AppCompatActivity) would render a half-translated
+   UI until the literal strings are migrated to resources. The migration is
+   its own item: move the literal Compose strings to res, then add the picker
+   (persisted app language → per-app locale on 33+). Until then, locale
+   follows the system setting.
 
 ## Proposed next steps
 
