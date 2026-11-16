@@ -111,6 +111,9 @@ fn the_encrypted_response_roundtrips() {
 
     let credential_response = CredentialResponse {
         credential: Some("credential-jwt-1".to_owned()),
+        // The batch member (OID4VCI §7.5): this test builds the FLAT
+        // single-credential shape, so the array is empty.
+        credentials: Vec::new(),
         format_specific: None,
         transaction_id: None,
         interval: None,
