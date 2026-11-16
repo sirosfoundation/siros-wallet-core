@@ -567,6 +567,20 @@ B. **The credential deck's accessibility semantics** — the hand-written gestur
 C. **The release doctor** (see P1 item 11) — listed there; file as its own
    issue on whichever repo owns the workflow templates.
 D. **Kotlin's `.claude/` ignore** — a one-line PR.
+E. **Merge-swept regression guards — a recurring failure class (2026-11-16,
+   twice found).** The tests-out-of-src / move-the-tests merges resolved their
+   file conflicts against branches cut BEFORE the fixes whose tests they moved:
+   #11 swept `1b78321`'s client_id form assertions off `auth_code.rs` entirely
+   (found via wallet-frontend wasm: apigw refuses the authorization_code grant
+   without client_id — green release, real regression, `9596d5c` restores it);
+   #16 swept `1cfebe1` the same way (restored manually at the time). Review
+   rule: EVERY test-relocating merge is diffed assertion-by-assertion against
+   MAIN's current tests — compile-green is not enough, the moved set must be
+   main's set, and every drive-validated fix's assertions must survive the
+   move. Conformance suites do not backstop this: the OIDF mini-wallet tests
+   against a permissive AS and does not require client_id, so the swept guard
+   was the only one. When filing: the rule belongs in the merge checklist of
+   whichever repo owns the tests.
 
 ## Proposed next steps
 
