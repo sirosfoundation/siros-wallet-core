@@ -1,19 +1,17 @@
 //! A context: the modules of one locale, which resolve a message's id and arguments into text.
 
-use rustc_hash::FxHashMap;
-
 use crate::args::Args;
 use crate::compile;
 #[cfg(feature = "check")]
 use crate::error::CheckError;
 use crate::error::{LoadError, ResolveError};
-use crate::format::Formats;
+use crate::format::Formatters;
+use crate::formatter::{Formatter, Setting};
 use crate::locale::LocaleTag;
 use crate::message::Message;
 use crate::messages::{Messages, Prefix};
 use crate::mf2;
-use crate::registry::Formatters;
-use crate::resource::{self, Entry};
+use crate::resource::{self, Section};
 use crate::text::Text;
 
 /// How a context isolates a placeholder's text from the text around it.
@@ -28,49 +26,77 @@ pub enum Bidi {
     None,
 }
 
-/// The modules of one locale, each a W3C message resource of MF2 messages, the format options
-/// their `[formats.<format>]` sections define, and the formatters each argument type takes.
-/// [`Context::resolve`] resolves a [`Message`]'s id and arguments into a [`Text`].
-#[derive(Debug, Clone, Default)]
-pub struct Context {
-    locale: Option<LocaleTag>,
+/// The formatters and the bidi strategy of a [`Context`] to build.
+#[derive(Debug, Default)]
+pub struct Builder {
     bidi: Bidi,
-    formats: Formats,
     formatters: Formatters,
-    messages: Messages,
 }
 
-impl Context {
-    /// A context without modules, which isolates placeholders by MF2's Default Bidi Strategy.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// The context, isolating placeholders by `bidi`.
+impl Builder {
+    /// The builder, its context isolating placeholders by `bidi`.
     #[must_use]
     pub fn bidi(self, bidi: Bidi) -> Self {
         Self { bidi, ..self }
     }
 
-    /// The context, its arguments taking `formatters` in place of its own.
+    /// The builder with `formatter` after the formatters given before: a function name or a
+    /// type's default an earlier formatter defines stays the earlier one's.
     #[must_use]
-    pub fn formatters(mut self, formatters: Formatters) -> Self {
-        self.formatters = formatters;
+    pub fn formatter(mut self, formatter: impl Formatter) -> Self {
+        self.formatters.push(Box::new(formatter));
         self
     }
 
+    /// The context, without modules.
+    #[must_use]
+    pub fn build(self) -> Context {
+        Context {
+            locale: None,
+            bidi: self.bidi,
+            formatters: self.formatters,
+            messages: Messages::default(),
+        }
+    }
+}
+
+/// The modules of one locale, each a W3C message resource of MF2 messages and of the settings
+/// of its formatters, which define the functions beyond `:string` and the one each argument type
+/// takes by default. [`Context::resolve`] resolves a [`Message`]'s id and arguments into a
+/// [`Text`].
+#[derive(Debug, Default)]
+pub struct Context {
+    locale: Option<LocaleTag>,
+    bidi: Bidi,
+    formatters: Formatters,
+    messages: Messages,
+}
+
+impl Context {
+    /// A context without modules or formatters, which isolates placeholders by MF2's Default
+    /// Bidi Strategy: every argument takes `:string`.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The builder of a context with formatters or another bidi strategy.
+    #[must_use]
+    pub fn builder() -> Builder {
+        Builder::default()
+    }
+
     /// The context with the resource `source` loaded whole: its `@locale`, which the first
-    /// module sets and every later one repeats, its `@dir`, its `[formats.<format>]` sections,
-    /// and its messages, each id its section's prefix, a dot and the entry's key. A message's
-    /// functions take the options of sections loaded before it or in its own module.
+    /// module sets and every later one repeats, its `@dir`, the sections its formatters read,
+    /// and its messages, each id its section's prefix, a dot and the entry's key. A section a
+    /// formatter reads gives it its settings before the module's messages compile, so a message
+    /// calls the functions of the sections loaded before it or in its own module.
     ///
     /// # Errors
     ///
     /// The [`LoadError`] of the first rule the module breaks: its syntax and MF2's, its
-    /// locale, an id or a section the context holds, a format section its format refuses, a
-    /// function the build lacks or whose options no module defines, or a call its function
-    /// refuses.
+    /// locale, an id the context holds, a section its formatter refuses, a function no
+    /// formatter defines, or a call its function refuses.
     pub fn module(mut self, source: &str) -> Result<Self, LoadError> {
         let resource = resource::parse(source)?;
         match (&resource.locale, &self.locale) {
@@ -83,22 +109,32 @@ impl Context {
                 });
             }
         }
-        // A format's options are those of each of its heads; a format is defined where its
-        // first head stands.
-        let mut options: FxHashMap<&str, Vec<&Entry<'_>>> = FxHashMap::default();
-        for head in &resource.formats {
-            options
-                .entry(&head.format)
-                .or_default()
-                .extend(&head.options);
-        }
-        for head in &resource.formats {
-            if let Some(options) = options.remove(head.format.as_ref()) {
-                self.formats
-                    .define(&head.format, &options, resource.direction)?;
+        let mut messages: Vec<&Section<'_>> = Vec::with_capacity(resource.sections.len());
+        for section in &resource.sections {
+            let Some(name) = section.name.as_deref() else {
+                messages.push(section);
+                continue;
+            };
+            let settings: Vec<Setting<'_>> = section
+                .entries
+                .iter()
+                .map(|entry| Setting {
+                    key: &entry.key,
+                    text: &entry.value,
+                })
+                .collect();
+            let read = self
+                .formatters
+                .load(name, &settings, resource.direction)
+                .map_err(|rule| LoadError::Format {
+                    section: name.to_owned(),
+                    rule,
+                })?;
+            if !read {
+                messages.push(section);
             }
         }
-        for section in &resource.sections {
+        for section in messages {
             let (prefix, name) = match &section.name {
                 Some(name) => (self.messages.section(name), Some(name)),
                 None => (Prefix::NONE, None),
@@ -115,7 +151,7 @@ impl Context {
                 let message = mf2::parse::parse(&entry.value)
                     .and_then(|message| {
                         let valid = mf2::valid::Valid::of(&message)?;
-                        compile::compile(&valid, resource.direction, &self.formats)
+                        compile::compile(&valid, resource.direction, &self.formatters)
                     })
                     .map_err(|fault| fault.at(&id(), entry.line))?;
                 *slot = Some(Box::new(message));
@@ -130,17 +166,17 @@ impl Context {
         self.locale.as_ref()
     }
 
-    /// The message's id worded by the context's modules, over the arguments the wording names:
-    /// each argument's text is its value's `Display`, its key asked for as the wording spells it.
-    /// An argument takes the functions its type takes, and where the wording
-    /// names none, its type's default.
+    /// The message's id worded by the context's modules, over the arguments the wording names,
+    /// each asked for by its key as the wording spells it. A call formats its argument by the
+    /// function it names; a placeholder, a declaration or a selector that names none, by the
+    /// default function of the argument's type, `:string` where no formatter gives one.
     ///
     /// # Errors
     ///
     /// [`ResolveError`] for an id no module words, an argument whose `Display` fails, an
-    /// argument the wording reads and the message lacks, a function the argument's type takes
-    /// no formatter of, a selector or a key its type's default refuses, and a text a function
-    /// refuses.
+    /// argument the wording reads and the message lacks, a function that takes no value of the
+    /// argument's type, a selector or a key its type's default refuses, and a value or an option
+    /// text a function refuses.
     pub fn resolve(&self, message: &dyn Message) -> Result<Text, ResolveError> {
         let id = message.id();
         let unknown = || ResolveError::Unknown { id: id.to_owned() };
@@ -149,35 +185,21 @@ impl Context {
             id: id.to_owned(),
             key: key.to_owned(),
         })?;
-        worded.resolve(id, &args, &self.formats, &self.formatters, self.bidi)
+        worded.resolve(id, &args, &self.formatters, self.bidi)
     }
 
-    /// The wallet's completeness test: every formatter a type takes has its options, and every
-    /// error and statement the binary links has a wording that names only its arguments, in its
-    /// `.input` declarations and in each variable no declaration binds. It reads the rows the
-    /// derives register under `check` (siros-explain's for errors, this crate's for statements).
+    /// The wallet's completeness test: every error and statement the binary links has a wording
+    /// that names only its arguments, in its `.input` declarations and in each variable no
+    /// declaration binds. It reads the rows the derives register under `check` (siros-explain's
+    /// for errors, this crate's for statements).
     ///
     /// # Errors
     ///
-    /// The first of [`CheckError::Undefined`] for a formatter whose options no module defines,
-    /// in the order of the types' names and the functions'; [`CheckError::Repeated`] for two
-    /// rows of one id, [`CheckError::Unworded`] for a row no module words, and
-    /// [`CheckError::Unknown`] for a wording that names an argument its row lacks, each over the
-    /// rows in the order of their ids.
+    /// The first of [`CheckError::Repeated`] for two rows of one id, [`CheckError::Unworded`]
+    /// for a row no module words, and [`CheckError::Unknown`] for a wording that names an
+    /// argument its row lacks, each over the rows in the order of their ids.
     #[cfg(feature = "check")]
     pub fn check(&self) -> Result<(), CheckError> {
-        let undefined = self
-            .formatters
-            .functions()
-            .filter(|(function, _)| !self.formats.defines(*function))
-            .map(|(function, of)| (of, function.name()))
-            .min();
-        if let Some((of, function)) = undefined {
-            return Err(CheckError::Undefined {
-                of,
-                function: function.to_owned(),
-            });
-        }
         let mut rows: Vec<(&'static str, &'static [&'static str])> = siros_explain::check::rows()
             .map(|row| (row.id, row.keys))
             .chain(crate::check::rows().map(|row| (row.id, row.keys)))

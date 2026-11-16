@@ -1,384 +1,263 @@
-//! The build's functions, one family per feature: `:string` always, `:number` and `:integer`
-//! (`number`), `:currency` (`currency`), and `:siros:date`, `:siros:time` and `:siros:datetime`
-//! (`date`). A family with options parses its `[formats.<format>]` section. The load checks each
-//! [`Chain`] for the use a placeholder, a selector or an option makes of it; a resolution reads
-//! the sections and formats, selects or takes the value.
+//! A context's functions: `:string`, and those its formatters define. The load checks each
+//! [`Chain`] for the use a placeholder, a selector or an option makes of it; a resolution formats
+//! the chain's value, selects on it, or takes its text.
+//!
+//! A chain's outermost call names the function. That function formats the value the chain starts
+//! from, with the options of every call of the same function along the chain, an outer call's
+//! option over an inner one's.
 
-use std::borrow::Cow;
+use std::any::TypeId;
+use std::fmt;
 
-use crate::chain::{Call, Chain, Failure, Refused, Texts};
+use siros_explain::Arg;
+
+use crate::chain::{Call, Chain, Failure, Root};
 use crate::error::Refusal;
-pub(crate) use crate::formats::Formats;
-#[cfg(any(feature = "number", feature = "currency", feature = "date"))]
-pub(crate) use crate::formats::Options;
-use crate::formats::Section;
+use crate::formatter::{Direction, Formatter, FunctionId, Selection, Setting};
 use crate::scope::Scope;
 
-/// A text's directionality: a message's, by its module's `@dir`, and a formatted value's, which
-/// MF2's Default Bidi Strategy isolates it by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Direction {
-    /// Left to right.
-    Ltr,
-    /// Right to left.
-    Rtl,
-    /// Not known.
-    Unknown,
-}
-
-/// A function the build compiles in.
+/// A function of a context: `:string`, or one a formatter defines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Function {
     String,
-    #[cfg(feature = "number")]
-    Number,
-    #[cfg(feature = "number")]
-    Integer,
-    #[cfg(feature = "currency")]
-    Currency,
-    #[cfg(feature = "date")]
-    Date,
-    #[cfg(feature = "date")]
-    Time,
-    #[cfg(feature = "date")]
-    DateTime,
+    Formatted { by: usize, id: FunctionId },
 }
 
-impl Function {
-    /// Every function of the build.
-    const ALL: &'static [Self] = &[
-        Self::String,
-        #[cfg(feature = "number")]
-        Self::Number,
-        #[cfg(feature = "number")]
-        Self::Integer,
-        #[cfg(feature = "currency")]
-        Self::Currency,
-        #[cfg(feature = "date")]
-        Self::Date,
-        #[cfg(feature = "date")]
-        Self::Time,
-        #[cfg(feature = "date")]
-        Self::DateTime,
-    ];
+/// The name of `:string`.
+pub(crate) const STRING: &str = "string";
 
-    /// The function of this name, without its colon; `None` for a function the build lacks.
-    pub(crate) fn named(name: &str) -> Option<Self> {
-        Self::ALL
+/// A context's formatters, in the order its builder gives them: an earlier formatter's
+/// functions and defaults come before a later one's.
+#[derive(Default)]
+pub(crate) struct Formatters(Vec<Box<dyn Formatter>>);
+
+impl fmt::Debug for Formatters {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Formatters({})", self.0.len())
+    }
+}
+
+impl Formatters {
+    /// Adds `formatter` after the others.
+    pub(crate) fn push(&mut self, formatter: Box<dyn Formatter>) {
+        self.0.push(formatter);
+    }
+
+    /// The formatter that reads the section `section`; `None` for a section of messages.
+    pub(crate) fn reader(&mut self, section: &str) -> Option<&mut dyn Formatter> {
+        self.0
+            .iter_mut()
+            .find(|formatter| formatter.reads(section))
+            .map(|formatter| &mut **formatter as &mut dyn Formatter)
+    }
+
+    /// Loads `settings` into the formatter that reads `section`; `false` for a section no
+    /// formatter reads.
+    ///
+    /// # Errors
+    ///
+    /// The formatter's [`FormatRule`](crate::FormatRule).
+    pub(crate) fn load(
+        &mut self,
+        section: &str,
+        settings: &[Setting<'_>],
+        direction: Direction,
+    ) -> Result<bool, crate::FormatRule> {
+        match self.reader(section) {
+            Some(formatter) => formatter.load(section, settings, direction).map(|()| true),
+            None => Ok(false),
+        }
+    }
+
+    /// The function `name` calls: `:string`, else the first formatter's that defines it.
+    pub(crate) fn named(&self, name: &str) -> Option<Function> {
+        if name == STRING {
+            return Some(Function::String);
+        }
+        self.0.iter().enumerate().find_map(|(by, formatter)| {
+            formatter
+                .function(name)
+                .map(|id| Function::Formatted { by, id })
+        })
+    }
+
+    fn formatter(&self, by: usize) -> Option<&dyn Formatter> {
+        self.0.get(by).map(|formatter| &**formatter)
+    }
+
+    /// The name of `function`.
+    pub(crate) fn name(&self, function: Function) -> &str {
+        match function {
+            Function::String => STRING,
+            Function::Formatted { by, id } => self.formatter(by).map_or(STRING, |f| f.name(id)),
+        }
+    }
+
+    /// The function a value of the type `of` takes where the wording names none: the first
+    /// formatter's default, else `:string`.
+    pub(crate) fn default(&self, of: TypeId) -> Function {
+        self.0
             .iter()
-            .copied()
-            .find(|function| function.name() == name)
+            .enumerate()
+            .find_map(|(by, formatter)| {
+                formatter
+                    .default(of)
+                    .map(|id| Function::Formatted { by, id })
+            })
+            .unwrap_or(Function::String)
     }
 
-    /// Its name, without its colon.
-    pub(crate) const fn name(self) -> &'static str {
-        match self {
-            Self::String => "string",
-            #[cfg(feature = "number")]
-            Self::Number => "number",
-            #[cfg(feature = "number")]
-            Self::Integer => "integer",
-            #[cfg(feature = "currency")]
-            Self::Currency => "currency",
-            #[cfg(feature = "date")]
-            Self::Date => "siros:date",
-            #[cfg(feature = "date")]
-            Self::Time => "siros:time",
-            #[cfg(feature = "date")]
-            Self::DateTime => "siros:datetime",
+    /// Whether `function` takes a value of the type `of`: `:string` takes every type.
+    pub(crate) fn takes(&self, function: Function, of: TypeId) -> bool {
+        match function {
+            Function::String => true,
+            Function::Formatted { by, id } => self.formatter(by).is_some_and(|f| f.takes(id, of)),
         }
     }
 
-    /// Its call without options: the call of a placeholder or a selector whose wording names no
-    /// function, over an argument whose type takes it by default.
-    pub(crate) fn bare(self) -> &'static Call {
-        macro_rules! bare {
-            ($function:expr) => {{
-                static CALL: Call = Call::new($function, Vec::new());
-                &CALL
-            }};
-        }
-        match self {
-            Self::String => bare!(Function::String),
-            #[cfg(feature = "number")]
-            Self::Number => bare!(Function::Number),
-            #[cfg(feature = "number")]
-            Self::Integer => bare!(Function::Integer),
-            #[cfg(feature = "currency")]
-            Self::Currency => bare!(Function::Currency),
-            #[cfg(feature = "date")]
-            Self::Date => bare!(Function::Date),
-            #[cfg(feature = "date")]
-            Self::Time => bare!(Function::Time),
-            #[cfg(feature = "date")]
-            Self::DateTime => bare!(Function::DateTime),
-        }
-    }
-
-    /// The family whose check and resolution it shares.
-    const fn family(self) -> Family {
-        match self {
-            Self::String => Family::String,
-            #[cfg(feature = "number")]
-            Self::Number | Self::Integer => Family::Numeric,
-            #[cfg(feature = "currency")]
-            Self::Currency => Family::Numeric,
-            #[cfg(feature = "date")]
-            Self::Date | Self::Time | Self::DateTime => Family::Date,
-        }
-    }
-
-    /// The section that defines its options; `None` for a function that takes none.
-    pub(crate) const fn section(self) -> Option<Section> {
-        match self {
-            Self::String => None,
-            #[cfg(feature = "number")]
-            Self::Number | Self::Integer => Some(Section::Number),
-            #[cfg(feature = "currency")]
-            Self::Currency => Some(Section::Currency),
-            #[cfg(feature = "date")]
-            Self::Date | Self::Time | Self::DateTime => Some(Section::Date),
-        }
-    }
-}
-
-/// The functions that share a check and a resolution.
-enum Family {
-    String,
-    #[cfg(any(feature = "number", feature = "currency"))]
-    Numeric,
-    #[cfg(feature = "date")]
-    Date,
-}
-
-/// The numeric chain's language: the section of the function that formats its value.
-///
-/// # Errors
-///
-/// [`Refused::Undefined`] for a section no module defined, and [`Refusal::Operand`] for a chain
-/// with a call of another family.
-#[cfg(any(feature = "number", feature = "currency"))]
-fn language<'f>(
-    chain: &Chain<'_>,
-    formats: &'f Formats,
-) -> Result<crate::numeric::Language<'f>, Refused> {
-    use crate::numeric::options::Function as Numeric;
-    match crate::numeric::formatter(chain).ok_or(Refusal::Operand)? {
-        #[cfg(feature = "currency")]
-        Numeric::Currency => Ok(crate::numeric::Language::Currency(
-            formats.currency().ok_or(Refused::Undefined)?,
-        )),
-        #[cfg(feature = "number")]
-        Numeric::Number | Numeric::Integer => Ok(crate::numeric::Language::Plain(
-            formats.number().ok_or(Refused::Undefined)?,
-        )),
-        #[cfg(not(all(feature = "number", feature = "currency")))]
-        _ => Err(Refusal::Operand.into()),
-    }
-}
-
-/// The numeric chain's language at resolution.
-///
-/// # Errors
-///
-/// [`Failure::Operand`] for a chain no section of the context formats.
-#[cfg(any(feature = "number", feature = "currency"))]
-fn formatting<'f>(
-    chain: &Chain<'_>,
-    formats: &'f Formats,
-) -> Result<crate::numeric::Language<'f>, Failure> {
-    language(chain, formats).map_err(|_| Failure::Operand)
-}
-
-/// Checks the chain for its use at a placeholder or as an option's value, against the sections
-/// of the modules loaded so far.
-///
-/// # Errors
-///
-/// [`Refused`] for a section no module defined, or a call the function refuses.
-pub(crate) fn check(
-    chain: &Chain<'_>,
-    #[cfg_attr(
-        not(any(feature = "number", feature = "currency", feature = "date")),
-        expect(unused_variables, reason = "only the format functions read a section")
-    )]
-    formats: &Formats,
-) -> Result<(), Refused> {
-    match chain.outer.function.family() {
-        Family::String => crate::string::check(chain),
-        #[cfg(any(feature = "number", feature = "currency"))]
-        Family::Numeric => crate::numeric::check(chain, language(chain, formats)?),
-        #[cfg(feature = "date")]
-        Family::Date => {
-            if formats.date().is_none() {
-                return Err(Refused::Undefined);
-            }
-            Ok(crate::date::check(chain)?)
-        }
-    }
-}
-
-/// How a selector's function selects.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Selecting {
-    /// `:string`: the key equal to the operand's text.
-    Text,
-    /// A numeric function: by its `select`.
-    #[cfg(any(feature = "number", feature = "currency"))]
-    Number(crate::numeric::Selection),
-}
-
-impl Selecting {
-    /// How the chain selects, checked for its use as a selector against the sections of the
-    /// modules loaded so far.
+    /// Checks a call's option: `:string` ignores the options a call writes, as
+    /// spec/functions/README.md permits.
     ///
     /// # Errors
     ///
-    /// [`Refused`] for a section no module defined, or a call the function refuses: a function
-    /// that does not select refuses with [`Refusal::Selector`].
-    pub(crate) fn of(
-        chain: &Chain<'_>,
-        #[cfg_attr(
-            not(any(feature = "number", feature = "currency")),
-            expect(unused_variables, reason = "only the numeric functions read a section")
-        )]
-        formats: &Formats,
-    ) -> Result<Self, Refused> {
-        match chain.outer.function.family() {
-            Family::String => crate::string::check(chain).map(|()| Self::Text),
-            #[cfg(any(feature = "number", feature = "currency"))]
-            Family::Numeric => {
-                crate::numeric::selection(chain, language(chain, formats)?).map(Self::Number)
-            }
-            #[cfg(feature = "date")]
-            Family::Date => Err(Refusal::Selector.into()),
-        }
-    }
-
-    /// Refuses a variant key the selection does not read.
-    ///
-    /// # Errors
-    ///
-    /// [`Refusal::Key`] for such a key.
-    pub(crate) fn reads(
-        self,
-        #[cfg_attr(
-            not(any(feature = "number", feature = "currency")),
-            expect(unused_variables, reason = "only the numeric selection refuses a key")
-        )]
-        key: &str,
+    /// The formatter's [`Refusal`].
+    pub(crate) fn option(
+        &self,
+        function: Function,
+        name: &str,
+        text: Option<&str>,
     ) -> Result<(), Refusal> {
-        match self {
-            #[cfg(any(feature = "number", feature = "currency"))]
-            Self::Number(_) => crate::numeric::key(key),
-            _ => Ok(()),
+        match function {
+            Function::String => Ok(()),
+            Function::Formatted { by, id } => self
+                .formatter(by)
+                .ok_or(Refusal::Operand)?
+                .option(id, name, text),
         }
     }
 
-    /// What the chain's value selects with, its options resolved to `texts`.
+    /// Checks a variant key of a selector calling `function`: `:string` matches any key.
     ///
     /// # Errors
     ///
-    /// [`Failure`] as [`format`].
-    pub(crate) fn selected<'s>(
-        self,
-        chain: &Chain<'s>,
-        #[cfg_attr(
-            not(any(feature = "number", feature = "currency")),
-            expect(unused_variables, reason = "`:string` reads no option")
-        )]
-        texts: &Texts<'_>,
-        scope: &Scope<'s>,
-    ) -> Result<Selected<'s>, Failure> {
-        match self {
-            Self::Text => crate::string::value(chain, scope).map(Selected::Text),
-            #[cfg(any(feature = "number", feature = "currency"))]
-            Self::Number(selection) => {
-                let language = formatting(chain, scope.formats)?;
-                crate::numeric::selected(chain, texts, scope, language, selection)
-                    .map(Selected::Number)
+    /// The formatter's [`Refusal`].
+    pub(crate) fn key(&self, function: Function, key: &str) -> Result<(), Refusal> {
+        match function {
+            Function::String => Ok(()),
+            Function::Formatted { by, id } => {
+                self.formatter(by).ok_or(Refusal::Operand)?.key(id, key)
             }
         }
     }
-}
 
-/// What a selector's value selects with.
-#[derive(Debug)]
-pub(crate) enum Selected<'s> {
-    /// The text a key equals.
-    Text(&'s str),
-    /// A number's exact key and plural category.
-    #[cfg(any(feature = "number", feature = "currency"))]
-    Number(crate::numeric::Selected),
-}
-
-impl Selected<'_> {
-    /// The rank of `key` among the keys the value matches, from 0 for the best; `None` for a key
-    /// it does not match.
-    pub(crate) fn rank(&self, key: &str) -> Option<usize> {
-        match self {
-            Self::Text(text) => (*text == key).then_some(0),
-            #[cfg(any(feature = "number", feature = "currency"))]
-            Self::Number(number) => number.rank(key),
+    /// Whether `function` selects: `:string` selects by the operand's text.
+    pub(crate) fn selects(&self, function: Function) -> bool {
+        match function {
+            Function::String => true,
+            Function::Formatted { by, id } => self.formatter(by).is_some_and(|f| f.selects(id)),
         }
     }
 }
 
-/// The chain's value as an option's value: the operand's text for `:string` and the date
-/// functions, the number for the numeric functions.
+/// Checks the chain for its use at a placeholder or as an option's value.
+///
+/// # Errors
+///
+/// [`Refusal::Operand`] for a chain without an operand, or a chain of `:string` with a call of
+/// another function.
+pub(crate) fn check(chain: &Chain<'_>) -> Result<(), Refusal> {
+    match chain.outer.function {
+        Function::String => crate::string::check(chain),
+        Function::Formatted { .. } if chain.root == Root::None => Err(Refusal::Operand),
+        Function::Formatted { .. } => Ok(()),
+    }
+}
+
+/// Checks the chain for its use as a selector, and gives its function.
+///
+/// # Errors
+///
+/// The [`Refusal`] of [`check`], and [`Refusal::Selector`] for a function that does not select.
+pub(crate) fn selecting(chain: &Chain<'_>, formatters: &Formatters) -> Result<Function, Refusal> {
+    check(chain)?;
+    let function = chain.outer.function;
+    if formatters.selects(function) {
+        Ok(function)
+    } else {
+        Err(Refusal::Selector)
+    }
+}
+
+/// The chain's value as an option's value: the text of the operand it starts from.
+///
+/// # Errors
+///
+/// [`Failure::Operand`] for a chain without an operand, and [`Failure::Unresolved`] for an
+/// argument the message does not give.
+pub(crate) fn value<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<&'m str, Failure> {
+    crate::string::value(chain, scope)
+}
+
+/// The value the chain starts from.
+fn operand<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<&'m dyn Arg, Failure> {
+    match chain.root {
+        Root::None => Err(Failure::Operand),
+        Root::Literal(text) => Ok(text),
+        Root::Argument(key) => scope.arg(key),
+    }
+}
+
+/// The failure at resolution of a formatter's refusal.
+fn failure(refusal: Refusal) -> Failure {
+    match refusal {
+        Refusal::Option { option } => Failure::Option(option),
+        Refusal::Operand | Refusal::Key { .. } | Refusal::Selector => Failure::Operand,
+    }
+}
+
+/// The chain's value formatted, and the formatted text's direction.
+///
+/// # Errors
+///
+/// [`Failure`] for an operand or an option text the function refuses, or an argument the
+/// message does not give.
+pub(crate) fn format(chain: &Chain<'_>, scope: &Scope<'_>) -> Result<(String, Direction), Failure> {
+    match chain.outer.function {
+        Function::String => {
+            crate::string::value(chain, scope).map(|text| (text.to_owned(), Direction::Unknown))
+        }
+        Function::Formatted { by, id } => {
+            let options = chain.options(scope)?;
+            let value = operand(chain, scope)?;
+            let formatter = scope.formatters.formatter(by).ok_or(Failure::Operand)?;
+            let mut out = String::new();
+            let direction = formatter
+                .format(id, value, &options, &mut out)
+                .map_err(failure)?;
+            Ok((out, direction))
+        }
+    }
+}
+
+/// What the chain's value selects with.
 ///
 /// # Errors
 ///
 /// [`Failure`] as [`format`].
-pub(crate) fn value<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<Cow<'m, str>, Failure> {
-    #[cfg_attr(
-        not(any(feature = "number", feature = "currency", feature = "date")),
-        expect(unused_variables, reason = "`:string` reads no option")
-    )]
-    let texts = chain.texts(scope)?;
-    match chain.outer.function.family() {
-        Family::String => crate::string::value(chain, scope).map(Cow::Borrowed),
-        #[cfg(any(feature = "number", feature = "currency"))]
-        Family::Numeric => {
-            let language = formatting(chain, scope.formats)?;
-            crate::numeric::value(chain, &texts, scope, language).map(Cow::Owned)
+pub(crate) fn selected(chain: &Chain<'_>, scope: &Scope<'_>) -> Result<Selection, Failure> {
+    match chain.outer.function {
+        Function::String => crate::string::value(chain, scope)
+            .map(|text| Selection::new(text.to_owned(), None)),
+        Function::Formatted { by, id } => {
+            let options = chain.options(scope)?;
+            let value = operand(chain, scope)?;
+            let formatter = scope.formatters.formatter(by).ok_or(Failure::Operand)?;
+            formatter.select(id, value, &options).map_err(failure)
         }
-        #[cfg(feature = "date")]
-        Family::Date => crate::date::value(chain, &texts, scope).map(Cow::Borrowed),
     }
 }
 
-/// The chain's value formatted with its resolved options `texts`, and the formatted text's
-/// direction.
-///
-/// # Errors
-///
-/// [`Failure`] for an operand or an option text the function refuses, a chain no section of the
-/// context formats, or an argument the message does not give.
-pub(crate) fn format(
-    chain: &Chain<'_>,
-    #[cfg_attr(
-        not(any(feature = "number", feature = "currency", feature = "date")),
-        expect(unused_variables, reason = "`:string` reads no option")
-    )]
-    texts: &Texts<'_>,
-    scope: &Scope<'_>,
-) -> Result<(String, Direction), Failure> {
-    match chain.outer.function.family() {
-        Family::String => {
-            crate::string::value(chain, scope).map(|text| (text.to_owned(), Direction::Unknown))
-        }
-        #[cfg(any(feature = "number", feature = "currency"))]
-        Family::Numeric => {
-            let language = formatting(chain, scope.formats)?;
-            let text = crate::numeric::format(chain, texts, scope, language)?;
-            Ok((text, language.direction()))
-        }
-        #[cfg(feature = "date")]
-        Family::Date => {
-            let section = scope.formats.date().ok_or(Failure::Operand)?;
-            let text = crate::date::format(chain, texts, scope, section)?;
-            Ok((text, section.direction()))
-        }
-    }
+/// The call of `function` without options, named `name`.
+pub(crate) fn bare(function: Function, name: &str) -> Call {
+    Call::new(function, std::borrow::Cow::Owned(name.to_owned()), Vec::new())
 }

@@ -1,26 +1,19 @@
 //! The wallet core's messages and their wording. A [`Message`] is an id and arguments: every
 //! siros-explain error, and every statement that derives `Message`. A [`Context`] holds the
 //! wallet's wording in one locale: modules of Unicode MessageFormat 2 messages, each a W3C message
-//! resource whose sections prefix its ids and whose `[formats.<format>]` sections define the
-//! options of the format functions. [`Context::resolve`] resolves a message into a [`Text`], its
+//! resource whose sections prefix its ids or configure its formatters. [`Context::resolve`] resolves a message into a [`Text`], its
 //! spans styled by the wording's markup (`{#strong}`, `{#emphasis}`, `{#underline}`).
 //!
-//! An argument takes the functions its type registers in the context's [`Formatters`]:
-//! [`Formatters::formatter`] lets a call name a function on the type, and
-//! [`Formatters::default_formatter`] also makes the function that of a placeholder `{$x}`, a
-//! declaration `.input {$x}` and a selector `.match $x` that name none. Every type takes
-//! `:string`, which writes its value's `Display`, and takes it by default where it registers no
-//! other. A function reads the value's `Display`: `:number` and `:integer` take a number literal
-//! and show the fraction digits it is written with; `:currency` takes a number and a `currency`
-//! option, an ISO 4217 code of siros-syntax's table; `:siros:date`, `:siros:time` and
-//! `:siros:datetime` take siros-syntax's ISO 8601 literals. Each function family is a feature:
-//! `number` (`:number`, `:integer`), `currency` (`:currency`) and `date`; `:string` is always
-//! in. `siros-cldr` writes the format sections of a language from CLDR 49.0.0.
+//! Every function beyond `:string`, which writes a value's `Display`, comes from a [`Formatter`]
+//! the context's [`Builder`] is given: it reads the sections of the modules it claims, defines
+//! functions under names a call writes as `:name`, and gives the function a value of each type
+//! takes where the wording names none (a placeholder `{$x}`, a declaration `.input {$x}`, a
+//! selector `.match $x`). A type no formatter claims takes `:string`. siros-i18n-formats ships a
+//! general pattern formatter configured by the locale files.
 //!
 //! An option's value is a literal or a variable's value (MF2's Option Resolution): an argument's
-//! text, a literal, or the value of the call a declaration binds, which is the operand's text for
-//! `:string` and the date functions and the number, without an exponent, for the numeric
-//! functions. The load refuses an option of MF2's `u:` namespace.
+//! text, a literal, or the text of the operand of the call a declaration binds. The load refuses
+//! an option of MF2's `u:` namespace.
 //!
 //! [`escape`] writes a text as a resource value that resolves to it: a converter writes each
 //! issuer text through it.
@@ -49,7 +42,6 @@
 //!
 //! # Features
 //!
-//! - `number`, `currency`, `date` (default): the function families.
 //! - `derive` (default): `#[derive(Message)]`.
 //! - `check`: `Context::check`, over one row per derived error and statement of every crate the
 //!   binary links. Test builds turn it on; a build without it holds no row.
@@ -80,35 +72,26 @@ mod chain;
 pub mod check;
 mod compile;
 mod context;
-#[cfg(feature = "date")]
-mod date;
-#[cfg(any(feature = "number", feature = "currency", feature = "date"))]
-mod digit;
 mod error;
 mod escape;
 mod format;
-mod formats;
+mod formatter;
 mod locale;
 mod message;
 mod messages;
 mod mf2;
-#[cfg(any(feature = "number", feature = "currency"))]
-mod numeric;
-mod registry;
 mod resource;
 mod scope;
 mod seen;
 mod string;
 mod text;
 
-pub use context::{Bidi, Context};
-pub use error::{
-    CheckError, FormatRule, LoadError, Refusal, RegisterError, ResolveError, SyntaxRule,
-};
+pub use context::{Bidi, Builder, Context};
+pub use error::{CheckError, FormatRule, LoadError, Refusal, ResolveError, SyntaxRule};
 pub use escape::escape;
 pub use locale::{InvalidTag, LocaleTag};
+pub use formatter::{Direction, Formatter, FunctionId, Selection, Setting};
 pub use message::Message;
-pub use registry::Formatters;
 pub use siros_explain::{Arg, scope};
 #[cfg(feature = "derive")]
 pub use siros_i18n_derive::Message;

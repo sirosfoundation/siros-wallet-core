@@ -10,13 +10,7 @@ rust-version.workspace = true
 publish = false
 
 [features]
-default = ["number", "currency", "date", "derive"]
-# `:number` and `:integer`.
-number = []
-# `:currency`. icu_properties gives the letters that decide a currency symbol's spacing.
-currency = ["dep:siros-syntax", "dep:icu_properties"]
-# `:siros:date`, `:siros:time` and `:siros:datetime`.
-date = ["dep:siros-syntax"]
+default = ["derive"]
 # `#[derive(Message)]`.
 derive = ["dep:siros-i18n-derive"]
 # Test builds only: `Context::check` and every derived statement's row.
@@ -24,11 +18,9 @@ check = ["siros-explain/check", "dep:inventory"]
 
 [dependencies]
 siros-explain = { workspace = true }
-siros-syntax = { workspace = true, optional = true }
 siros-i18n-derive = { workspace = true, optional = true }
 thiserror = { workspace = true }
 rustc-hash = { workspace = true }
-icu_properties = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 
 [dev-dependencies]

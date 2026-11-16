@@ -21,9 +21,7 @@ pub enum LoadError {
         #[source]
         rule: SyntaxRule,
     },
-    /// The module words an id the context or the module already words, gives an option of a
-    /// format section twice, or defines a `[formats.<format>]` section the context already
-    /// holds. `id` is the message's id, `formats.<format>.<option>`, or `formats.<format>`.
+    /// The module words an id the context or the module already words.
     #[error("{id} is given twice")]
     #[explain(id = "load.repeated")]
     Repeated {
@@ -39,8 +37,8 @@ pub enum LoadError {
         /// The context's locale; `None` before its first module.
         context: Option<LocaleTag>,
     },
-    /// A message calls a function the build does not compile in.
-    #[error("{id} calls :{function}, which the build lacks")]
+    /// A message calls a function no formatter of the context defines.
+    #[error("{id} calls :{function}, which no formatter defines")]
     #[explain(id = "load.function")]
     Function {
         /// The message's id.
@@ -48,22 +46,12 @@ pub enum LoadError {
         /// The function, without its colon.
         function: String,
     },
-    /// A message calls a function whose format options no module loaded so far defines. A
-    /// wallet loads its formats module first.
-    #[error("{id} calls :{function}, whose format options no module defines")]
-    #[explain(id = "load.option")]
-    Option {
-        /// The message's id.
-        id: String,
-        /// The function, without its colon.
-        function: String,
-    },
-    /// A `[formats.<format>]` section the build's format refuses.
-    #[error("[formats.{format}]: {rule}")]
+    /// A section whose settings its formatter refuses.
+    #[error("[{section}]: {rule}")]
     #[explain(id = "load.format")]
     Format {
-        /// The format.
-        format: String,
+        /// The section's name.
+        section: String,
         /// The rule.
         #[source]
         rule: FormatRule,
@@ -107,12 +95,10 @@ pub(crate) enum Fault {
     MarkupOption(String),
     /// Markup of this name, which leaves the nested order.
     Nesting(String),
-    /// A function of this name, which the build lacks.
+    /// A function of this name, which no formatter defines.
     Function(String),
-    /// This function, whose format options no module defines.
-    Undefined(&'static str),
-    /// This function's refusal of a call.
-    Call(&'static str, Refusal),
+    /// The refusal of a call by its function, of this name.
+    Call(String, Refusal),
 }
 
 impl Fault {
@@ -135,16 +121,10 @@ impl Fault {
             Self::MarkupOption(markup) => SyntaxRule::MarkupOption { id, markup },
             Self::Nesting(markup) => SyntaxRule::Nesting { id, markup },
             Self::Function(function) => return LoadError::Function { id, function },
-            Self::Undefined(function) => {
-                return LoadError::Option {
-                    id,
-                    function: function.to_owned(),
-                };
-            }
             Self::Call(function, refusal) => {
                 return LoadError::Call {
                     id,
-                    function: function.to_owned(),
+                    function,
                     refusal,
                 };
             }
@@ -284,33 +264,45 @@ pub enum SyntaxRule {
     },
 }
 
-/// Why a format refuses a `[formats.<format>]` section.
+/// Why a formatter refuses the settings of a section it reads.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum FormatRule {
-    /// No format of the engine has this name.
-    #[error("no format has this name")]
-    #[explain(id = "format.unknown")]
-    Unknown,
-    /// The section gives an option the format does not take.
-    #[error("the format takes no option {option}")]
+    /// The section, or a setting of it, is given twice.
+    #[error("{key} is given twice")]
+    #[explain(id = "format.repeated")]
+    Repeated {
+        /// The setting's key; the section's name for the section.
+        key: String,
+    },
+    /// The section gives a setting the formatter does not take.
+    #[error("the formatter takes no setting {key}")]
     #[explain(id = "format.undefined")]
     Undefined {
-        /// The option.
-        option: String,
+        /// The setting's key.
+        key: String,
     },
-    /// The section lacks an option the format reads.
-    #[error("the section lacks the option {option}")]
+    /// The section lacks a setting the formatter reads.
+    #[error("the section lacks the setting {key}")]
     #[explain(id = "format.missing")]
     Missing {
-        /// The option.
-        option: &'static str,
+        /// The setting's key.
+        key: String,
     },
-    /// An option's text is outside the format's grammar for it.
-    #[error("the option {option} is no valid value")]
+    /// A setting's text is outside the formatter's grammar for it.
+    #[error("the setting {key} is no valid value")]
     #[explain(id = "format.text")]
     Text {
-        /// The option.
-        option: &'static str,
+        /// The setting's key.
+        key: String,
+    },
+    /// A setting names something no setting the formatter holds defines.
+    #[error("the setting {key} names {name}, which no setting defines")]
+    #[explain(id = "format.unknown")]
+    Unknown {
+        /// The setting's key.
+        key: String,
+        /// What it names.
+        name: String,
     },
 }
 
@@ -362,7 +354,8 @@ pub enum ResolveError {
         /// The argument's key.
         key: String,
     },
-    /// A function refuses its operand's text.
+    /// A function refuses its operand: a value it takes no form of, or a literal it does not
+    /// read.
     #[error("{id}: :{function} refuses its operand")]
     #[explain(id = "resolve.operand")]
     Operand {
@@ -371,8 +364,8 @@ pub enum ResolveError {
         /// The function, without its colon.
         function: String,
     },
-    /// A function refuses an option's value, which a variable gives: an argument's text, or a
-    /// declared call's value.
+    /// A function refuses an option's value, which a variable gives (an argument's text, or a
+    /// declared call's value), or a value with that option.
     #[error("{id}: :{function} refuses its option {option}")]
     #[explain(id = "resolve.option")]
     Option {
@@ -383,7 +376,7 @@ pub enum ResolveError {
         /// The option.
         option: String,
     },
-    /// A call names a function the type of its argument takes no formatter of.
+    /// A call names a function that takes no value of its argument's type.
     #[error("{id}: the argument {key} takes no :{function}")]
     #[explain(id = "resolve.unformatted")]
     Unformatted {
@@ -394,7 +387,7 @@ pub enum ResolveError {
         /// The function, without its colon.
         function: String,
     },
-    /// The default formatter of a selector's argument type refuses the selector or one of its
+    /// The default function of a selector's argument type refuses the selector or one of its
     /// variant keys.
     #[error("{id}: :{function} refuses the selector: {refusal}")]
     #[explain(id = "resolve.selector")]
@@ -418,35 +411,6 @@ pub enum ResolveError {
     },
 }
 
-/// Why [`Formatters::formatter`](crate::Formatters::formatter) or
-/// [`Formatters::default_formatter`](crate::Formatters::default_formatter) refused a function.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-pub enum RegisterError {
-    /// The build has no function of the name.
-    #[error("the build has no function :{name}")]
-    #[explain(id = "register.function")]
-    Function {
-        /// The name, without its colon.
-        name: String,
-    },
-    /// The type takes the function already.
-    #[error("{of} takes :{name} already")]
-    #[explain(id = "register.repeated")]
-    Repeated {
-        /// The type's name.
-        of: &'static str,
-        /// The function, without its colon.
-        name: String,
-    },
-    /// The type has a default formatter already.
-    #[error("{of} has a default formatter already")]
-    #[explain(id = "register.default")]
-    Default {
-        /// The type's name.
-        of: &'static str,
-    },
-}
-
 /// Why `Context::check` failed: the first of its rules a row breaks.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum CheckError {
@@ -463,15 +427,6 @@ pub enum CheckError {
     Unworded {
         /// The id.
         id: String,
-    },
-    /// A type takes a function whose options no module of the context defines.
-    #[error("{of} takes :{function}, whose options no module defines")]
-    #[explain(id = "check.undefined")]
-    Undefined {
-        /// The type's name.
-        of: &'static str,
-        /// The function, without its colon.
-        function: String,
     },
     /// A message's wording names an argument its row lacks.
     #[error("the wording of {id} names {key}, which its row lacks")]
