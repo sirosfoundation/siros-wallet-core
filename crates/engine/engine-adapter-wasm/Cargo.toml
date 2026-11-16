@@ -40,13 +40,13 @@ jose-rs = { version = "0.10", default-features = false }
 kryptering = { version = "0.7", default-features = false, features = ["rustcrypto"] }
 # The mini host's held credential and its presentations: the SD-JWT
 # parse/select/key-binding, and the claims paths the DCQL names.
-siros-sdjwt = { path = "../siros-sdjwt" }
-siros-dcql = { path = "../siros-dcql" }
-siros-codec = { path = "../siros-codec" }
+siros-sdjwt = { path = "../../credentials/siros-sdjwt" }
+siros-dcql = { path = "../../presentation/siros-dcql" }
+siros-codec = { path = "../../siros-codec" }
 # The mini host's held mDL: the mdoc parse/disclose/device-response, and
 # the session transcript its device signature rides (OpenID4VP 1.0,
 # B.2.6).
-siros-mdoc = { path = "../siros-mdoc" }
+siros-mdoc = { path = "../../credentials/siros-mdoc" }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

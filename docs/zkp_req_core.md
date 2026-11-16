@@ -205,7 +205,7 @@ exports the provers and `vpTokenJson`.
 
 ## Acceptance gates
 
-* **G1, honest path** (`crates/siros-zkp-catalogues/tests/flow.rs`,
+* **G1, honest path** (`crates/zkp/siros-zkp-catalogues/tests/flow.rs`,
   `crates/siros-dc-matcher-ffi/tests/zkp_req_api.rs`). For each system
   (`urn:circuits:longfellow:nym_auth:v1` on `longfellow-libzk-v1`,
   `urn:circuits:vega:nym_auth:v1` on `vega-v1`): a signed request passes intake, the credential
@@ -218,22 +218,22 @@ exports the provers and `vpTokenJson`.
   after `proving/scripts/fetch-artifacts.sh`). For each system the backend builds the witness
   and proves, and the Verifier with the same backend accepts; once with `age_check` `18+`, once
   with `0-2025`, whose E lies in year 0000.
-* **G2, differential** (`crates/siros-zkp-catalogues/tests/readdit.rs`). readdit 1cf3f26, the reference code of the system
+* **G2, differential** (`crates/zkp/siros-zkp-catalogues/tests/readdit.rs`). readdit 1cf3f26, the reference code of the system
   rulebooks' Section 10, reads a credential of the test issuer in a redirect session. For both
   systems, this crate reaches readdit's mdoc fields, issuer key, `SessionTranscript`, data to
   sign, e2, `verifier_input` and pseudonym. readdit's v0.4 presentation maps onto the draft's:
   `issuer_key_set` and `proof_time` move into `Proof.inputs`, `proof` becomes
   `Proof.zk_proof`, and `proof_backend` is new.
-* **G3, refusals** (`crates/siros-zkp-catalogues/tests/refusals.rs`). One table holds one fixture per refusal rule: the
+* **G3, refusals** (`crates/zkp/siros-zkp-catalogues/tests/refusals.rs`). One table holds one fixture per refusal rule: the
   request rules (`invalid_request`), `vp_formats_not_supported`, the Wallet codes of the system
   rulebooks' Section 9, and the Verifier's codes. Each row asserts the exact typed error. An
   issuer the query's `trusted_authorities` do not admit matches nothing; `siros-trust` tests
-  that rule, and `crates/siros-zkp-catalogues/tests/usable.rs` the binding of the admission to the Document Signer and the
+  that rule, and `crates/zkp/siros-zkp-catalogues/tests/usable.rs` the binding of the admission to the Document Signer and the
   query.
-* **G4, known answers** (`crates/siros-zkp-catalogues/tests/known_answers.rs`). The `age_check` examples of the specs, the
+* **G4, known answers** (`crates/zkp/siros-zkp-catalogues/tests/known_answers.rs`). The `age_check` examples of the specs, the
   29 February cases worked by hand from the catalogue's rule, and the pseudonym and session
   vectors the provers ship.
-* **G5, tamper** (`crates/siros-zkp-catalogues/tests/flow.rs`). A changed public input, a changed result and a presentation
+* **G5, tamper** (`crates/zkp/siros-zkp-catalogues/tests/flow.rs`). A changed public input, a changed result and a presentation
   for another request each reach the proof check and are refused there. With real proofs: a
   presentation for another session is `proof_invalid` with Longfellow and `public_input` with
   Vega, and a `zk_proof` one byte short is `proof_encoding` with both.

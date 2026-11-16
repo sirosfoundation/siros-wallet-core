@@ -5,5 +5,5 @@ ISO/IEC 18013-5:2021, Annex D: the Document Signer certificate of the standard's
 digitalSignature and extKeyUsage `id-mdl-kp-mdlDS` (1.0.18013.5.1.2), both critical.
 
 The `x5chain` of the IssuerSigned in
-crates/siros-mdoc/tests/vectors/annex_d_device_response.hex: the 499 bytes from offset 1964 of the
+crates/credentials/siros-mdoc/tests/vectors/annex_d_device_response.hex: the 499 bytes from offset 1964 of the
 decoded DeviceResponse; see that directory's SOURCE for where the response comes from.

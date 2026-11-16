@@ -18,11 +18,11 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 siros-codec = { path = "../crates/siros-codec" }
-siros-dcql = { path = "../crates/siros-dcql" }
-siros-oid4vp = { path = "../crates/siros-oid4vp" }
+siros-dcql = { path = "../crates/presentation/siros-dcql" }
+siros-oid4vp = { path = "../crates/presentation/siros-oid4vp" }
 siros-trust = { path = "../crates/siros-trust", features = ["chain"] }
-siros-zkp-req = { path = "../crates/siros-zkp-req" }
-siros-zkp-catalogues = { path = "../crates/siros-zkp-catalogues", default-features = false, features = ["credential"] }
+siros-zkp-req = { path = "../crates/zkp/siros-zkp-req" }
+siros-zkp-catalogues = { path = "../crates/zkp/siros-zkp-catalogues", default-features = false, features = ["credential"] }
 siros-zkp-backend-longfellow = { path = "siros-zkp-backend-longfellow" }
 siros-zkp-backend-vega = { path = "siros-zkp-backend-vega" }
 # Without the js feature: its wasm-bindgen API stays out of siros-zkp-req-wasm.

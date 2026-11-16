@@ -4,7 +4,7 @@
 //!
 //! `WMP_VECTORS_DIR` overrides the search (to run the suite against a spec
 //! branch that is not a sibling); the local default is the sibling checkout
-//! `../../../wmp/vectors` (three levels up from `crates/wmp-core`).
+//! `../../../../wmp/vectors` (four levels up from `crates/engine/wmp-core`).
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -30,7 +30,7 @@ fn vectors_dir() -> PathBuf {
         return PathBuf::from(dir);
     }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest.join("../../../wmp/vectors")
+    manifest.join("../../../../wmp/vectors")
 }
 
 /// One vector of the spec's `vector-schema.json`.

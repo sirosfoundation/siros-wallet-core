@@ -14,7 +14,7 @@ prints the digest of the whole set, with the protocol's request vectors.
 
 ## `request/`
 
-The format of `crates/siros-zkp-req/tests/vectors/request/README.md`, with
+The format of `crates/zkp/siros-zkp-req/tests/vectors/request/README.md`, with
 `"expect": {"valid": {"catalogue": true}}` when the catalogue applies to the query and `false` when
 the query asks for another credential type. Error codes are those of
 `siros_zkp_req::RequestRule::code` and `siros_zkp_catalogues::catalogue::CatalogueRule::code`.

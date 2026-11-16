@@ -69,6 +69,10 @@ All notable changes to this workspace. The format follows
 
 ### Changed
 
+- The crates sit in thematic folders: `crates/engine/`, `crates/credentials/`,
+  `crates/presentation/`, `crates/zkp/`, `crates/error/` and `crates/i18n/`;
+  `siros-codec`, `siros-syntax`, `siros-trust` and `siros-wallet-state` stay in
+  `crates/`. Package names are unchanged.
 - Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
   1.89, then each crate with and without its default features. The workspace
   resolves with resolver 3. The test image builds on Rust 1.99.1, the pinned

@@ -19,7 +19,7 @@ written by mirroring [go-wmp](https://github.com/sirosfoundation/go-wmp) at
 The vectors in `wmp/vectors/*.json` are the referee, never go-wmp's source:
 behaviour they fix is fixed. `tests/conformance.rs` mirrors go-wmp's
 `conformance_test.go`: `WMP_VECTORS_DIR` overrides the search, the sibling
-checkout `../../../wmp/vectors` (three levels up from `crates/wmp-core`) is
+checkout `../../../../wmp/vectors` (four levels up from `crates/engine/wmp-core`) is
 the local-dev default, `wmp-spec/vectors` the CI fallback. A vector whose
 method the current code does not dispatch is counted as *pending*, never
 silently passed; the port is done when the pending count is zero across all

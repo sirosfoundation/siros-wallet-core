@@ -82,13 +82,13 @@ check-bindings: bindings
 .PHONY: wasm-page
 
 wasm-page:
-	wasm-pack build --target web crates/engine-adapter-wasm --out-dir $(CURDIR)/target/wasm-pkg
+	wasm-pack build --target web crates/engine/engine-adapter-wasm --out-dir $(CURDIR)/target/wasm-pkg
 	@mkdir -p target/wasm-page
-	cp crates/engine-adapter-wasm/page/index.html crates/engine-adapter-wasm/page/wallet.js crates/engine-adapter-wasm/page/mini-wallet.json crates/engine-adapter-wasm/page/mini-test.crl target/wasm-page/
+	cp crates/engine/engine-adapter-wasm/page/index.html crates/engine/engine-adapter-wasm/page/wallet.js crates/engine/engine-adapter-wasm/page/mini-wallet.json crates/engine/engine-adapter-wasm/page/mini-test.crl target/wasm-page/
 	@mkdir -p target/wasm-page/pkg
 	cp -r target/wasm-pkg/* target/wasm-page/pkg/
 	sed 's|../pkg/engine_adapter_wasm.js|./pkg/engine_adapter_wasm.js|' \
-		crates/engine-adapter-wasm/page/wallet_glue.js > target/wasm-page/wallet_glue.js
+		crates/engine/engine-adapter-wasm/page/wallet_glue.js > target/wasm-page/wallet_glue.js
 
 # ── the mobile packaging (AAR / XCFramework) ──────────────────────────────
 # Cross-compiles the engine-adapter-sdk for Android arm64 and iOS, and
@@ -220,7 +220,7 @@ kotlin-smoke: bindings check-bindings
 	mkdir -p target/kotlin-smoke
 	$(KOTLINC) -classpath "$(COROUTINES_JAR):$(JNA_JAR)" -d target/kotlin-smoke \
 		bindings/kotlin/uniffi/engine_adapter_sdk/engine_adapter_sdk.kt \
-		crates/engine-adapter-sdk/bindings-test/src/main/kotlin/Main.kt \
-		crates/engine-adapter-sdk/bindings-test/src/main/kotlin/EngineSmoke.kt
+		crates/engine/engine-adapter-sdk/bindings-test/src/main/kotlin/Main.kt \
+		crates/engine/engine-adapter-sdk/bindings-test/src/main/kotlin/EngineSmoke.kt
 	java -classpath "target/kotlin-smoke:$(COROUTINES_JAR):$(JNA_JAR):$(STDLIB_JAR)" \
 		-Djna.library.path=target/debug MainKt

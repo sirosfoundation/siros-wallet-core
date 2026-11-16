@@ -28,7 +28,9 @@ a socket, a clock, or a keystore.
 
 ## Crates
 
-### The WMP engine core
+`crates/` groups the crates by theme, one folder per theme that holds several.
+
+### `crates/engine/`: the WMP engine core
 
 | Crate | Role |
 | --- | --- |
@@ -42,28 +44,55 @@ a socket, a clock, or a keystore.
 
 ### The presentation core
 
+`crates/credentials/` holds the credential formats:
+
 | Crate | Role |
 | --- | --- |
-| `siros-codec` | Strict CBOR and JSON, base64url, the padded base64 of `x5c`, CBOR dates and shared types |
-| `siros-dcql` | The DCQL query model (OpenID4VP §6, construction by parsing only) and the shared request vocabulary |
+| `siros-credential` | The format-independent credential with typed claims and validity |
 | `siros-sdjwt` | The stored SD-JWT VC (RFC 9901), disclosure selection, the KB-JWT signing input |
 | `siros-mdoc` | The stored mdoc, its MSO, disclosure, DeviceResponse and the DeviceAuthentication signing input |
+
+`crates/presentation/` holds the protocol, the request and its display:
+
+| Crate | Role |
+| --- | --- |
+| `siros-dcql` | The DCQL query model (OpenID4VP §6, construction by parsing only) and the shared request vocabulary |
 | `siros-oid4vp` | Request intake, client identifier prefixes, handovers, `vp_token`, response encryption and submissions |
-| `siros-trust` | The trust store, issuer chains, path validation, issuer admission |
-| `siros-wallet-state` | The decrypted wallet state of the private data container |
-| `siros-credential` | The format-independent credential with typed claims and validity |
+| `siros-presentation` | The plan of a request over the wallet's credentials, the consent view, the selection, the response |
 | `siros-display` | Display metadata, locale resolution, cards, claim rows, purpose lines |
 | `siros-transaction-data` | `transaction_data` on the PaSO model, definitions, projection, rendering, bindings |
+
+`crates/zkp/` holds `zkp_req`:
+
+| Crate | Role |
+| --- | --- |
 | `siros-zkp-req` | The `zkp_req` protocol layer: extensions to DCQL (`_req`, `_req_sets`, `vp_formats_supported.zkp_req`, the presentation) that carry ZKP requests and responses. Holds no prover and no system; format-neutral by design |
 | `siros-zkp-catalogues` | The catalogue crate: every `zkp_req` rulebook lands here as modules and features — capability growth never adds a crate. Today it holds nym_auth, a normal credential (an mdoc, stored in the wallet state and consented like any other) that happens to carry the capability of doing pseudonyms: its rulebook defines the functions (`pseudonym`, `age_check`) and the Longfellow and Vega systems that prove them |
-| `siros-presentation` | The plan of a request over the wallet's credentials, the consent view, the selection, the response |
+
+`crates/error/` holds the error contract:
+
+| Crate | Role |
+| --- | --- |
 | `siros-explain` | The error contract: a stable id and named arguments, each a typed value with its `Display` |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
 | `siros-derive-internals` | The field rules the two derives share: arguments, `Option`, `Arg` bounds, the id marker, the `check` row |
-| `siros-syntax` | Checked texts, keyed and non-empty lists, and values in their literal forms: numbers, amounts in the currencies of ISO 4217 List One (SIX, 2026-09-17), dates and times |
+
+`crates/i18n/` holds the wallet's texts:
+
+| Crate | Role |
+| --- | --- |
 | `siros-i18n` | The wallet's texts: a `Context` of MessageFormat 2 sources resolves an error or a statement (`Message`) to `Text` |
 | `siros-i18n-derive` | `#[derive(Message)]` for statements |
 | `siros-cldr` | Writes a language's CLDR format options as MF2 source |
+
+The rest stand alone in `crates/`:
+
+| Crate | Role |
+| --- | --- |
+| `siros-codec` | Strict CBOR and JSON, base64url, the padded base64 of `x5c`, CBOR dates and shared types |
+| `siros-syntax` | Checked texts, keyed and non-empty lists, and values in their literal forms: numbers, amounts in the currencies of ISO 4217 List One (SIX, 2026-09-17), dates and times |
+| `siros-trust` | The trust store, issuer chains, path validation, issuer admission |
+| `siros-wallet-state` | The decrypted wallet state of the private data container |
 
 siros-i18n's format functions are features, which an app turns on as its
 wording calls them: `number` (`:number`, `:integer`), `currency` (`:currency`)
@@ -112,7 +141,7 @@ with clippy and `scripts/check_panic_sites.py`.
 ```sh
 make bindings          # the UniFFI Kotlin and Swift bindings
 make kotlin-smoke      # the JVM smoke: the port traits over UniFFI
-wasm-pack test --node crates/engine-adapter-wasm   # the browser smoke
+wasm-pack test --node crates/engine/engine-adapter-wasm   # the browser smoke
 ```
 
 The Kotlin smoke needs `kotlinc` and the JNA/coroutines jars on the path the

@@ -30,7 +30,7 @@ jobs:
       - name: Checkout wmp (sibling checkout)
         # wmp-core's conformance harness loads the wmp repository's
         # vectors from the sibling checkout the same way
-        # (crates/wmp-core/tests/conformance.rs): without it the four
+        # (crates/engine/wmp-core/tests/conformance.rs): without it the four
         # vector tests panic on the missing directory. The wmp
         # repository is the specification (with vectors/); go-wmp is
         # the Go implementation and carries none. Public — no token.
@@ -93,7 +93,7 @@ jobs:
       - name: Install wasm-pack
         run: curl -sSLf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
       - name: The browser smoke (Node's JS event loop)
-        run: wasm-pack test --node crates/engine-adapter-wasm
+        run: wasm-pack test --node crates/engine/engine-adapter-wasm
 
   proving:
     name: Proving workspace

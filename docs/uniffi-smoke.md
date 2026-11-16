@@ -52,7 +52,7 @@ runtime. The generated shapes are the native ones:
    check-bindings` fails the build if the bindings are empty or the Host
    surface is missing.
 2. **Execution**: `make kotlin-smoke` compiles the generated bindings plus
-   the smoke (`crates/engine-adapter-sdk/bindings-test/`) against the real
+   the smoke (`crates/engine/engine-adapter-sdk/bindings-test/`) against the real
    cdylib and runs it on the JVM: the JVM implements both async ports with
    `suspend fun`, drives `runPreAuthorizedFlow` end to end — the Rust side
    `await`s the foreign HTTP port, then the foreign tx_code sub-flow, then

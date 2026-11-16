@@ -1,8 +1,8 @@
 """Writes the two Unicode tables of the picker's crates from the tables of the crates that are
 their test oracles, read from Cargo's registry:
 
-- crates/siros-display/src/text/unsafe_ranges.rs, from unicode-general-category 1.1.0;
-- crates/siros-transaction-data/src/definition/grapheme/runs.rs, from unicode-segmentation 1.12.0.
+- crates/presentation/siros-display/src/text/unsafe_ranges.rs, from unicode-general-category 1.1.0;
+- crates/presentation/siros-transaction-data/src/definition/grapheme/runs.rs, from unicode-segmentation 1.12.0.
 
 Run from the repository root after `cargo fetch`: python3 scripts/gen_unicode_tables.py
 A new Unicode version takes the oracles' new versions here and in the crates' dev-dependencies.
@@ -128,8 +128,8 @@ pub(super) static RUNS: [Run; {len(runs)}] = [
 
 def main():
     for path, text in [
-        ("crates/siros-display/src/text/unsafe_ranges.rs", unsafe_ranges()),
-        ("crates/siros-transaction-data/src/definition/grapheme/runs.rs", grapheme_runs()),
+        ("crates/presentation/siros-display/src/text/unsafe_ranges.rs", unsafe_ranges()),
+        ("crates/presentation/siros-transaction-data/src/definition/grapheme/runs.rs", grapheme_runs()),
     ]:
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)

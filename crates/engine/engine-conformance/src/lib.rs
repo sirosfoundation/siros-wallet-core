@@ -9,8 +9,8 @@
 //! (the provenance sunset, the runner contract).
 //!
 //! `ENGINE_VECTORS_DIR` overrides the search; the local default is the
-//! sibling checkout `../../../engine-vectors` (three levels up from
-//! `crates/engine-conformance`).
+//! sibling checkout `../../../../engine-vectors` (four levels up from
+//! `crates/engine/engine-conformance`).
 
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
@@ -45,7 +45,7 @@ pub fn repository_dir() -> PathBuf {
         return PathBuf::from(dir);
     }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest.join("../../../engine-vectors")
+    manifest.join("../../../../engine-vectors")
 }
 
 /// Where the vectors live: the repository's `vectors` directory.

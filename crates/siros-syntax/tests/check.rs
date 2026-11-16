@@ -74,7 +74,7 @@ fn the_rows_are_the_linked_crates_ids() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut expected = [
         declared(&crates.join("src"), "syntax"),
-        declared(&crates.join("../siros-explain/src"), "explain"),
+        declared(&crates.join("../error/siros-explain/src"), "explain"),
         declared(&crates.join("tests/check.rs"), "check"),
     ]
     .concat();

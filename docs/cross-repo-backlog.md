@@ -347,7 +347,7 @@ by user-visible blast radius:
    has no per-transaction server-side storage).
    **The new Rust engine has the same gap** (traced 2026-11-13, the
    morning's four-gate nym_auth debugging, `resume_authorization_code` in
-   `crates/engine-core/src/oid4vci/mod.rs`): the resume reads only `code` +
+   `crates/engine/engine-core/src/oid4vci/mod.rs`): the resume reads only `code` +
    `state` from the action params — the CSRF state match, then straight to
    `exchange_authorization_code`. No `iss` is read, required, or compared;
    `AsMetadata` (`oid4vci/types.rs`) does not even model

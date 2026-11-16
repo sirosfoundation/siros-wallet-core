@@ -83,7 +83,7 @@ root denies the panic lints outside the tests, as the other roots do.
 Changes that a user or a downstream consumer would notice go in
 [`CHANGELOG.md`](CHANGELOG.md), under `Unreleased`, in the same PR. Changes to
 `siros-dcql`'s public API also go in [its own
-changelog](crates/siros-dcql/CHANGELOG.md), which is versioned independently
+changelog](crates/presentation/siros-dcql/CHANGELOG.md), which is versioned independently
 because the crate is released on crates.io on its own schedule.
 
 Releasing renames `Unreleased` to the version and dates it; that is the only
