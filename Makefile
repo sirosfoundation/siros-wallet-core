@@ -104,7 +104,11 @@ npm-pkg:
 
 npm-publish-dry:
 	$(MAKE) npm-pkg VERSION=$(VERSION)
-	cd target/npm-pkg && npm publish --dry-run
+	# --tag next: npm refuses a prerelease VERSION (the compose check's
+	# 0.0.0-compose) without an explicit dist-tag; a plain release version
+	# is unaffected. The dry run publishes nowhere - the tag only satisfies
+	# the prerelease rule.
+	cd target/npm-pkg && npm publish --dry-run --tag next
 
 npm-publish:
 	@test -n "$(VERSION)" || (echo 'usage: make npm-publish VERSION=<x.y.z>'; exit 1)
