@@ -107,6 +107,18 @@ impl Prepared {
     pub fn new(answer: Answer<'_>, request: &NymAuthRequest<'_>) -> Result<Self, ProveError> {
         build(answer, request.session())
     }
+
+    /// The statement of `answer` in `session` — the `Prepared` of a host
+    /// that holds the engine's verified facts (the `Handover` and the
+    /// `verifier_id`) rather than the engine's own
+    /// [`VerifiedRequest`](siros_oid4vp::VerifiedRequest): the wasm
+    /// presenter's entry (the hidden web wallet, #45). The session is the
+    /// engine-validated request's — the engine's trust gates stay the
+    /// authority; this constructor only skips the re-borrow, it validates
+    /// nothing.
+    pub fn in_session(answer: Answer<'_>, session: &Session) -> Result<Self, ProveError> {
+        build(answer, session)
+    }
 }
 
 /// The statement of `answer` in `session`, and the data the device key signs.

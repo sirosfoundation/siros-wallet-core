@@ -32,6 +32,36 @@ use siros_zkp_backend_vega::{self as vega, VegaNymAuth};
 use siros_zkp_catalogues::prover::{NymAuthProver, ProofJob, ProofOutput, ProverFailure};
 use siros_zkp_catalogues::system::NymAuthSystem;
 use siros_zkp_req::{ErrorCode, ZkpPresentation};
+
+pub mod presenter;
+
+pub use presenter::ZkpPresenter;
+
+/// The proof job [`ZkpPresenter::job`] returns: opaque to JavaScript, the
+/// value [`ZkpProvers::prove`] takes.
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub struct JsProofJob(pub(crate) ProofJob);
+
+/// The proof output [`ZkpProvers::prove_job`] returns: the pseudonym and
+/// the ZK proof, the value [`ZkpPresenter::assemble`] consumes. Opaque to
+/// JavaScript beyond the accessors.
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub struct JsProofOutput(pub(crate) ProofOutput);
+
+#[wasm_bindgen::prelude::wasm_bindgen]
+impl JsProofOutput {
+    /// The `pseudonym` as raw bytes (32).
+    #[wasm_bindgen(js_name = "pseudonym")]
+    pub fn pseudonym(&self) -> Vec<u8> {
+        self.0.pseudonym.as_bytes().to_vec()
+    }
+
+    /// The proof as raw bytes (the `zk_proof` bstr).
+    #[wasm_bindgen(js_name = "zkProof")]
+    pub fn zk_proof(&self) -> Vec<u8> {
+        self.0.zk_proof.as_bytes().to_vec()
+    }
+}
 use wasm_bindgen::prelude::*;
 
 /// A refusal, as thrown to JavaScript.
@@ -122,6 +152,32 @@ impl ZkpProvers {
         .map(|(system, _)| system.id().as_str().to_owned())
         .collect()
     }
+
+    /// Proves `job` (from [`ZkpPresenter::job`]) with the loaded system:
+    /// the JS-facing half of the presenter chain, the same proof the
+    /// `NymAuthProver` impl serves to Rust hosts.
+    ///
+    /// # Errors
+    ///
+    /// Throws `{kind: "prover"}` with the `ProverFailure`'s code for a job
+    /// the loaded artifacts cannot prove.
+    #[wasm_bindgen(js_name = prove)]
+    pub fn prove_job(&self, job: &JsProofJob) -> Result<JsProofOutput, JsValue> {
+        let output = NymAuthProver::prove(self, &job.0).map_err(thrown_prover)?;
+        Ok(JsProofOutput(output))
+    }
+}
+
+/// A prover refusal, as thrown to JavaScript.
+fn thrown_prover(e: ProverFailure) -> JsValue {
+    let thrown = Thrown {
+        error_code: ErrorCode::AccessDenied.as_str(),
+        kind: "prover",
+        code: e.code().to_owned(),
+    };
+    thrown
+        .serialize(&serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true))
+        .unwrap_or_else(|e| JsValue::from_str(&e.to_string()))
 }
 
 impl NymAuthProver for ZkpProvers {

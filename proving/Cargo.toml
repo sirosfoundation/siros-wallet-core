@@ -19,10 +19,13 @@ rust-version = "1.95"
 [workspace.dependencies]
 siros-codec = { path = "../crates/siros-codec" }
 siros-dcql = { path = "../crates/siros-dcql" }
+siros-mdoc = { path = "../crates/siros-mdoc" }
 siros-oid4vp = { path = "../crates/siros-oid4vp" }
 siros-trust = { path = "../crates/siros-trust", features = ["chain"] }
 siros-zkp-req = { path = "../crates/siros-zkp-req" }
-siros-zkp-catalogues = { path = "../crates/siros-zkp-catalogues", default-features = false, features = ["credential"] }
+# "request": the presenter chain (Answer/Prepared) — the wasm presenter
+# surface (#45) builds on it; "credential" alone carried only the prover half.
+siros-zkp-catalogues = { path = "../crates/siros-zkp-catalogues", default-features = false, features = ["credential", "request"] }
 siros-zkp-backend-longfellow = { path = "siros-zkp-backend-longfellow" }
 siros-zkp-backend-vega = { path = "siros-zkp-backend-vega" }
 # Without the js feature: its wasm-bindgen API stays out of siros-zkp-req-wasm.
