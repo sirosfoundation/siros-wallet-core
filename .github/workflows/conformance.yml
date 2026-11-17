@@ -339,7 +339,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: The suites' results, from the artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           # The A.2 matrix split's two halves (conformance-vci/conformance-vp)
           # upload their results as conformance-results-vci / -vp; this job
