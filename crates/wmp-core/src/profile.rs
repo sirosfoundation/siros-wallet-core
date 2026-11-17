@@ -190,9 +190,15 @@ pub trait Profile: Send + Sync {
     ///
     /// A peer refuses `wmp.flow.start` for a flow type whose capability is
     /// not negotiated with `-31005` and data naming the flow type and the
-    /// capability, before the profile's [`Profile::start_flow`] runs. With no
-    /// session resolvable, nothing counts as negotiated: a profile that
-    /// declares a requirement fails closed.
+    /// capability, before the profile's [`Profile::start_flow`] runs. With
+    /// no session RESOLVABLE, nothing counts as negotiated: a profile that
+    /// declares a requirement fails closed — but a start that NAMED a
+    /// session the store no longer holds (an engine restart, an expiry)
+    /// answers the session's own semantics instead (`-31000`, the code
+    /// every session-bound method answers and the SDKs' session recovery
+    /// keys on, #48), so a client can re-create and retry rather than read
+    /// a capability refusal into it. A start that names no session at all
+    /// keeps the fail-closed `-31005`.
     fn required_capability(&self, _flow_type: &str) -> String {
         String::new()
     }
