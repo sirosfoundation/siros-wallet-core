@@ -141,7 +141,6 @@ impl HttpClient for ScriptedHttp {
                 .to_string()
             }
             other => panic!("unexpected fetch: {other}"),
-            other => panic!("unexpected fetch: {other}"),
         };
         Ok(HttpResponse {
             status: 200,
