@@ -198,7 +198,11 @@ pub trait Profile: Send + Sync {
     /// every session-bound method answers and the SDKs' session recovery
     /// keys on, #48), so a client can re-create and retry rather than read
     /// a capability refusal into it. A start that names no session at all
-    /// keeps the fail-closed `-31005`.
+    /// keeps the fail-closed `-31005`. A peer WITH a clock (see
+    /// [`crate::peer::PeerBuilder::clock`]) additionally refuses a start
+    /// naming an EXPIRED session record with `-31001` Session expired —
+    /// again the session's own semantics, instead of running the flow
+    /// against a dead record.
     fn required_capability(&self, _flow_type: &str) -> String {
         String::new()
     }

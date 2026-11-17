@@ -106,6 +106,14 @@ impl Profile for GatedProfile {
 /// to it with the gated profile registered: the engine-server shape (a
 /// restart is a fresh store with the same profile).
 fn gated_peer() -> (Arc<Peer>, Arc<dyn SessionStore>, Arc<GatedProfile>) {
+    gated_peer_with_clock(None)
+}
+
+/// `gated_peer`, with the peer's clock set (the session-expiry check at the
+/// capability gate, #48): a mutable-seconds clock the expiry test advances.
+fn gated_peer_with_clock(
+    clock: Option<wmp_core::sessionservice::Clock>,
+) -> (Arc<Peer>, Arc<dyn SessionStore>, Arc<GatedProfile>) {
     let store = Arc::new(MemorySessionStore::new());
     let supported = Capabilities(
         [(
@@ -125,24 +133,44 @@ fn gated_peer() -> (Arc<Peer>, Arc<dyn SessionStore>, Arc<GatedProfile>) {
         })
         .expect("the service config is valid"),
     );
-    let handler = Arc::new(SessionHandler::new(service, fixed_clock()));
+    // The handler's clock (the service's `now`) and the peer's (the gate's)
+    // are the SAME mutable source when one is given, so the expiry test
+    // advances both together.
+    let handler_clock = clock.clone().unwrap_or_else(fixed_clock);
+    let handler = Arc::new(SessionHandler::new(service, handler_clock));
     let profile = GatedProfile::new();
-    let peer = PeerBuilder::new(handler)
+    let mut builder = PeerBuilder::new(handler)
         .session_store(store.clone())
         .profile(profile.clone())
-        .expect("register the gated profile")
-        .build();
+        .expect("register the gated profile");
+    if let Some(clock) = clock {
+        builder = builder.clock(clock);
+    }
+    let peer = builder.build();
     (peer, store, profile)
 }
 
 /// `wmp.session.create`, offering the `flows` capability unless
 /// `offer_flows` is false, answering the negotiated session id.
 fn create_session(peer: &Arc<Peer>, ctx: &RequestContext, offer_flows: bool) -> String {
+    create_session_ttl(peer, ctx, offer_flows, None)
+}
+
+/// `create_session` with a session TTL (the expiry test's 2s).
+fn create_session_ttl(
+    peer: &Arc<Peer>,
+    ctx: &RequestContext,
+    offer_flows: bool,
+    ttl: Option<i64>,
+) -> String {
     let mut params = json!({
         "wmp": { "version": "0.1" },
     });
     if offer_flows {
         params["capabilities_offered"] = json!({ "flows": {} });
+    }
+    if let Some(ttl) = ttl {
+        params["ttl"] = json!(ttl);
     }
     let body = json!({
         "jsonrpc": "2.0",
@@ -298,4 +326,65 @@ fn a_start_on_a_negotiating_session_reaches_the_profile() {
         1,
         "the profile ran exactly once"
     );
+}
+
+/// The session-expiry arm of the gate (#48): a start naming a session whose
+/// record is PRESENT but whose TTL passed answers `-31001` Session expired —
+/// the session's own semantics, which the clients' session-loss recovery
+/// keys on — instead of running the flow (and its asks) against a dead
+/// record. This is the on-device repro's shape: the wallet sat in the
+/// background past the engine's session TTL, the record still in the store,
+/// and the next flow start ran on it without any honest refusal.
+#[test]
+fn a_start_on_an_expired_session_answers_session_expired() {
+    // The mutable clock: the service creates at T=1000 (TTL 2s, expires at
+    // 1002); the test advances it past the expiry before the start.
+    let now = Arc::new(std::sync::atomic::AtomicI64::new(1000));
+    let peer_clock: wmp_core::sessionservice::Clock = {
+        let now = now.clone();
+        Arc::new(move || now.load(std::sync::atomic::Ordering::SeqCst))
+    };
+
+    let (peer, store, profile) = gated_peer_with_clock(Some(peer_clock));
+    let ctx = ctx();
+    let session_id = create_session_ttl(&peer, &ctx, true, Some(2));
+
+    // The store still holds the record — expiry does not remove it.
+    // The store still holds the record — expiry does not remove it.
+    assert!(store.get(&session_id).is_some(), "the record is present");
+
+    // Advance past the TTL: the same start now names an expired session.
+    now.store(2000, std::sync::atomic::Ordering::SeqCst);
+    let answer = start_flow(&peer, &ctx, &session_id).expect_err("the start refuses");
+
+    assert_eq!(
+        answer["error"]["code"], -31001,
+        "the session's own semantics, not the capability refusal"
+    );
+    assert_eq!(answer["error"]["message"], "Session expired");
+    assert_eq!(answer["error"]["data"]["session_id"], session_id);
+    assert_eq!(answer["error"]["data"]["capability"], "flows");
+    assert_eq!(
+        profile.starts.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "the refusal happens before the profile sees it"
+    );
+}
+
+/// Without a peer clock the gate keeps the pre-check behaviour: an expired
+/// record passes the gate (back-compat for peers without a clock).
+#[test]
+fn without_a_clock_the_gate_skips_the_expiry_check() {
+    let (before, _store, _profile) = gated_peer();
+    let ctx = RequestContext {
+        principal: Some(Principal::new("wallet", "")),
+        ..RequestContext::default()
+    };
+    let session_id = create_session(&before, &ctx, true);
+
+    // The session's TTL is the service default (an hour at the fixed clock);
+    // a start naming it passes as before. (The expiry arm itself needs a
+    // mutable clock - the test above; here the no-clock shape just passes.)
+    let result = start_flow(&before, &ctx, &session_id).expect("the start passes");
+    assert_eq!(result["flow_id"], "flow-gate");
 }
