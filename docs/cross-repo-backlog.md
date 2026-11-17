@@ -1,12 +1,31 @@
 # The cross-repo backlog
 
 **Scope:** engine-core, the Kotlin and Swift SDKs, go-wallet-backend, go-trust.
-**Dated:** 2026-11-12 — the step-back review after the v0.2.2 / v0.23.0 / v0.17.0 release train.
+**Dated:** 2026-11-17 — the post-v0.2.20 / multi-credential update on top of the
+2026-11-12 step-back review.
 
 This is the working backlog across the platform, not any one repo's issue list —
 the tiers are ranked by blast radius, every item links to its issue, and the
 handful that have no issue yet are marked for filing on approval. Review and
 re-rank freely; the tiers are proposals.
+
+---
+
+## Where we stand (2026-11-17)
+
+| Piece | State |
+|---|---|
+| wallet-core **v0.2.10–v0.2.20** | All released. **v0.2.20** (2026-11-17): the npm republish — the proof fix (`7ef64ae`, every OID4VCI proof 401'd `invalid_proof` since the regression) + the #45 realeyes `ZkpPresenter` reach `@sirosfoundation/siros-wallet-core`; the XCFramework/AAR from the same tag; conformance **86/86** (the v0.2.19 verdict, the first since v0.2.9). Central quota-blocked until 2026-12-01 (workflow steps non-fatal by design). **The tag-cut lesson:** v0.2.20 was first cut from a stale ref — seven commits behind main, missing the wasm-pack install fix AND the proof fix itself; the npm workflow's missing-install failure refused to publish the stale package, the runs were cancelled and the tag re-cut at the true head. **Rule: `git fetch` main and tag `FETCH_HEAD` (or its verified SHA), never a tracking ref.** |
+| Multi-credential issuance (Platform-Epics#63, go-wallet-backend#549, this repo's #28) | **DONE in both engines.** The owner's exception to the 2026-11-12 "WS out of scope" decision is recorded on #549. WS engine: go-wallet-backend **#554 (merged)** — the flow-start `credential_configuration_ids` set IS the selection, `engine_issuance_selection_policy` (`issue_all` default / `user_selects` ask, answered with a set; the legacy single member accepted), one token with the joined scope, the per-config loop (fresh-key proofs beyond the first), `flow_complete` with per-result `credential_configuration_id`/encrypted/display members + the `failures` report, exactly one `flow_error` on zero successes, per-response notification contexts. Rust twin: this repo's **PR #46** (in CI) — the same contract (`selected_credential_configuration_ids` on the flow start here, the same policy knob, `CredentialSelectionResult` the set). Spec: go-wallet-backend **#555** (the protocol-spec edit). |
+| Kotlin SDK **v0.23.2** | **Released 2026-11-16**: the full settings restructure (menu-of-sub-menus), the backends registry, the 18045 editor, the journal aggregate, TS11 registry discovery, engine AAR **v0.2.17**. Device-validated (Pixel). **v0.23.3 in CI (PR #413)**: the engine pin **v0.2.20** (the proof fix + the presenter reach the embedded AAR; `MatchParams.clientMetadata` vendored). |
+| Swift SDK **v0.17.2** | **Released 2026-11-16**: settings parity tree, 0.14.2 bindings vendored (iOS-scoped), engine XCFramework **v0.2.17**. **v0.17.3 in CI (PR #291)**: the pin **v0.2.20** + the re-vendored bindings — **BUILD SUCCEEDED** on the macmini (iPhone 17 Pro simulator) against the 0.2.20 xcframework. #289 (swift-crypto 5.1.1) still open: one macOS test failure (`BleWriteReadyGateTests.testStaleTimeoutDoesNotHitLaterWaiter`) needs eyes. |
+| go-wallet-backend **v0.25.2** / go-trust **v0.30.1** | Released. go-trust #264 (the registry-sourced `display_name` in the evaluation context, #249) merged and in v0.30.1; main's Docker image rebuilt with it. |
+| GDC | Backend 0.25.2; the **wmp-engine pin v0.2.9 → v0.2.20** (2026-11-17 — the deployed engine predated the entire proof-fix era; eleven patch releases in one jump), the fly-up in flight; healthz to verify. |
+| Backlog E (the tests-out-of-src sweep class) | **Three instances lost coverage** (client_id form member → v0.2.16; batch `credentials[]` decode → v0.2.17; the proof request side `answer_kid`/batch loop/`key_ops` → `7ef64ae`), each restored verbatim from v0.2.9 with a regression test pinning it. **The review rule stands: every test-relocating merge is diffed assertion-by-assertion against its parent.** PR #4 (wmp-core, Wicpar) was audited retroactively under that rule on 2026-11-17: **clean** — 39/39 tests accounted for, 32 bodies byte-identical, 5 mechanical refactors, 2 rewrites verified coverage-equivalent and slightly stronger (the `rfc3339` boundary pairs pin the exact integers; the version tests keep all 8 malformed strings through the same private parser), no pub-surface change, the promised `negotiate_version` follow-up landed as PR #6. |
+| J (local RICAL/VICAL from the PDP) | **Deferred to the next cycle** — "en route upstream": go-trust #263 (VICAL/RICAL trust anchors for offline presentation) is open. |
+| Spherity's EUCC issuer | External; the wallet declines honestly until the corrected `vct` spelling (`urn:eudi:eucc:1`) ships. The wallet-side shim was implemented and fully reverted everywhere per the owner's call — we wait for Spherity. |
+
+**The v0.2.9-era state (2026-11-12) is preserved below as history.**
 
 ---
 
