@@ -79,6 +79,43 @@ fn issuer_metadata(encryption: Option<serde_json::Value>) -> serde_json::Value {
     })
 }
 
+/// The issuer metadata with the encryption config at the ISSUER LEVEL —
+/// the OpenID4VCI 1.0 **Final §12.2.4** shape, the one real issuers publish
+/// (the per-credential placement is the draft-era form; the realeyes
+/// issuer serves exactly this).
+fn issuer_metadata_issuer_level(
+    encryption: serde_json::Value,
+    configuration: serde_json::Value,
+) -> serde_json::Value {
+    let mut metadata = serde_json::json!({
+        "credential_issuer": "https://issuer.example",
+        "credential_endpoint": "https://issuer.example/credential",
+        "authorization_servers": ["https://as.example"],
+        "credential_configurations_supported": {
+            "nym_auth.1": configuration
+        }
+    });
+    metadata["credential_response_encryption"] = encryption;
+    metadata
+}
+
+/// The `to_wallet` plan (§7.1) without any encryption config attached.
+fn to_wallet_configuration() -> serde_json::Value {
+    serde_json::json!({
+        "format": "dc+sd-jwt",
+        "proof_types_supported": {"jwt": {}},
+        "auxiliary_data_supported": {
+            "to_wallet": [
+                {
+                    "type": "hash_commitment",
+                    "alg": "sha-256",
+                    "path": ["family_name"]
+                }
+            ]
+        }
+    })
+}
+
 /// The issuer metadata WITHOUT any auxiliary-data plan (the issuer-required
 /// back-compat case: no delivery, `encryption_required: true`).
 fn issuer_metadata_plain_config(encryption: serde_json::Value) -> serde_json::Value {
@@ -500,5 +537,74 @@ async fn the_issuers_flag_alone_still_decides_when_no_delivery_is_advertised() {
     assert!(
         request.get("credential_response_encryption").is_some(),
         "an overlapping pair alone still drives the offer (the pre-#51 wire behaviour stands)"
+    );
+}
+
+// ─── #53: the issuer-level member (the Final §12.2.4 shape) ───────────────
+
+/// #53's own case, the realeyes repro verbatim: the issuer publishes
+/// `credential_response_encryption` at the **issuer level** (beside
+/// `credential_configurations_supported`, per OpenID4VCI 1.0 Final
+/// §12.2.4 — the per-credential placement is the draft-era shape), with
+/// the exact pair the realeyes issuer advertises (ECDH-ES × A128GCM). The
+/// pre-#53 reader scanned only the configurations and found nothing, so
+/// even with #51's delivery gate the negotiation refused — the pair is in
+/// CANDIDATES, the issuer advertises it, the engine never saw it.
+#[tokio::test]
+async fn an_issuer_level_member_alone_drives_the_offer() {
+    let (ctx, http) = test_context(issuer_metadata_issuer_level(
+        serde_json::json!({
+            "alg_values_supported": ["ECDH-ES"],
+            "enc_values_supported": ["A128GCM"],
+            "encryption_required": false,
+        }),
+        to_wallet_configuration(),
+    ));
+    let flow = Oid4vciFlow;
+
+    flow.start_flow(&ctx, &start_params())
+        .await
+        .expect("the flow completes (the #51 gate passes: the pair exists)");
+
+    let request = the_credential_request(&http);
+    let encryption = request
+        .get("credential_response_encryption")
+        .expect("#53: the issuer-level member is read");
+    assert_eq!(
+        encryption["enc"], "A128GCM",
+        "the pair the issuer-level member advertises"
+    );
+}
+
+/// The per-credential member (the draft-era shape) OVERRIDES the
+/// issuer-level one for its configuration: the issuer-level member says
+/// A128GCM, the configuration says A256GCM — the negotiated pair is the
+/// configuration's.
+#[tokio::test]
+async fn a_per_credential_member_overrides_the_issuer_level() {
+    let mut configuration = to_wallet_configuration();
+    configuration["credential_response_encryption"] = serde_json::json!({
+        "alg_values_supported": ["ECDH-ES"],
+        "enc_values_supported": ["A256GCM"],
+        "encryption_required": false,
+    });
+    let (ctx, http) = test_context(issuer_metadata_issuer_level(
+        serde_json::json!({
+            "alg_values_supported": ["ECDH-ES"],
+            "enc_values_supported": ["A128GCM"],
+            "encryption_required": false,
+        }),
+        configuration,
+    ));
+    let flow = Oid4vciFlow;
+
+    flow.start_flow(&ctx, &start_params())
+        .await
+        .expect("the flow completes");
+
+    let request = the_credential_request(&http);
+    assert_eq!(
+        request["credential_response_encryption"]["enc"], "A256GCM",
+        "the per-credential member wins for its configuration"
     );
 }

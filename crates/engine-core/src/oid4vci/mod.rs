@@ -347,9 +347,12 @@ impl FlowHandler for Oid4vciFlow {
         // credential_response_encryption member. When the issuer required
         // encryption and no pair overlaps, the flow refuses — there is no
         // compliant way to request the credential.
-        let negotiated_encryption = negotiated_encryption_for(&issuer_metadata);
+        // #53: pre-selection, so only the issuer-level member (the Final
+        // §12.2.4 shape) can be read here; a per-credential override is
+        // the selected configuration's, read in the issuance loop.
+        let negotiated_encryption = negotiated_encryption_for(&issuer_metadata, None);
         if let (Some(config), None) = (
-            encryption_config_for(&issuer_metadata),
+            encryption_config_for(&issuer_metadata, None),
             negotiated_encryption.as_ref(),
         ) {
             if config.required {
@@ -1137,9 +1140,12 @@ async fn resume_authorization_code(
     // satisfy fails every configuration, so the flow fails fast with
     // the one error (the per-configuration requests inside the loop
     // negotiate their own fresh keys).
+    // #53: pre-selection (the stash carries the ids; the configurations
+    // are re-resolved per id inside the loop), so only the issuer-level
+    // member is read here.
     if let (Some(config), None) = (
-        encryption_config_for(&issuer_metadata),
-        negotiated_encryption_for(&issuer_metadata).as_ref(),
+        encryption_config_for(&issuer_metadata, None),
+        negotiated_encryption_for(&issuer_metadata, None).as_ref(),
     ) {
         if config.required {
             return Err(flow_error(
@@ -1192,28 +1198,48 @@ async fn resume_authorization_code(
     })
 }
 
-/// The issuer's credential_response_encryption configuration, when any
-/// configuration declares one.
+/// The issuer's `credential_response_encryption` configuration, when any
+/// is published ([#53]).
+///
+/// OpenID4VCI 1.0 **Final §12.2.4** publishes the member at the
+/// **issuer level** — beside `credential_configurations_supported`. The
+/// per-credential placement (inside a configuration entry) is the
+/// draft-era shape; when a selected configuration carries its own
+/// member it **overrides** the issuer-level one for that
+/// configuration, else the issuer-level member stands.
+///
+/// `configuration` is the selected configuration's JSON, when the
+/// caller has one (`None` before a selection exists — the flow-start
+/// probe — where only the issuer-level member can be read).
+///
+/// [#53]: https://github.com/sirosfoundation/siros-wallet-core/issues/53
 fn encryption_config_for(
     issuer_metadata: &types::IssuerMetadata,
+    configuration: Option<&serde_json::Value>,
 ) -> Option<encryption::ResponseEncryptionConfig> {
-    issuer_metadata
-        .credential_configurations
-        .as_object()
-        .and_then(|configs| {
-            configs
-                .values()
-                .filter_map(|config| config.get("credential_response_encryption").cloned())
-                .next()
-        })
-        .and_then(|v| serde_json::from_value::<encryption::ResponseEncryptionConfig>(v).ok())
+    // The per-configuration override (the draft-era shape): a
+    // configuration carrying its own member decides its own encryption.
+    let per_credential = configuration.and_then(|config| {
+        config
+            .get("credential_response_encryption")
+            .cloned()
+            .filter(|value| !value.is_null())
+    });
+    let raw = per_credential.or_else(|| {
+        issuer_metadata
+            .credential_response_encryption
+            .clone()
+            .filter(|value| !value.is_null())
+    })?;
+    serde_json::from_value::<encryption::ResponseEncryptionConfig>(raw).ok()
 }
 
 /// The negotiated response encryption with a fresh ephemeral key.
 fn negotiated_encryption_for(
     issuer_metadata: &types::IssuerMetadata,
+    configuration: Option<&serde_json::Value>,
 ) -> Option<encryption::NegotiatedResponseEncryption> {
-    encryption_config_for(issuer_metadata)
+    encryption_config_for(issuer_metadata, configuration)
         .and_then(|config| encryption::negotiate_with_key(&config))
 }
 
@@ -1369,11 +1395,15 @@ async fn issue_the_set(
         // `credential_response_encryption` member, the issuer answered
         // plain carrying `auxiliary_data`, and the §7.1 gate refused
         // what the request side had made unavoidable).
+        // #53: the SELECTED configuration rides along — its own
+        // per-credential member (the draft-era shape) overrides the
+        // issuer-level one for this configuration.
         let encryption_required = delivery.require_encryption
-            || encryption_config_for(issuer_metadata)
+            || encryption_config_for(issuer_metadata, Some(&configuration))
                 .as_ref()
                 .is_some_and(|config| config.required);
-        let negotiated_encryption = negotiated_encryption_for(issuer_metadata);
+        let negotiated_encryption =
+            negotiated_encryption_for(issuer_metadata, Some(&configuration));
         if encryption_required && negotiated_encryption.is_none() {
             fail(
                 &mut failures,

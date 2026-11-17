@@ -123,6 +123,19 @@ pub struct IssuerMetadata {
     /// The authorization servers the issuer uses.
     #[serde(default)]
     pub authorization_servers: Vec<String>,
+    /// The issuer-level `credential_response_encryption` configuration
+    /// (OpenID4VCI 1.0 **Final §12.2.4**: beside
+    /// `credential_configurations_supported`, NOT inside a configuration
+    /// entry — the per-credential placement is the draft-era shape, which
+    /// [#53] reads as a per-configuration *override* when a configuration
+    /// carries its own member). Raw JSON: the reader
+    /// (`encryption_config_for`) parses it, so an unparsable member softens
+    /// to "no config" rather than failing metadata resolution for issuers
+    /// that publish something else under the name.
+    ///
+    /// [#53]: https://github.com/sirosfoundation/siros-wallet-core/issues/53
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_response_encryption: Option<serde_json::Value>,
     /// The credential configurations, keyed by id — the 1.0 wire name
     /// `credential_configurations_supported`, the 1.1 draft's
     /// `credential_configurations`.
