@@ -68,8 +68,12 @@ impl Dispatcher {
             service.clone(),
             clock.clone(),
         ));
-        let mut peer_builder =
-            wmp_core::peer::PeerBuilder::new(session_handler.clone()).session_store(store.clone());
+        let mut peer_builder = wmp_core::peer::PeerBuilder::new(session_handler.clone())
+            .session_store(store.clone())
+            // #48: the flow-start capability gate's session-expiry check —
+            // a start naming an expired session answers -31001 instead of
+            // running against a dead record.
+            .clock(clock.clone());
         if let Some(transport) = outgoing {
             peer_builder = peer_builder.transport(transport);
         }

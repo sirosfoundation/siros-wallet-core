@@ -83,6 +83,10 @@ pub struct Peer {
     orchestrator: Option<OrchestratorMessageOptions>,
     max_message_size: usize,
     entropy: Option<crate::sessionservice::EntropyFn>,
+    /// The clock the session-expiry check at the flow-start capability
+    /// gate reads (#48): `None` (the default) skips it — the pre-check
+    /// behaviour, which every peer without a clock keeps.
+    clock: Option<crate::sessionservice::Clock>,
     versions: Mutex<FxHashMap<String, String>>,
     pending: Mutex<FxHashMap<String, mpsc::Sender<Response>>>,
     closed: AtomicBool,
@@ -101,6 +105,7 @@ pub struct PeerBuilder {
     orchestrator: Option<OrchestratorMessageOptions>,
     max_message_size: usize,
     entropy: Option<crate::sessionservice::EntropyFn>,
+    clock: Option<crate::sessionservice::Clock>,
 }
 
 impl PeerBuilder {
@@ -117,6 +122,7 @@ impl PeerBuilder {
             orchestrator: None,
             max_message_size: crate::jsonrpc::DEFAULT_MAX_MESSAGE_SIZE,
             entropy: None,
+            clock: None,
         }
     }
 
@@ -136,6 +142,18 @@ impl PeerBuilder {
     /// Sets a validator for incoming JSON-RPC request parameters.
     pub fn validator(mut self, validator: Arc<dyn Validator>) -> Self {
         self.validator = Some(validator);
+        self
+    }
+
+    /// Sets the clock the session-expiry check at the flow-start
+    /// capability gate reads (#48): with one, a start naming an expired
+    /// session answers `-31001` Session expired — the session's own
+    /// semantics, which the clients' session-loss recovery keys on —
+    /// instead of running the flow against a dead session record. Without
+    /// one (the default) the gate skips the expiry check (the pre-check
+    /// behaviour).
+    pub fn clock(mut self, clock: crate::sessionservice::Clock) -> Self {
+        self.clock = Some(clock);
         self
     }
 
@@ -213,6 +231,7 @@ impl PeerBuilder {
             orchestrator: self.orchestrator,
             max_message_size: self.max_message_size,
             entropy: self.entropy,
+            clock: self.clock,
             versions: Mutex::new(FxHashMap::default()),
             pending: Mutex::new(FxHashMap::default()),
             closed: AtomicBool::new(false),
@@ -1032,16 +1051,36 @@ impl Peer {
         let need = handler.required_capability(&ps.flow_type);
         if !need.is_empty() {
             match ctx.session.as_ref() {
-                Some(session) if session.has_capability(&need) => {}
-                Some(_) => {
-                    // A live session that did not negotiate the capability:
-                    // the genuine refusal.
-                    self.registry.discard_start(&ps.flow_id);
-                    return Err(new_unsupported_error(
-                        &ps.flow_type,
-                        Some(serde_json::json!({ "capability": need })),
-                    )
-                    .into());
+                Some(session) => {
+                    // #48: an expired session record is not a live one — a
+                    // start naming one answers the session's own semantics
+                    // (`-31001` Session expired), the same answer the
+                    // clients' session-loss recovery keys on, instead of
+                    // running the flow (and its asks) against a dead
+                    // record. Only when a clock is set; without one the
+                    // gate keeps the pre-check behaviour.
+                    if let Some(clock) = &self.clock {
+                        if session.is_expired(clock()) {
+                            self.registry.discard_start(&ps.flow_id);
+                            return Err(HandlerError::Rpc(RpcError::new(
+                                ERR_SESSION_EXPIRED,
+                                Some(serde_json::json!({
+                                    "session_id": ps.wmp.session_id,
+                                    "capability": need,
+                                })),
+                            )));
+                        }
+                    }
+                    if !session.has_capability(&need) {
+                        // A live session that did not negotiate the capability:
+                        // the genuine refusal.
+                        self.registry.discard_start(&ps.flow_id);
+                        return Err(new_unsupported_error(
+                            &ps.flow_type,
+                            Some(serde_json::json!({ "capability": need })),
+                        )
+                        .into());
+                    }
                 }
                 None if !ps.wmp.session_id.is_empty() => {
                     // The session the start named is gone from the store:

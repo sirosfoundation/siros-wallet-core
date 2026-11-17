@@ -197,6 +197,10 @@ fn build_peer(
         .session_store(store.clone())
         .transport(Arc::new(crate::outbox::OutboxTransport::new(outbox)))
         .max_message_size(config.max_message_size)
+        // #48: the flow-start capability gate's session-expiry check —
+        // a start naming an expired session answers -31001 instead of
+        // running against a dead record.
+        .clock(handler::system_clock())
         .build();
     runtime.set_peer(peer.clone());
     (peer, runtime)

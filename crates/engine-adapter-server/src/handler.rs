@@ -305,8 +305,9 @@ impl Handler for EngineHandler {
     // for flow types) ────────────────────────────────────────────────────
 }
 
-/// The system clock, unix seconds.
-fn system_clock() -> Clock {
+/// The system clock, unix seconds — `pub(crate)` for the peer builder's
+/// session-expiry check (#48).
+pub(crate) fn system_clock() -> Clock {
     Arc::new(|| {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
