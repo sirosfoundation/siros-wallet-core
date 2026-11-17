@@ -795,14 +795,17 @@ pub trait Host: Send + Sync {
         ))
     }
 
-    /// Asks the host's user to pick one of the offered credential
-    /// configurations, when the offer names more than one (the Go
-    /// `awaiting_selection` + `select_credential` action path): the
-    /// user decides what the wallet issues.
+    /// Asks the host's user to pick the SUBSET of the offered credential
+    /// configurations the wallet issues, when the deployment's policy
+    /// makes the choice the user's (the Go `awaiting_selection` +
+    /// `select_credential` action path, #28: the `user_selects` mode):
+    /// the user decides what the wallet issues, answered as a SET.
     ///
     /// The default implementation refuses — an older host keeps every
     /// single-configuration flow working (exactly one configuration is
-    /// auto-selected and never asked).
+    /// auto-selected and never asked) and, under the issue_all default,
+    /// every multi-configuration flow too (the set is every offered
+    /// configuration, never asked).
     async fn request_credential_selection(
         &self,
         _params: CredentialSelectionParams,
@@ -1017,11 +1020,36 @@ pub struct CredentialSelectionParams {
     pub available: Vec<AvailableCredential>,
 }
 
-/// The selection answer: the chosen configuration's id.
+/// The selection answer: the SET of configurations the user chose
+/// (#28 / go-wallet-backend#549, Platform-Epics#63). The plural member
+/// carries the subset — one, several, or all offered configurations; the
+/// legacy single member stays accepted as a one-element set for pre-#28
+/// hosts, and the plural member wins when both arrive.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CredentialSelectionResult {
-    /// The chosen configuration's id.
-    pub credential_configuration_id: String,
+    /// The chosen configuration's id (the pre-#28 single-member answer;
+    /// a one-element set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_configuration_id: Option<String>,
+    /// The chosen configurations' ids: a subset of the offer (one, several,
+    /// or all), in any order — the engine applies the offer's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub credential_configuration_ids: Vec<String>,
+}
+
+impl CredentialSelectionResult {
+    /// The answer's id list: the plural member when it carries anything,
+    /// else the legacy single member as the one-element set.
+    #[must_use]
+    pub fn ids(&self) -> Vec<String> {
+        if !self.credential_configuration_ids.is_empty() {
+            return self.credential_configuration_ids.clone();
+        }
+        self.credential_configuration_id
+            .as_ref()
+            .map(|id| vec![id.clone()])
+            .unwrap_or_default()
+    }
 }
 
 // ─── TokenProvider ──────────────────────────────────────────────────────

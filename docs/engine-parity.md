@@ -93,7 +93,7 @@ UI):
 | — (AS discovery folded into metadata) | `as_discovered` | keep (extra) |
 | `evaluating_trust` (message) | — | **add** |
 | `trust_evaluated` `{issuer_trust_evaluated, issuer, trusted, framework, reason, certificates}` | `trust_evaluated` `{issuer, trusted, framework, reason}` | add `issuer_trust_evaluated` |
-| `awaiting_selection` `{available_credentials[]}` (auto-selects when exactly one) | — (blinded `first()`) | **gap B1**: emit + auto-select single; multi-config needs the ask |
+| `awaiting_selection` `{available_credentials[]}` (auto-selects when exactly one) | — (blinded `first()`) | **gap B1, landed**; #28: the ask only under `user_selects` — the `issue_all` default issues every offered configuration with no ask, and a flow-start `selected_credential_configuration_ids` set IS the selection |
 | `authorization_required` `{authorization_url, expected_redirect_uri, state, …}` / `{type:"tx_code", …}` | `authorization_url` `{…}` | **rename** |
 | `exchanging_token` (message) | — | **add** |
 | `token_obtained` (message) | `token_received` `{token_type}` | **rename** |
@@ -150,7 +150,9 @@ Aligned after the conformance milestones unless noted:
 - OID4VCI: offers (by value/URI), both grants, PKCE, PAR + the RFC 7523
   assertion at both PAR and token, tx_code, deferred (5s×60), §11
   notification, DPoP, response encryption — suite-validated on both
-  grants. **Gap B1** (selection, landed W6), **gap E1**: the §10
+  grants. **Gap B1** (selection, landed W6; #28 makes it the SET —
+  issue_all default, user_selects ask, flow-start set — converging on
+  go-wallet-backend#549), **gap E1**: the §10
   client-initiated notification **landed (W7)** — the
   `credential_notification` flow over the TTL'd, single-use context
   store; the legacy `wmp.credential.notification` method is WS-era and
