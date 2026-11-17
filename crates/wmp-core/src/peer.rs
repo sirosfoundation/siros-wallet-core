@@ -11,7 +11,7 @@ use crate::context::RequestContext;
 use crate::error::{
     RpcError, ERR_CAPABILITY_NOT_SUPPORTED, ERR_FLOW_ERROR, ERR_INTERNAL_ERROR, ERR_INVALID_PARAMS,
     ERR_INVALID_REQUEST, ERR_METHOD_NOT_FOUND, ERR_NOT_AUTHORIZED, ERR_PARSE_ERROR,
-    ERR_PARTICIPANT_NOT_FOUND, ERR_SESSION_EXPIRED,
+    ERR_PARTICIPANT_NOT_FOUND, ERR_SESSION_EXPIRED, ERR_SESSION_NOT_FOUND,
 };
 use crate::handler::{Handler, HandlerError};
 use crate::jsonrpc::{
@@ -1014,19 +1014,58 @@ impl Peer {
         };
         // Core §10.3: a flow type whose capability was not negotiated is
         // refused with -31005 before the profile sees it.
+        //
+        // #48: a start whose session no longer RESOLVES is not that
+        // refusal. The store holds no such session — an engine restart
+        // lost the in-memory store, or the session expired — and the
+        // answer must carry the session's own semantics, -31000 Session
+        // not found, the same code every session-bound method answers:
+        // the client's session recovery (both SDKs' WmpSession)
+        // re-creates the session and retries on exactly that answer,
+        // while -31005 sends the investigation into capability
+        // negotiation and bricks the wallet until a full app restart
+        // (gdc 2026-11-17: a routine engine restart, every connected
+        // wallet answered "Capability not supported" within 110ms).
+        // A start that names no session at all keeps the fail-closed
+        // -31005: nothing counts as negotiated there (core §10.3), and
+        // the client lost no session it could re-create.
         let need = handler.required_capability(&ps.flow_type);
         if !need.is_empty() {
-            let negotiated = ctx
-                .session
-                .as_ref()
-                .is_some_and(|session| session.has_capability(&need));
-            if !negotiated {
-                self.registry.discard_start(&ps.flow_id);
-                return Err(new_unsupported_error(
-                    &ps.flow_type,
-                    Some(serde_json::json!({ "capability": need })),
-                )
-                .into());
+            match ctx.session.as_ref() {
+                Some(session) if session.has_capability(&need) => {}
+                Some(_) => {
+                    // A live session that did not negotiate the capability:
+                    // the genuine refusal.
+                    self.registry.discard_start(&ps.flow_id);
+                    return Err(new_unsupported_error(
+                        &ps.flow_type,
+                        Some(serde_json::json!({ "capability": need })),
+                    )
+                    .into());
+                }
+                None if !ps.wmp.session_id.is_empty() => {
+                    // The session the start named is gone from the store:
+                    // the session's own semantics, so the client's
+                    // self-heal can trigger.
+                    self.registry.discard_start(&ps.flow_id);
+                    return Err(HandlerError::Rpc(RpcError::new(
+                        ERR_SESSION_NOT_FOUND,
+                        Some(serde_json::json!({
+                            "session_id": ps.wmp.session_id,
+                            "capability": need,
+                        })),
+                    )));
+                }
+                None => {
+                    // No session named (the peer's own start): the
+                    // fail-closed refusal, unchanged.
+                    self.registry.discard_start(&ps.flow_id);
+                    return Err(new_unsupported_error(
+                        &ps.flow_type,
+                        Some(serde_json::json!({ "capability": need })),
+                    )
+                    .into());
+                }
             }
         }
         // Route the flow's messages before its worker can run, under a
