@@ -99,6 +99,7 @@ impl Host for KeyHost {
 
 fn test_metadata() -> IssuerMetadata {
     IssuerMetadata {
+        credential_response_encryption: None,
         nonce_endpoint: None,
         deferred_credential_endpoint: None,
         credential_endpoint: String::new(),
@@ -520,6 +521,7 @@ impl HttpClient for RetryHttp {
 
 fn metadata_with_nonce_endpoint() -> IssuerMetadata {
     IssuerMetadata {
+        credential_response_encryption: None,
         nonce_endpoint: Some("https://issuer.example/nonce".to_owned()),
         ..test_metadata()
     }
