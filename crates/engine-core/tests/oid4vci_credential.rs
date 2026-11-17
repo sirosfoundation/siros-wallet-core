@@ -872,7 +872,19 @@ async fn the_proof_header_identifies_the_key_with_the_jwk_and_the_thumbprint_kid
     assert_eq!(header["jwk"]["kid"], expected_thumbprint);
     assert!(header.get("kid").is_none());
     assert!(header.get("x5c").is_none());
-    assert_eq!(header["jwk"]["key_ops"], serde_json::json!(["verify"]));
+    // No `key_ops` in a PROOF header's JWK: a key that is SIGNING with
+    // `key_ops: ["verify"]` is semantically contradictory, and a strict
+    // issuer rejects the proof (the GDC drive's finding, 1b78321). Pinned
+    // here because the #11 merge sweep restored the insert with its
+    // conflict resolution and the moved test asserted the wrong shape.
+    assert!(
+        header["jwk"]
+            .get("key_ops")
+            .map(serde_json::Value::is_null)
+            .unwrap_or(true)
+            || header["jwk"].get("key_ops").is_none(),
+        "a proof header's JWK carries no key_ops"
+    );
     // The iat is the Clock's now, not a placeholder.
     assert_eq!(claims["iat"], 1_000);
 }

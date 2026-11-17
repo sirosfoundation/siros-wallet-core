@@ -213,46 +213,90 @@ pub async fn request_credential(
     // "sha256")` convention). Keys live in the app; the host answers
     // with the public JWK only. A host that cannot answer keeps the
     // bare header (the legacy shape).
-    let mut proof_header = serde_json::json!({
-        "typ": "openid4vci-proof+jwt",
-        "alg": "ES256",
-    });
-    if let Ok(answer) = host
-        .request_signing_key(engine_ports::SigningKeyParams {
-            flow_id: flow_id.to_owned(),
-            key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
-            fresh: true,
-        })
-        .await
-    {
-        // The proof header's public JWK, identified by the RFC 7638
-        // thumbprint kid it carries — inserted as a member, never by
-        // indexing (the header is an object by construction).
-        if let Some(header) = proof_header.as_object_mut() {
-            header.insert("jwk".to_owned(), public_jwk_for_header(&answer.jwk));
+    //
+    // RESTORED 2026-11-17 (the #11 merge sweep's third instance —
+    // found via the conformance suite): the sweep also took the batch
+    // proof loop and, fatally for every issuance, the `answer_kid`
+    // threading. The header's jwk names the key the signing-key ask
+    // returned; the sign ask MUST name that same kid back — a host
+    // routes sign asks by kid (the mini host, the SDK adapters), so
+    // without the threading the host signs with its default key while
+    // the header claims another: the suite's issuer answers 401
+    // `invalid_proof: JWT signature validation failed` on every
+    // credential request (the v0.2.19 conformance HAR, both variants,
+    // all modules).
+    //
+    // The batch size (OID4VCI §E.1): how many proofs this request carries —
+    // `batch_size` from the issuer metadata, 1 when the issuer advertises none
+    // (or ≤1). The suite's batch-credential-issuance module requires the
+    // proofs count to match the batch it granted (found driving it: one
+    // proof read as "batch issuance behavior cannot be evaluated"). The
+    // `jwt` proof type is one proof per credential; a single `attestation`
+    // proof covers the whole batch (the Go engine's rule).
+    let batch_size: usize = metadata
+        .batch_credential_issuance
+        .as_ref()
+        .map(|batch| batch.batch_size.max(1) as usize)
+        .unwrap_or(1);
+    let mut proofs: Vec<String> = Vec::with_capacity(batch_size);
+    for i in 0..batch_size {
+        let mut proof_header = serde_json::json!({
+            "typ": "openid4vci-proof+jwt",
+            "alg": "ES256",
+        });
+        // The batch rule (batch_size > 1): every proof in a batch binds to
+        // a FRESH key — two proofs over the same key link the credentials
+        // to each other (SDJWT-10.1, the suite's
+        // VCIEnsureProofKeysAreDistinct: "Two proofs in the credential
+        // request prove possession of the same key; each credential in a
+        // batch must be bound to a fresh key so verifiers cannot link
+        // them"). A single proof (batch_size 1 — every ordinary issuance
+        // runs this loop too) keeps the flow's device key; a batch
+        // renewal's first proof keeps its named reissuance kid — THE key
+        // the credential must bind to.
+        let fresh = batch_size > 1 && !(i == 0 && aux.and_then(|aux| aux.reissuance_kid).is_some());
+        // The kid of the key the proof header carries — a fresh key's
+        // answer names it; thread it into the sign ask so the host signs
+        // with the very key it handed over.
+        let mut answer_kid: Option<String> = None;
+        if let Ok(answer) = host
+            .request_signing_key(engine_ports::SigningKeyParams {
+                flow_id: flow_id.to_owned(),
+                key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
+                fresh,
+            })
+            .await
+        {
+            if let Some(header) = proof_header.as_object_mut() {
+                header.insert("jwk".to_owned(), public_jwk_for_header(&answer.jwk));
+            }
+            answer_kid = answer
+                .jwk
+                .get("kid")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned);
         }
+        let proof_tbs = format!(
+            "{}.{}",
+            base64url_json(&proof_header),
+            base64url_json(&proof_payload),
+        );
+        let sign_result = host
+            .request_sign(engine_ports::SignParams {
+                flow_id: flow_id.to_owned(),
+                to_sign: proof_tbs.as_bytes().to_vec(),
+                key_id: answer_kid
+                    .or_else(|| aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned)),
+                algorithm: "ES256".to_owned(),
+            })
+            .await
+            .map_err(|err| CredentialError::Proofs(err.to_string()))?;
+        proofs.push(format!(
+            "{}.{}",
+            proof_tbs,
+            base64url(&sign_result.signature)
+        ));
     }
-    let proof_tbs = format!(
-        "{}.{}",
-        base64url_json(&proof_header),
-        base64url_json(&proof_payload),
-    );
-
-    // Ask the host to sign the proof — with the reissuance kid when
-    // this is a renewal, so the proof's public key matches the
-    // original credential's cnf.jwk (ARF ISSU_65 same-key re-signing).
-    let sign_result = host
-        .request_sign(engine_ports::SignParams {
-            flow_id: flow_id.to_owned(),
-            to_sign: proof_tbs.as_bytes().to_vec(),
-            key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
-            algorithm: "ES256".to_owned(),
-        })
-        .await
-        .map_err(|err| CredentialError::Proofs(err.to_string()))?;
-
-    // Assemble the signed proof JWT: the TBS plus the base64url signature.
-    let proof_jwt = format!("{}.{}", proof_tbs, base64url(&sign_result.signature),);
 
     // Build the credential request body. OID4VCI 1.0 §7.5: `proofs` is
     // an object keyed by the proof type, its value the array of proofs
@@ -266,7 +310,7 @@ pub async fn request_credential(
     let mut request_body = serde_json::json!({
         "credential_configuration_id": configuration_id,
         "proofs": {
-            "jwt": [proof_jwt],
+            "jwt": proofs,
         },
     });
     // The encryption offer (§7.3): the negotiated alg/enc and the
@@ -611,8 +655,8 @@ fn base64url(bytes: &[u8]) -> String {
 
 /// The public JWK as a proof header carries it: the public members
 /// only (no private material ever crosses the port boundary twice),
-/// the RFC 7638 thumbprint as the `kid`, and `key_ops` limited to
-/// verification — the SDK's proof-header shape.
+/// the RFC 7638 thumbprint as the `kid` (no `key_ops` - the Go engine's
+/// verification) — the SDK's proof-header shape.
 fn public_jwk_for_header(jwk: &Value) -> Value {
     let Some(object) = jwk.as_object() else {
         return jwk.clone();
@@ -630,7 +674,14 @@ fn public_jwk_for_header(jwk: &Value) -> Value {
     // object by construction, and indexing panics.
     if let Some(object) = jwk.as_object_mut() {
         object.insert("kid".to_owned(), Value::String(kid));
-        object.insert("key_ops".to_owned(), serde_json::json!(["verify"]));
+        // No `key_ops` (RFC 7517 §4) in a PROOF header's JWK: the Go engine's
+        // wallet-generated proofs carry the bare JWK + kid, and `key_ops:
+        // ["verify"]` on a key that is SIGNING is semantically contradictory
+        // (a strict issuer rejects the proof - found driving the GDC
+        // issuance: the credential endpoint answered 400). The #11 merge
+        // sweep restored the pre-drive `key_ops` insert with its conflict
+        // resolution (the branch predated 1b78321); removed again
+        // 2026-11-17 with the rest of the sweep's casualties here.
     }
     jwk
 }
