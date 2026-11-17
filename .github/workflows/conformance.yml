@@ -341,8 +341,16 @@ jobs:
       - name: The suites' results, from the artifacts
         uses: actions/download-artifact@v4
         with:
-          name: conformance-results
+          # The A.2 matrix split's two halves (conformance-vci/conformance-vp)
+          # upload their results as conformance-results-vci / -vp; this job
+          # predates the split and downloaded the unsplit conformance-results
+          # name - every release tag since the split answered "artifact not
+          # found" and went red over the missing verdict (found on v0.2.19,
+          # 2026-11-17: both suites green, the run still failing). Pattern
+          # both; the merge step below handles both halves.
+          pattern: conformance-results-*
           path: results/
+          merge-multiple: true
 
       - name: The certification ZIPs and run summaries, on the release
         env:
