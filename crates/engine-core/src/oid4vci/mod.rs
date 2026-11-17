@@ -1356,7 +1356,36 @@ async fn issue_the_set(
 
         // A fresh response-encryption key per request: the ephemeral
         // key lives once, in the request that offers it.
+        //
+        // #51: the delivery plan — not the issuer's `encryption_required`
+        // flag alone — decides the offer is MANDATORY. A `to_wallet`
+        // `hash_commitment` carries a Secret Value (auxiliary.rs §7.1),
+        // so the request must offer response encryption whether or not
+        // the issuer asked for it; an issuer that yields no pair (or
+        // advertises no `credential_response_encryption` at all) fails
+        // THIS configuration's issuance before any request is made —
+        // never the plain request the response-side gate would refuse
+        // mid-flight (the realeyes repro: the request carried no
+        // `credential_response_encryption` member, the issuer answered
+        // plain carrying `auxiliary_data`, and the §7.1 gate refused
+        // what the request side had made unavoidable).
+        let encryption_required = delivery.require_encryption
+            || encryption_config_for(issuer_metadata)
+                .as_ref()
+                .is_some_and(|config| config.required);
         let negotiated_encryption = negotiated_encryption_for(issuer_metadata);
+        if encryption_required && negotiated_encryption.is_none() {
+            fail(
+                &mut failures,
+                &mut first_reason,
+                configuration_id,
+                match delivery.require_encryption {
+                    true => encryption::EncryptionError::DeliveryRequiresNoPair.to_string(),
+                    false => encryption::EncryptionError::NoOverlap.to_string(),
+                },
+            );
+            continue;
+        }
 
         // The FIRST configuration keeps the reissuance kid (a renewal's
         // same-key re-binding, ARF ISSU_65); every other signs fresh.
