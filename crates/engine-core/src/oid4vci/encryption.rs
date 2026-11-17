@@ -44,6 +44,13 @@ pub enum EncryptionError {
     /// No mutually supported alg/enc pair.
     #[error("oid4vci: no mutually supported alg/enc pair (issuer requires encryption)")]
     NoOverlap,
+    /// The credential's auxiliary-data delivery carries a `to_wallet`
+    /// Secret Value, so the credential response must be encrypted — and
+    /// no mutually supported alg/enc pair is available (#51: the
+    /// delivery plan, not the issuer's `encryption_required` flag,
+    /// makes the offer mandatory).
+    #[error("oid4vci: the auxiliary-data delivery requires credential response encryption, but no mutually supported alg/enc pair is available")]
+    DeliveryRequiresNoPair,
     /// The issuer required encryption but the engine could not generate a key.
     #[error("oid4vci: encryption key generation failed")]
     KeyGeneration,
