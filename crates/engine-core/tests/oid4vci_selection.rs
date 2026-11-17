@@ -50,9 +50,13 @@ const TWO_CONFIGURATION_METADATA: &str = r#"{
 }"#;
 
 /// The scripted HTTP: dispatches by URL, recording the credential
-/// requests.
+/// requests. `credential_fail_from` (0-based) makes every credential
+/// request from that index answer 500 — the partial-failure tests'
+/// knob; `None` never fails.
 struct ScriptedHttp {
     credential_requests: Mutex<Vec<Vec<u8>>>,
+    credential_fail_from: Option<usize>,
+    token_requests: Mutex<usize>,
 }
 
 #[async_trait::async_trait]
@@ -75,6 +79,7 @@ impl HttpClient for ScriptedHttp {
                     .to_string()
             }
             "https://as.example/token" => {
+                *self.token_requests.lock().expect("lock") += 1;
                 let form = String::from_utf8_lossy(&request.body).into_owned();
                 if form.contains("grant_type=authorization_code") {
                     assert!(form.contains("code_verifier="));
@@ -95,17 +100,28 @@ impl HttpClient for ScriptedHttp {
                 // The credential request: the configuration id rides
                 // its `credential_configuration_id` member.
                 let form = String::from_utf8_lossy(&request.body).into_owned();
-                self.credential_requests
-                    .lock()
-                    .expect("lock")
-                    .push(form.into_bytes());
-                serde_json::json!({ "credential": "credential-jwt-1" }).to_string()
+                let mut requests = self.credential_requests.lock().expect("lock");
+                let index = requests.len();
+                requests.push(form.into_bytes());
+                if self.credential_fail_from.is_some_and(|from| index >= from) {
+                    return Ok(HttpResponse {
+                        status: 500,
+                        headers: Vec::new(),
+                        body: serde_json::json!({ "error": "server_error" })
+                            .to_string()
+                            .into_bytes(),
+                    });
+                }
+                serde_json::json!({ "credential": format!("credential-jwt-{index}") }).to_string()
             }
-            "https://issuer.example/token" => serde_json::json!({
-                "access_token": "at-1", "token_type": "Bearer", "expires_in": 3600,
-                "c_nonce": "nonce-1"
-            })
-            .to_string(),
+            "https://issuer.example/token" => {
+                *self.token_requests.lock().expect("lock") += 1;
+                serde_json::json!({
+                    "access_token": "at-1", "token_type": "Bearer", "expires_in": 3600,
+                    "c_nonce": "nonce-1"
+                })
+                .to_string()
+            }
             other => panic!("unexpected fetch: {other}"),
         };
         Ok(HttpResponse {
@@ -257,6 +273,15 @@ impl wmp_core::transport::Transport for CaptureTransport {
 fn test_context(
     host: Arc<SelectingHost>,
 ) -> (FlowContext, Arc<ScriptedHttp>, Arc<CaptureTransport>) {
+    test_context_with_failures(host, None)
+}
+
+/// test_context with the credential-failure knob (#28's partial-failure
+/// tests).
+fn test_context_with_failures(
+    host: Arc<SelectingHost>,
+    credential_fail_from: Option<usize>,
+) -> (FlowContext, Arc<ScriptedHttp>, Arc<CaptureTransport>) {
     let store = Arc::new(wmp_core::session::MemorySessionStore::new());
     let handler = Arc::new(wmp_core::sessionservice::SessionHandler::new(
         Arc::new(
@@ -285,6 +310,8 @@ fn test_context(
         .build();
     let http = Arc::new(ScriptedHttp {
         credential_requests: Mutex::new(Vec::new()),
+        credential_fail_from,
+        token_requests: Mutex::new(0),
     });
     let ctx = FlowContext {
         flow_id: "flow-1".to_owned(),
@@ -313,25 +340,34 @@ fn test_context(
 /// The flow start params: the offer by value, the configurations named
 /// by the caller, the pre-authorized grant.
 fn start_params(ids: &[&str]) -> FlowStartParams {
+    start_params_with(ids, serde_json::json!({}))
+}
+
+/// The flow start params with extra members merged in (#28: the flow
+/// start's `selected_credential_configuration_ids` set and the
+/// `issuance_selection_policy` knob ride here).
+fn start_params_with(ids: &[&str], extra: serde_json::Value) -> FlowStartParams {
+    let mut params = serde_json::json!({
+        "credential_issuer": "https://issuer.example",
+        "credential_configuration_ids": ids,
+        "grants": {
+            "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
+                "pre-authorized_code": "code-1"
+            }
+        },
+        "redirect_uri": "https://wallet.example/cb",
+        "client_id": "client-1"
+    });
+    if let (Some(object), Some(members)) = (params.as_object_mut(), extra.as_object()) {
+        for (key, value) in members {
+            object.insert(key.clone(), value.clone());
+        }
+    }
     FlowStartParams {
         wmp: wmp_core::types::Metadata::default(),
         flow_id: "flow-1".to_owned(),
         flow_type: "oid4vci".to_owned(),
-        params: serde_json::value::RawValue::from_string(
-            serde_json::json!({
-                "credential_issuer": "https://issuer.example",
-                "credential_configuration_ids": ids,
-                "grants": {
-                    "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
-                        "pre-authorized_code": "code-1"
-                    }
-                },
-                "redirect_uri": "https://wallet.example/cb",
-                "client_id": "client-1"
-            })
-            .to_string(),
-        )
-        .ok(),
+        params: serde_json::value::RawValue::from_string(params.to_string()).ok(),
         timeout: None,
     }
 }
@@ -374,6 +410,43 @@ fn requested_configuration_id(http: &ScriptedHttp) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Every configuration id the credential requests named, in order (#28:
+/// one request per selected configuration).
+fn requested_configuration_ids(http: &ScriptedHttp) -> Vec<String> {
+    let requests = http.credential_requests.lock().expect("lock");
+    requests
+        .iter()
+        .filter_map(|body| String::from_utf8(body.clone()).ok())
+        .filter_map(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
+        .filter_map(|value| {
+            value
+                .get("credential_configuration_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+/// The completion's result payload, if the flow completed.
+fn completion_result(transport: &CaptureTransport) -> Option<serde_json::Value> {
+    transport
+        .written
+        .lock()
+        .expect("lock")
+        .iter()
+        .filter_map(|raw| serde_json::from_slice::<serde_json::Value>(raw).ok())
+        .filter(|message| {
+            message.get("method").and_then(|m| m.as_str()) == Some("wmp.flow.complete")
+        })
+        .map(|message| {
+            message
+                .pointer("/params/result")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null)
+        })
+        .next()
+}
+
 // ─── The guarantees ──────────────────────────────────────────────────────
 
 /// A single-configuration offer auto-selects: no `awaiting_selection`
@@ -407,24 +480,33 @@ async fn a_single_configuration_offer_auto_selects() {
     );
 }
 
-/// A multi-configuration offer is the user's choice: the
-/// `awaiting_selection` progress carries the `available_credentials`
-/// with the Go wire names (the id, the display, the format, the vct),
-/// in the offer's order, and the host's answer selects.
+/// Under the `user_selects` policy a multi-configuration offer is the
+/// user's choice: the `awaiting_selection` progress carries the
+/// `available_credentials` with the Go wire names (the id, the
+/// display, the format, the vct), in the offer's order, and the host's
+/// answer selects — the legacy single-id answer accepted as the
+/// one-element set (the pre-#28 host's shape).
 #[tokio::test]
-async fn a_multi_configuration_offer_asks_with_the_available_credentials() {
+async fn a_user_selects_offer_asks_and_the_legacy_single_answer_selects() {
     let host = Arc::new(SelectingHost {
         answer: Some(CredentialSelectionResult {
-            credential_configuration_id: "Mdl".to_owned(),
+            credential_configuration_id: Some("Mdl".to_owned()),
+            credential_configuration_ids: Vec::new(),
         }),
         asks: Mutex::new(Vec::new()),
     });
     let (ctx, http, transport) = test_context(host.clone());
     let flow = Oid4vciFlow;
 
-    flow.start_flow(&ctx, &start_params(&["UniversityDegree", "Mdl"]))
-        .await
-        .expect("the flow completes");
+    flow.start_flow(
+        &ctx,
+        &start_params_with(
+            &["UniversityDegree", "Mdl"],
+            serde_json::json!({ "issuance_selection_policy": "user_selects" }),
+        ),
+    )
+    .await
+    .expect("the flow completes");
 
     // The progress: one, with the available credentials.
     let payloads = awaiting_selection_payloads(&transport);
@@ -473,7 +555,8 @@ async fn an_answer_outside_the_offer_refuses() {
     // the metadata's third — defined by the issuer, offered by no one.
     let host = Arc::new(SelectingHost {
         answer: Some(CredentialSelectionResult {
-            credential_configuration_id: "Passport".to_owned(),
+            credential_configuration_id: None,
+            credential_configuration_ids: vec!["Passport".to_owned()],
         }),
         asks: Mutex::new(Vec::new()),
     });
@@ -481,7 +564,13 @@ async fn an_answer_outside_the_offer_refuses() {
     let flow = Oid4vciFlow;
 
     let refusal = flow
-        .start_flow(&ctx, &start_params(&["UniversityDegree", "Mdl"]))
+        .start_flow(
+            &ctx,
+            &start_params_with(
+                &["UniversityDegree", "Mdl"],
+                serde_json::json!({ "issuance_selection_policy": "user_selects" }),
+            ),
+        )
         .await
         .expect_err("the unoffered answer refuses the flow");
     let wmp_core::handler::HandlerError::Rpc(rpc) = refusal else {
@@ -511,9 +600,10 @@ async fn an_answer_outside_the_offer_refuses() {
 
 /// The older host — one that cannot answer a selection ask, the default
 /// every pre-selection host inherits — fails closed on a
-/// multi-configuration offer: never the first configuration unasked.
+/// multi-configuration offer under `user_selects`: never a
+/// configuration unasked.
 #[tokio::test]
-async fn an_older_host_fails_closed_on_a_multi_configuration_offer() {
+async fn an_older_host_fails_closed_on_a_user_selects_offer() {
     let host = Arc::new(SelectingHost {
         answer: None,
         asks: Mutex::new(Vec::new()),
@@ -522,7 +612,13 @@ async fn an_older_host_fails_closed_on_a_multi_configuration_offer() {
     let flow = Oid4vciFlow;
 
     let refusal = flow
-        .start_flow(&ctx, &start_params(&["UniversityDegree", "Mdl"]))
+        .start_flow(
+            &ctx,
+            &start_params_with(
+                &["UniversityDegree", "Mdl"],
+                serde_json::json!({ "issuance_selection_policy": "user_selects" }),
+            ),
+        )
         .await
         .expect_err("the older host refuses the multi-configuration offer");
     let wmp_core::handler::HandlerError::Rpc(_) = refusal else {
@@ -547,7 +643,8 @@ async fn the_resume_requests_the_stashed_configuration() {
     // selects the mDL.
     let host = Arc::new(SelectingHost {
         answer: Some(CredentialSelectionResult {
-            credential_configuration_id: "Mdl".to_owned(),
+            credential_configuration_id: Some("Mdl".to_owned()),
+            credential_configuration_ids: Vec::new(),
         }),
         asks: Mutex::new(Vec::new()),
     });
@@ -562,6 +659,7 @@ async fn the_resume_requests_the_stashed_configuration() {
             serde_json::json!({
                 "credential_issuer": "https://issuer.example",
                 "credential_configuration_ids": ["UniversityDegree", "Mdl"],
+                "issuance_selection_policy": "user_selects",
                 "grants": {
                     "authorization_code": { "issuer_state": "session-1" }
                 },
@@ -604,5 +702,260 @@ async fn the_resume_requests_the_stashed_configuration() {
         host.asks.lock().expect("lock").len(),
         1,
         "no second selection ask after the redirect"
+    );
+}
+
+// ─── #28 / go-wallet-backend#549: the selected SET ─────────────────────────
+
+/// The `issue_all` default: a multi-configuration offer issues EVERY
+/// offered configuration with no selection step at all — no ask, no
+/// `awaiting_selection` progress — one token for the whole set, one
+/// credential request per configuration, and a completion carrying
+/// every result, each paired with its configuration id.
+#[tokio::test]
+async fn a_multi_configuration_offer_issues_every_configuration_by_default() {
+    let host = Arc::new(SelectingHost {
+        answer: None,
+        asks: Mutex::new(Vec::new()),
+    });
+    let (ctx, http, transport) = test_context(host.clone());
+    let flow = Oid4vciFlow;
+
+    flow.start_flow(&ctx, &start_params(&["UniversityDegree", "Mdl"]))
+        .await
+        .expect("the flow completes");
+
+    assert!(
+        host.asks.lock().expect("lock").is_empty(),
+        "no selection ask under the issue_all default"
+    );
+    assert!(
+        awaiting_selection_payloads(&transport).is_empty(),
+        "no awaiting_selection progress under the issue_all default"
+    );
+    assert_eq!(
+        requested_configuration_ids(&http),
+        vec!["UniversityDegree".to_owned(), "Mdl".to_owned()],
+        "one credential request per offered configuration, in the offer's order"
+    );
+    assert_eq!(
+        *http.token_requests.lock().expect("lock"),
+        1,
+        "one token exchange for the whole set"
+    );
+
+    // The completion: every configuration's result, each paired with its
+    // configuration id (the renewal pairing).
+    let completion = completion_result(&transport).expect("the flow completed");
+    let credentials = completion
+        .get("credentials")
+        .and_then(|v| v.as_array())
+        .expect("the credentials array");
+    assert_eq!(credentials.len(), 2, "one entry per configuration");
+    assert_eq!(
+        credentials[0]["credential_configuration_id"],
+        "UniversityDegree"
+    );
+    assert_eq!(credentials[1]["credential_configuration_id"], "Mdl");
+    assert_eq!(credentials[0]["credential"], "credential-jwt-0");
+    assert_eq!(credentials[1]["credential"], "credential-jwt-1");
+    assert!(
+        completion.get("failures").is_none(),
+        "no failures member when everything issued"
+    );
+    // The legacy single-configuration view keeps the first entry's.
+    assert_eq!(completion["credential"], "credential-jwt-0");
+}
+
+/// The flow-start set (`selected_credential_configuration_ids`) IS the
+/// selection: no ask runs, whatever the deployment's policy — the user
+/// already chose before the flow started.
+#[tokio::test]
+async fn the_flow_start_set_is_the_selection_under_both_policies() {
+    for policy in [None, Some("user_selects")] {
+        let host = Arc::new(SelectingHost {
+            answer: None,
+            asks: Mutex::new(Vec::new()),
+        });
+        let (ctx, http, _transport) = test_context(host.clone());
+        let flow = Oid4vciFlow;
+        let mut extra = serde_json::json!({
+            "selected_credential_configuration_ids": ["Mdl"]
+        });
+        if let Some(policy) = policy {
+            extra["issuance_selection_policy"] = serde_json::Value::String(policy.to_owned());
+        }
+
+        flow.start_flow(
+            &ctx,
+            &start_params_with(&["UniversityDegree", "Mdl"], extra),
+        )
+        .await
+        .expect("the flow completes");
+
+        assert!(
+            host.asks.lock().expect("lock").is_empty(),
+            "the flow-start set is the selection: no ask"
+        );
+        assert_eq!(
+            requested_configuration_ids(&http),
+            vec!["Mdl".to_owned()],
+            "only the chosen subset issues"
+        );
+    }
+}
+
+/// A flow-start set naming an id the offer never carried refuses: never
+/// a silent fall-back to issuing configurations nobody chose.
+#[tokio::test]
+async fn the_flow_start_set_refuses_an_id_outside_the_offer() {
+    let host = Arc::new(SelectingHost {
+        answer: None,
+        asks: Mutex::new(Vec::new()),
+    });
+    let (ctx, http, _transport) = test_context(host);
+    let flow = Oid4vciFlow;
+
+    let refusal = flow
+        .start_flow(
+            &ctx,
+            &start_params_with(
+                &["UniversityDegree", "Mdl"],
+                serde_json::json!({
+                    "selected_credential_configuration_ids": ["Mdl", "Passport"]
+                }),
+            ),
+        )
+        .await
+        .expect_err("the unoffered flow-start id refuses the flow");
+    let wmp_core::handler::HandlerError::Rpc(rpc) = refusal else {
+        panic!("the refusal is an Rpc error");
+    };
+    let reason = rpc
+        .data
+        .as_ref()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(data.get()).ok())
+        .and_then(|data| {
+            data.get("reason")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+        });
+    assert_eq!(reason.as_deref(), Some("invalid credential configuration"));
+    assert!(
+        http.credential_requests.lock().expect("lock").is_empty(),
+        "nothing issued for a refused flow-start set"
+    );
+}
+
+/// The `user_selects` answer with the SET member selects the subset.
+#[tokio::test]
+async fn a_user_selects_answer_with_the_set_selects_the_subset() {
+    let host = Arc::new(SelectingHost {
+        answer: Some(CredentialSelectionResult {
+            credential_configuration_id: None,
+            credential_configuration_ids: vec!["Mdl".to_owned()],
+        }),
+        asks: Mutex::new(Vec::new()),
+    });
+    let (ctx, http, _transport) = test_context(host);
+    let flow = Oid4vciFlow;
+
+    flow.start_flow(
+        &ctx,
+        &start_params_with(
+            &["UniversityDegree", "Mdl"],
+            serde_json::json!({ "issuance_selection_policy": "user_selects" }),
+        ),
+    )
+    .await
+    .expect("the flow completes");
+
+    assert_eq!(
+        requested_configuration_ids(&http),
+        vec!["Mdl".to_owned()],
+        "the answer's set is the selection"
+    );
+}
+
+/// A partial failure completes: the configuration that failed does not
+/// abort the other — the completion carries the success AND the
+/// per-configuration failure report (which configuration, why).
+#[tokio::test]
+async fn a_partial_failure_completes_with_the_failure_reported() {
+    let host = Arc::new(SelectingHost {
+        answer: None,
+        asks: Mutex::new(Vec::new()),
+    });
+    let (ctx, http, transport) = test_context_with_failures(host, Some(1));
+    let flow = Oid4vciFlow;
+
+    flow.start_flow(&ctx, &start_params(&["UniversityDegree", "Mdl"]))
+        .await
+        .expect("one or more successes complete the flow");
+
+    assert_eq!(
+        requested_configuration_ids(&http).len(),
+        2,
+        "the failed configuration did not abort the other's request"
+    );
+
+    let completion = completion_result(&transport).expect("the flow completed");
+    let credentials = completion
+        .get("credentials")
+        .and_then(|v| v.as_array())
+        .expect("the credentials array");
+    assert_eq!(
+        credentials.len(),
+        1,
+        "the successful configuration's result"
+    );
+    assert_eq!(
+        credentials[0]["credential_configuration_id"],
+        "UniversityDegree"
+    );
+    let failures = completion
+        .get("failures")
+        .and_then(|v| v.as_array())
+        .expect("the failures report");
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0]["credential_configuration_id"], "Mdl");
+    assert!(
+        !failures[0]["error"].as_str().unwrap_or_default().is_empty(),
+        "the failure's reason rides the report"
+    );
+}
+
+/// Zero successes fail the flow: exactly ONE error — the first
+/// failure's reason — never one per configuration.
+#[tokio::test]
+async fn zero_successes_fail_the_flow_with_one_error() {
+    let host = Arc::new(SelectingHost {
+        answer: None,
+        asks: Mutex::new(Vec::new()),
+    });
+    let (ctx, _http, transport) = test_context_with_failures(host, Some(0));
+    let flow = Oid4vciFlow;
+
+    let refusal = flow
+        .start_flow(&ctx, &start_params(&["UniversityDegree", "Mdl"]))
+        .await
+        .expect_err("nothing issued: the flow fails");
+    let wmp_core::handler::HandlerError::Rpc(rpc) = refusal else {
+        panic!("the refusal is an Rpc error");
+    };
+    let data = rpc
+        .data
+        .as_ref()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(data.get()).ok());
+    assert_eq!(
+        data.as_ref()
+            .and_then(|data| data.get("reason"))
+            .and_then(|v| v.as_str()),
+        Some("oid4vci: credential endpoint answered 500"),
+        "the single error carries the first failure's reason"
+    );
+    assert!(
+        completion_result(&transport).is_none(),
+        "no completion on zero successes"
     );
 }

@@ -269,6 +269,7 @@ impl engine_ports::Host for HostBridge {
             .map_err(host_error)?;
         Ok(engine_ports::CredentialSelectionResult {
             credential_configuration_id: answer.credential_configuration_id,
+            credential_configuration_ids: answer.credential_configuration_ids,
         })
     }
 

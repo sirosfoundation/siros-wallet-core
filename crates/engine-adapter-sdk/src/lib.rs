@@ -950,18 +950,23 @@ impl From<CredentialSelectionParams> for engine_ports::CredentialSelectionParams
     }
 }
 
-/// The selection answer. Mirrors
-/// `engine_ports::CredentialSelectionResult`.
+/// The selection answer: the SET of configurations the user chose
+/// (#28). Mirrors `engine_ports::CredentialSelectionResult`.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct CredentialSelectionResult {
-    /// The chosen configuration's id.
-    pub credential_configuration_id: String,
+    /// The chosen configuration's id (the pre-#28 single-member answer;
+    /// a one-element set).
+    pub credential_configuration_id: Option<String>,
+    /// The chosen configurations' ids: a subset of the offer (one,
+    /// several, or all), in any order — the engine applies the offer's.
+    pub credential_configuration_ids: Vec<String>,
 }
 
 impl From<CredentialSelectionResult> for engine_ports::CredentialSelectionResult {
     fn from(r: CredentialSelectionResult) -> Self {
         Self {
             credential_configuration_id: r.credential_configuration_id,
+            credential_configuration_ids: r.credential_configuration_ids,
         }
     }
 }

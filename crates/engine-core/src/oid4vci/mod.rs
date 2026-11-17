@@ -283,23 +283,41 @@ impl FlowHandler for Oid4vciFlow {
             )));
         }
 
-        // ── The credential configuration selection (the Go engine's
-        // `awaitCredentialSelection`, docs/engine-parity.md §2's gap
-        // B1): which of the offer's configurations the wallet issues.
-        // Exactly one resolvable configuration auto-selects (no ask);
-        // more than one is the user's choice — the
-        // `awaiting_selection` progress with the
-        // `available_credentials`, then the host's answer. The answer
-        // is constrained to the offer: what is issued is what the
-        // entitlement check above evaluated. The selection runs BEFORE
-        // any authorization or request, so the advertisement the
-        // gate below reads — and the credential request — name the
-        // selected configuration.
-        let selection = selection::select_configuration(
+        // ── The credential configuration selection — the SET (#28 /
+        // go-wallet-backend#549, Platform-Epics#63): which of the
+        // offer's configurations the wallet issues. Three sources, in
+        // order (see selection.rs): the flow-start set
+        // (`selected_credential_configuration_ids` — the subset the
+        // user already chose; no ask runs, whatever the policy), the
+        // issue_all default (every offered configuration, no ask), or
+        // the user_selects ask (`awaiting_selection` + the host's
+        // answer, a SET). Every answer is constrained to the offer:
+        // what is issued is what the entitlement check above
+        // evaluated. The selection runs BEFORE any authorization or
+        // request, so the credential request names the selected set.
+        let pre_selected: Vec<String> = offer_params
+            .get("selected_credential_configuration_ids")
+            .and_then(|v| v.as_array())
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| id.as_str())
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let policy = selection::SelectionPolicy::parse(
+            offer_params
+                .get("issuance_selection_policy")
+                .and_then(|v| v.as_str()),
+        );
+        let selection = selection::select_configurations(
             ctx,
             &params.flow_id,
             &issuer_metadata,
             &offer.credential_configuration_ids,
+            &pre_selected,
+            policy,
         )
         .await
         .map_err(|err| match err {
@@ -310,41 +328,17 @@ impl FlowHandler for Oid4vciFlow {
                 flow_error("invalid credential configuration".to_owned())
             }
         })?;
-        let configuration_id = selection.configuration_id;
-        let configuration = selection.configuration;
+        let configuration_ids = selection.configuration_ids;
 
-        // ── The auxiliary-data selection gate (Credential Auxiliary Data
-        // v0.1, #480): the advertisement is read from the selected
-        // configuration BEFORE any authorization or request — an entry the
+        // ── The auxiliary-data selection gate (Credential Auxiliary
+        // Data v0.1, #480) runs PER CONFIGURATION inside the issuance
+        // loop (issue_the_set): the advertisement is read from each
+        // selected configuration before its request — an entry the
         // wallet cannot handle (a to_wallet alg/encoding, a required
-        // to_issuer entry) refuses with the AUXILIARY_DATA_UNSUPPORTED
-        // shape, and a malformed advertisement (an auxiliary_data member
-        // in the issuer's credential_metadata among them) fails closed.
-        // The engine never handles a secret value: the gate reads the
-        // advertisement alone.
-        let delivery = match auxiliary::secret_delivery_of(&configuration) {
-            Ok(delivery) => delivery,
-            Err(err) => {
-                // The advertisement is malformed (or auxiliary_data rode
-                // the issuer metadata): fail closed, nothing of the
-                // content in the reason.
-                return Err(HandlerError::Rpc(flow_error(err.reason())));
-            }
-        };
-        if let Err(refusal) = auxiliary::usable(&delivery, &configuration) {
-            // The AUXILIARY_DATA_UNSUPPORTED refusal: the typed -31006
-            // data carries the class reason and the retryable flag
-            // (never retryable — a different wallet or the issuer's
-            // out-of-band resolution is the fix).
-            return Err(HandlerError::Rpc(wmp_core::error::RpcError::new(
-                wmp_core::error::ERR_FLOW_ERROR,
-                Some(serde_json::json!({
-                    "reason": "auxiliary_data_unsupported",
-                    "detail": refusal.reason.to_string(),
-                    "retryable": false,
-                })),
-            )));
-        }
+        // to_issuer entry) or a malformed advertisement fails that
+        // configuration's issuance (reported, never aborting the
+        // others), and the engine never handles a secret value: the
+        // gate reads the advertisement alone.
 
         // ── S2: negotiate the response encryption, when the issuer supports it
         // The alg/enc pair from the issuer's credential_response_encryption
@@ -421,7 +415,7 @@ impl FlowHandler for Oid4vciFlow {
             .get("urn:ietf:params:oauth:grant-type:pre-authorized_code")
             .cloned();
 
-        let (_token, credential) = if let Some(refresh) = &renewal_token {
+        let (_token, issued, failures) = if let Some(refresh) = &renewal_token {
             // ── The renewal grant: the refresh token the previous flow
             // returned, exchanged with the same client-auth loop.
             let _ = ctx
@@ -458,25 +452,22 @@ impl FlowHandler for Oid4vciFlow {
                 )
                 .await;
 
-            // The selected configuration (the selection above), not a
-            // second reading of the offer.
-            let credential = request_and_deliver(
+            // The selected set (the selection above), not a second
+            // reading of the offer — a renewal's set is the one
+            // configuration its synthetic offer named.
+            let (issued, failures) = issue_the_set(
                 ctx,
                 &params.flow_id,
                 &issuer_metadata,
                 &token,
-                &configuration_id,
-                DeliverParams {
-                    delivery: Some(&delivery),
-                    negotiated_encryption: negotiated_encryption.as_ref(),
-                    dpop_key: dpop_key.as_ref(),
-                    dpop_key_id: dpop_key_id.as_deref(),
-                    reissuance_kid: reissuance_kid.as_deref(),
-                },
+                &configuration_ids,
+                dpop_key.as_ref(),
+                dpop_key_id.as_deref(),
+                reissuance_kid.as_deref(),
             )
             .await?;
 
-            (Some(token), Some(credential))
+            (Some(token), issued, failures)
         } else if let Some(grant) = pre_auth {
             let pre_auth_code = grant
                 .get("pre-authorized_code")
@@ -520,25 +511,22 @@ impl FlowHandler for Oid4vciFlow {
                 )
                 .await;
 
-            // The selected configuration (the selection above), not a
-            // second reading of the offer.
-            let credential = request_and_deliver(
+            // The selected set (the selection above): one token
+            // authorizes the whole set — #549's motivating case (one
+            // pre-authorized code, every offered configuration).
+            let (issued, failures) = issue_the_set(
                 ctx,
                 &params.flow_id,
                 &issuer_metadata,
                 &token,
-                &configuration_id,
-                DeliverParams {
-                    delivery: Some(&delivery),
-                    negotiated_encryption: negotiated_encryption.as_ref(),
-                    dpop_key: dpop_key.as_ref(),
-                    dpop_key_id: dpop_key_id.as_deref(),
-                    reissuance_kid: reissuance_kid.as_deref(),
-                },
+                &configuration_ids,
+                dpop_key.as_ref(),
+                dpop_key_id.as_deref(),
+                reissuance_kid.as_deref(),
             )
             .await?;
 
-            (Some(token), Some(credential))
+            (Some(token), issued, failures)
         } else if offer.grants.get("authorization_code").is_some() {
             // ── The authorization-code grant: PKCE, PAR, the
             // authorization URL, and the handoff. The flow continues in
@@ -551,7 +539,7 @@ impl FlowHandler for Oid4vciFlow {
                     offer: &offer,
                     as_metadata: &as_metadata,
                     issuer_metadata: &issuer_metadata,
-                    configuration_id: &configuration_id,
+                    configuration_ids: &configuration_ids,
                     dpop_key_id: dpop_key_id.as_deref(),
                 },
             )
@@ -585,59 +573,21 @@ impl FlowHandler for Oid4vciFlow {
             return Err(flow_error("no supported grant type in offer".to_owned()).into());
         };
 
-        // Report the flow completion with the credential result, the
-        // refresh token (the renewal relay), and the DPoP key material
+        // Report the flow completion: every issued configuration's
+        // result (#28 — the SET, one `credentials` entry per
+        // configuration, each paired with its configuration id), the
+        // per-configuration failures when some did not issue, and the
+        // renewal relay (the refresh token, and the DPoP key material
         // it must be reused with: a renewal presents the engine-held
-        // key as `dpop_jwk` (the next flow may land on another engine
-        // instance) — the client-held key needs no relay, the host
-        // knows its own key id (the Go CompleteWithRefreshToken).
-        let mut completion: serde_json::Value = serde_json::json!({
-            "credential": credential.as_ref()
-                .and_then(|c| c.credential.clone())
-                .unwrap_or_default(),
-            "deferred": credential.as_ref()
-                .and_then(|c| c.transaction_id.clone())
-                .is_some(),
-        });
-        if let Some(refresh) = _token.as_ref().and_then(|t| t.refresh_token.clone()) {
-            if let Some(object) = completion.as_object_mut() {
-                object.insert(
-                    "refresh_token".to_owned(),
-                    serde_json::Value::String(refresh),
-                );
-                if let Some(relay) = dpop_key.as_ref().and_then(|key| key.private_jwk_json()) {
-                    object.insert("dpop_jwk".to_owned(), serde_json::Value::String(relay));
-                }
-            }
-        }
-
-        // ── The notification context (#527): the issuer advertised a
-        // notification endpoint and returned a `notification_id`, so
-        // the engine retains the issuance context — the endpoint, the
-        // access token, the DPoP signing means — for the wallet's
-        // later `credential_notification` flow (WMP OpenID4x 3.4).
-        // The completion tells the wallet what it needs to start one:
-        // the endpoint and the id. Nothing is retained otherwise.
-        if let Some(token) = _token.as_ref() {
-            if let Some(response) = credential.as_ref() {
-                let members = notification::register(
-                    ctx,
-                    &params.flow_id,
-                    &issuer_metadata,
-                    token,
-                    response,
-                    dpop_key.as_ref(),
-                    dpop_key_id.as_deref(),
-                );
-                if let (Some(object), Some(notification)) =
-                    (completion.as_object_mut(), members.as_object())
-                {
-                    for (key, value) in notification {
-                        object.insert(key.clone(), value.clone());
-                    }
-                }
-            }
-        }
+        // key as `dpop_jwk` — the next flow may land on another engine
+        // instance; the client-held key needs no relay, the host knows
+        // its own key id). The notification contexts (#527) were
+        // registered per response inside the loop — the completion
+        // carries each entry's own notification members, plus the
+        // legacy single-configuration members of the first (the Go
+        // CompleteWithRefreshToken).
+        let completion =
+            issuance_completion(&issued, &failures, _token.as_ref(), dpop_key.as_ref());
         let _ = ctx.complete(&completion).await;
 
         Ok(FlowStartResult {
@@ -705,8 +655,15 @@ struct AuthorizationStash {
     /// The selected credential configuration — the user's choice, made
     /// before the redirect: the resume requests the same one, never a
     /// re-derivation (and never a second ask) after the browser
-    /// roundtrip.
-    configuration_id: String,
+    /// roundtrip. The pre-#28 single member: a stash an older engine
+    /// wrote still resumes (as the one-element set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    configuration_id: Option<String>,
+    /// The selected credential configurations — the SET (#28): the
+    /// resume requests the same set, never a re-derivation (and never
+    /// a second ask) after the browser roundtrip.
+    #[serde(default)]
+    configuration_ids: Vec<String>,
     /// The original offer params, as the flow start received them — the
     /// resume re-parses the offer from this (the stateless resume).
     offer_params: serde_json::Value,
@@ -729,6 +686,21 @@ fn stash_key(flow_id: &str) -> String {
     format!("oid4vci:auth-code:{flow_id}")
 }
 
+impl AuthorizationStash {
+    /// The stash's selected set: the plural member (#28), else the
+    /// legacy single member as the one-element set (a stash an older
+    /// engine wrote).
+    fn selected_ids(&self) -> Vec<String> {
+        if !self.configuration_ids.is_empty() {
+            return self.configuration_ids.clone();
+        }
+        self.configuration_id
+            .as_ref()
+            .map(|id| vec![id.clone()])
+            .unwrap_or_default()
+    }
+}
+
 /// The authorization-code grant's start inputs: the offer the wallet
 /// passed (its raw params and their parse), the AS and issuer metadata
 /// the flow resolved, the configuration the selection named, and the
@@ -742,7 +714,7 @@ struct CodeGrantStart<'a> {
     offer: &'a types::CredentialOffer,
     as_metadata: &'a types::AsMetadata,
     issuer_metadata: &'a types::IssuerMetadata,
-    configuration_id: &'a str,
+    configuration_ids: &'a [String],
     dpop_key_id: Option<&'a str>,
 }
 
@@ -759,7 +731,7 @@ async fn start_authorization_code(
     let offer = start.offer;
     let as_metadata = start.as_metadata;
     let issuer_metadata = start.issuer_metadata;
-    let configuration_id = start.configuration_id;
+    let configuration_ids = start.configuration_ids;
     let flow_error = |reason: String| {
         HandlerError::Rpc(wmp_core::error::RpcError::new(
             wmp_core::error::ERR_FLOW_ERROR,
@@ -803,13 +775,13 @@ async fn start_authorization_code(
     let state = auth_code::generate_state(ctx.rng().as_ref())
         .ok_or_else(|| flow_error("the Rng port could not generate the state".to_owned()))?;
 
-    // The selected configuration's scope, when it declares one — the
-    // selection's choice, not a re-derivation from the offer.
-    let scope = issuer_metadata
-        .credential_configurations
-        .get(configuration_id)
-        .and_then(|config| config.get("scope"))
-        .and_then(|v| v.as_str());
+    // The selected SET's joined scope (#28): every distinct scope
+    // value of the selected configurations, de-duplicated, in the
+    // offer's order, space-delimited (RFC 6749 §3.3) — one
+    // authorization, one token, for the whole set. The selection's
+    // choice, not a re-derivation from the offer.
+    let scope = joined_scope_of(issuer_metadata, configuration_ids);
+    let scope = scope.as_deref();
 
     // The client-supplied authorization_details (raw), when the flow
     // start carried them.
@@ -906,7 +878,8 @@ async fn start_authorization_code(
         client_id,
         resource,
         dpop_key_id: start.dpop_key_id.map(str::to_owned),
-        configuration_id: configuration_id.to_owned(),
+        configuration_id: None,
+        configuration_ids: configuration_ids.to_vec(),
         offer_params: offer_params.clone(),
         // The AS selected for THIS transaction (#551's rule): the resume's
         // `iss` comparison binds to it — which can differ from the
@@ -1159,12 +1132,14 @@ async fn resume_authorization_code(
         )
         .await;
 
-    // The response-encryption negotiation, fresh for this request (the
-    // ephemeral key lives once, in the request that offers it).
-    let negotiated_encryption = negotiated_encryption_for(&issuer_metadata);
+    // The response-encryption required-no-overlap refusal, as at the
+    // flow start: an issuer that required encryption the wallet cannot
+    // satisfy fails every configuration, so the flow fails fast with
+    // the one error (the per-configuration requests inside the loop
+    // negotiate their own fresh keys).
     if let (Some(config), None) = (
         encryption_config_for(&issuer_metadata),
-        negotiated_encryption.as_ref(),
+        negotiated_encryption_for(&issuer_metadata).as_ref(),
     ) {
         if config.required {
             return Err(flow_error(
@@ -1173,89 +1148,40 @@ async fn resume_authorization_code(
         }
     }
 
-    // The selected configuration, as the stash carried it across the
-    // redirect — the user's choice before the authorization, not a
-    // re-derivation (and never a second ask) after the browser
-    // roundtrip.
-    let configuration_id = stash.configuration_id.clone();
+    // The selected SET, as the stash carried it across the redirect —
+    // the user's choice before the authorization, not a re-derivation
+    // (and never a second ask) after the browser roundtrip. A stash an
+    // older (pre-#28) engine wrote carries the single member and
+    // resumes as the one-element set.
+    let configuration_ids = stash.selected_ids();
 
-    // The auxiliary-data selection gate, again on the resume (#480): the
-    // same parse and verdict, before the credential request.
-    let resume_configuration = issuer_metadata
-        .credential_configurations
-        .get(&configuration_id)
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-    let delivery = auxiliary::secret_delivery_of(&resume_configuration)
-        .map_err(|err| flow_error(err.reason()))?;
-    if let Err(refusal) = auxiliary::usable(&delivery, &resume_configuration) {
-        return Err(flow_error(format!(
-            "auxiliary_data_unsupported: {}",
-            refusal.reason
-        )));
-    }
-
-    let credential = request_and_deliver(
+    // The issuance loop (#28): the per-configuration auxiliary-data
+    // gate (#480), a fresh response-encryption key per request, and
+    // the credential request per selected configuration — the stash's
+    // client-held DPoP key id threading inside (the AS bound the token
+    // to it, so the credential request's DPoP proof must ride the SAME
+    // key — a fresh engine-held key answers "DPoP key does not match
+    // the key bound to the access token"; found driving the GDC
+    // issuance, 2026-11-07). The resume's exchange signs engine-held,
+    // so the client-held key id does not survive the round trip.
+    let (issued, failures) = issue_the_set(
         ctx,
         &params.flow_id,
         &issuer_metadata,
         &token,
-        &configuration_id,
-        DeliverParams {
-            delivery: Some(&delivery),
-            negotiated_encryption: negotiated_encryption.as_ref(),
-            dpop_key: dpop_key.as_ref(),
-            // The stash's client-held DPoP key id: the AS bound the token to
-            // it (the start named it), so the credential request's DPoP proof
-            // must ride the SAME key - a fresh engine-held key here answers
-            // "DPoP key does not match the key bound to the access token"
-            // (found driving the GDC issuance, 2026-11-07).
-            dpop_key_id: stash.dpop_key_id.as_deref(),
-            reissuance_kid: None,
-        },
+        &configuration_ids,
+        dpop_key.as_ref(),
+        stash.dpop_key_id.as_deref(),
+        None,
     )
     .await?;
 
-    // The completion carries the renewal relay, exactly as the
-    // start_flow path does: the refresh token, and the DPoP key it
-    // must be reused with (the next flow may land on another engine
-    // instance).
-    let mut completion = serde_json::json!({
-        "credential": credential.credential.clone().unwrap_or_default(),
-        "deferred": credential.transaction_id.is_some(),
-    });
-    if let Some(refresh) = token.refresh_token.clone() {
-        if let Some(object) = completion.as_object_mut() {
-            object.insert(
-                "refresh_token".to_owned(),
-                serde_json::Value::String(refresh),
-            );
-            if let Some(relay) = dpop_key.as_ref().and_then(|key| key.private_jwk_json()) {
-                object.insert("dpop_jwk".to_owned(), serde_json::Value::String(relay));
-            }
-        }
-    }
-
-    // ── The notification context, again on the resume (#527): the
-    // same registration as the flow start's completion, so a wallet
-    // that finished its issuance over the authorization-code round
-    // trip can notify too. The flow id is the issuance's (the stash
-    // key), and the client-held DPoP key id does not survive the
-    // round trip (the resume's exchange signs engine-held).
-    let members = notification::register(
-        ctx,
-        &params.flow_id,
-        &issuer_metadata,
-        &token,
-        &credential,
-        dpop_key.as_ref(),
-        None,
-    );
-    if let (Some(object), Some(notification)) = (completion.as_object_mut(), members.as_object()) {
-        for (key, value) in notification {
-            object.insert(key.clone(), value.clone());
-        }
-    }
+    // The completion carries every issued configuration's result and
+    // the renewal relay, exactly as the start_flow path does — the
+    // notification contexts (#527) registered per response inside the
+    // loop, so a wallet that finished its issuance over the
+    // authorization-code round trip can notify too.
+    let completion = issuance_completion(&issued, &failures, Some(&token), dpop_key.as_ref());
     let _ = ctx.complete(&completion).await;
 
     Ok(FlowActionResult {
@@ -1311,6 +1237,321 @@ struct DeliverParams<'a> {
     /// entries ride the proof, the to_wallet entries ride the
     /// completion for the client's own response check.
     delivery: Option<&'a auxiliary::SecretDelivery>,
+}
+
+// ─── The issuance loop (#28 / go-wallet-backend#549) ───────────────────────
+//
+// One token authorizes the whole selected set; each configuration gets
+// its own proofs, credential request, deferred polling and completion
+// entry — the SET semantics both engines converge on.
+
+/// One configuration's issued credential: the response and the
+/// notification members its registration produced.
+struct IssuedCredential {
+    configuration_id: String,
+    response: credential::CredentialResponse,
+    notification_members: serde_json::Value,
+}
+
+/// One configuration's failure, reported on the completion: WHICH
+/// configuration did not issue, and why.
+struct IssuanceFailure {
+    configuration_id: String,
+    reason: String,
+}
+
+/// The issuance loop over the SELECTED SET (#28): steps 6 to 9 per
+/// configuration — the per-configuration auxiliary-data gate (#480), a
+/// fresh response-encryption key per request, the host-signed proofs
+/// (the FIRST keeps the reissuance kid; every other configuration
+/// signs fresh — two proofs over the same key link the credentials,
+/// the SDJWT-10.1 linkability rule), the credential request with the
+/// invalid_nonce retry, the deferred polling, and the per-response
+/// notification context (#527).
+///
+/// Partial failure: a configuration that fails does NOT abort the
+/// others — its failure is collected and reported on the completion
+/// (the `failures` member: which configuration, why), never sent as a
+/// terminal error of its own. Zero successes is a failed flow: exactly
+/// ONE error, the FIRST failure's reason — never one per
+/// configuration.
+///
+/// Returns the issued credentials (each with its notification members)
+/// and the failures; `Err` only when nothing issued at all.
+#[allow(clippy::too_many_arguments)]
+async fn issue_the_set(
+    ctx: &FlowContext,
+    flow_id: &str,
+    issuer_metadata: &types::IssuerMetadata,
+    token: &token::TokenResponse,
+    configuration_ids: &[String],
+    dpop_key: Option<&dpop::DpopKey>,
+    dpop_key_id: Option<&str>,
+    reissuance_kid: Option<&str>,
+) -> Result<(Vec<IssuedCredential>, Vec<IssuanceFailure>), HandlerError> {
+    let mut issued: Vec<IssuedCredential> = Vec::new();
+    let mut failures: Vec<IssuanceFailure> = Vec::new();
+    let mut first_reason: Option<String> = None;
+
+    for (position, configuration_id) in configuration_ids.iter().enumerate() {
+        let fail = |failures: &mut Vec<IssuanceFailure>,
+                    first_reason: &mut Option<String>,
+                    configuration_id: &str,
+                    reason: String| {
+            if first_reason.is_none() {
+                *first_reason = Some(reason.clone());
+            }
+            failures.push(IssuanceFailure {
+                configuration_id: configuration_id.to_owned(),
+                reason,
+            });
+        };
+
+        // The configuration, from the issuer metadata the selection
+        // validated against — a selected id the metadata lacks is a
+        // per-configuration failure (it cannot happen: the selection
+        // only names resolvable ids).
+        let Some(configuration) = issuer_metadata
+            .credential_configurations
+            .get(configuration_id)
+            .cloned()
+        else {
+            fail(
+                &mut failures,
+                &mut first_reason,
+                configuration_id,
+                "the selected configuration is missing from the issuer metadata".to_owned(),
+            );
+            continue;
+        };
+
+        // The auxiliary-data selection gate, per configuration (#480):
+        // the advertisement is read before the request — an entry the
+        // wallet cannot handle or a malformed advertisement fails THIS
+        // configuration's issuance, reported, never aborting the
+        // others. The engine never handles a secret value: the gate
+        // reads the advertisement alone.
+        let delivery = match auxiliary::secret_delivery_of(&configuration) {
+            Ok(delivery) => delivery,
+            Err(err) => {
+                // Nothing of the content in the reason.
+                fail(
+                    &mut failures,
+                    &mut first_reason,
+                    configuration_id,
+                    format!("auxiliary_data_unsupported: {}", err.reason()),
+                );
+                continue;
+            }
+        };
+        if let Err(refusal) = auxiliary::usable(&delivery, &configuration) {
+            fail(
+                &mut failures,
+                &mut first_reason,
+                configuration_id,
+                format!("auxiliary_data_unsupported: {}", refusal.reason),
+            );
+            continue;
+        }
+
+        // A fresh response-encryption key per request: the ephemeral
+        // key lives once, in the request that offers it.
+        let negotiated_encryption = negotiated_encryption_for(issuer_metadata);
+
+        // The FIRST configuration keeps the reissuance kid (a renewal's
+        // same-key re-binding, ARF ISSU_65); every other signs fresh.
+        let response = request_and_deliver(
+            ctx,
+            flow_id,
+            issuer_metadata,
+            token,
+            configuration_id,
+            DeliverParams {
+                delivery: Some(&delivery),
+                negotiated_encryption: negotiated_encryption.as_ref(),
+                dpop_key,
+                dpop_key_id,
+                reissuance_kid: (position == 0).then_some(reissuance_kid).flatten(),
+            },
+        )
+        .await;
+
+        let response = match response {
+            Ok(response) => response,
+            Err(err) => {
+                let reason = handler_error_reason(&err);
+                fail(&mut failures, &mut first_reason, configuration_id, reason);
+                continue;
+            }
+        };
+
+        // The notification context (#527), per response: each id is
+        // single use, and the wallet's later `credential_notification`
+        // flows each name their own response's id.
+        let notification_members = notification::register(
+            ctx,
+            flow_id,
+            issuer_metadata,
+            token,
+            &response,
+            dpop_key,
+            dpop_key_id,
+        );
+
+        issued.push(IssuedCredential {
+            configuration_id: configuration_id.clone(),
+            response,
+            notification_members,
+        });
+    }
+
+    // Zero successes: a failed flow with exactly ONE error — the first
+    // failure's reason (never one per configuration).
+    if issued.is_empty() {
+        return Err(HandlerError::Rpc(wmp_core::error::RpcError::new(
+            wmp_core::error::ERR_FLOW_ERROR,
+            Some(serde_json::json!({
+                "reason": first_reason
+                    .clone()
+                    .unwrap_or_else(|| "credential issuance failed".to_owned()),
+            })),
+        )));
+    }
+
+    Ok((issued, failures))
+}
+
+/// A per-configuration failure's reason: the `reason` the error's data
+/// carries, else the error's own text — reported on the completion, so
+/// the wallet can tell the user which credential is missing and why.
+fn handler_error_reason(err: &HandlerError) -> String {
+    let HandlerError::Rpc(rpc) = err else {
+        return err.to_string();
+    };
+    // The data is a raw JSON member: parse it to read the reason the
+    // error's builder put there — the reason the completion's failures
+    // report carries, never a sentence of the credential content.
+    let Some(raw) = rpc.data.as_deref() else {
+        return err.to_string();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(raw.get()) else {
+        return err.to_string();
+    };
+    let reason = value.get("reason").and_then(|v| v.as_str());
+    match (reason, value.get("detail").and_then(|v| v.as_str())) {
+        (Some(reason), Some(detail)) => format!("{reason}: {detail}"),
+        (Some(reason), None) => reason.to_owned(),
+        (None, _) => err.to_string(),
+    }
+}
+
+/// The flow completion over the selected set's outcome (#28): one
+/// `credentials` entry per issued configuration — each paired with its
+/// `credential_configuration_id` (the renewal pairing the single
+/// member carried), its own notification members (#527) — and the
+/// `failures` report when configurations did not issue. The legacy
+/// single-configuration members (`credential`, `deferred`, the
+/// flow-level notification members) keep the FIRST issued entry's
+/// values, so a pre-#28 consumer of a single-configuration flow reads
+/// the completion exactly as before.
+fn issuance_completion(
+    issued: &[IssuedCredential],
+    failures: &[IssuanceFailure],
+    token: Option<&token::TokenResponse>,
+    dpop_key: Option<&dpop::DpopKey>,
+) -> serde_json::Value {
+    let credentials: Vec<serde_json::Value> = issued
+        .iter()
+        .map(|entry| {
+            let mut object = serde_json::json!({
+                "credential_configuration_id": entry.configuration_id,
+                "credential": entry.response.credential.clone().unwrap_or_default(),
+                "deferred": entry.response.transaction_id.is_some(),
+            });
+            if let (Some(target), Some(members)) = (
+                object.as_object_mut(),
+                entry.notification_members.as_object(),
+            ) {
+                for (key, value) in members {
+                    target.insert(key.clone(), value.clone());
+                }
+            }
+            object
+        })
+        .collect();
+
+    let mut completion = serde_json::json!({ "credentials": credentials });
+    if let (Some(object), Some(first)) = (completion.as_object_mut(), issued.first()) {
+        // The legacy single-configuration view: the first entry's.
+        object.insert(
+            "credential".to_owned(),
+            serde_json::Value::String(first.response.credential.clone().unwrap_or_default()),
+        );
+        object.insert(
+            "deferred".to_owned(),
+            serde_json::Value::Bool(first.response.transaction_id.is_some()),
+        );
+        // The legacy flow-level notification members: the first
+        // entry's.
+        if let Some(members) = first.notification_members.as_object() {
+            for (key, value) in members {
+                object.insert(key.clone(), value.clone());
+            }
+        }
+        // The renewal relay: the refresh token, and the DPoP key it
+        // must be reused with (the next flow may land on another
+        // engine instance).
+        if let Some(refresh) = token.and_then(|t| t.refresh_token.clone()) {
+            object.insert(
+                "refresh_token".to_owned(),
+                serde_json::Value::String(refresh),
+            );
+            if let Some(relay) = dpop_key.and_then(|key| key.private_jwk_json()) {
+                object.insert("dpop_jwk".to_owned(), serde_json::Value::String(relay));
+            }
+        }
+    }
+    if !failures.is_empty() {
+        if let Some(object) = completion.as_object_mut() {
+            object.insert(
+                "failures".to_owned(),
+                serde_json::Value::Array(
+                    failures
+                        .iter()
+                        .map(|failure| {
+                            serde_json::json!({
+                                "credential_configuration_id": failure.configuration_id,
+                                "error": failure.reason,
+                            })
+                        })
+                        .collect(),
+                ),
+            );
+        }
+    }
+    completion
+}
+
+/// The selected set's joined scope (#28): every distinct scope value of
+/// the selected configurations, de-duplicated, in the offer's order,
+/// space-delimited (RFC 6749 §3.3) — one authorization, one token,
+/// for the whole set.
+fn joined_scope_of(metadata: &types::IssuerMetadata, ids: &[String]) -> Option<String> {
+    let mut scopes: Vec<&str> = Vec::new();
+    for id in ids {
+        if let Some(scope) = metadata
+            .credential_configurations
+            .get(id)
+            .and_then(|config| config.get("scope"))
+            .and_then(|v| v.as_str())
+            .filter(|scope| !scope.is_empty())
+        {
+            if !scopes.contains(&scope) {
+                scopes.push(scope);
+            }
+        }
+    }
+    (!scopes.is_empty()).then(|| scopes.join(" "))
 }
 
 async fn request_and_deliver(
