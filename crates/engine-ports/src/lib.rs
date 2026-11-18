@@ -192,6 +192,13 @@ pub struct SignParams {
     /// The to-be-signed input (the JWT header + payload, the VP token, the
     /// DPoP proof — the raw bytes the host signs).
     pub to_sign: Vec<u8>,
+    /// The credential configuration this ask belongs to (the OID4VCI
+    /// proof's go-wallet-backend#558 twin): the client pairs each ask —
+    /// and the key it names — with the completion entry carrying the
+    /// same id. Absent on the asks that are not one configuration's
+    /// (the DPoP proof, the OID4VP presentation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_configuration_id: Option<String>,
     /// The key the host signs with, named by its identifier when the
     /// engine knows it.
     pub key_id: Option<String>,
@@ -215,6 +222,13 @@ pub struct SignResult {
 pub struct SigningKeyParams {
     /// The flow the ask belongs to.
     pub flow_id: String,
+    /// The credential configuration this key is for (go-wallet-backend#558's
+    /// twin): a multi-configuration flow asks one key per configuration, and
+    /// the client pairs each key — and each credential it binds — with the
+    /// completion entry carrying the same id. Absent when the ask is not one
+    /// configuration's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_configuration_id: Option<String>,
     /// The key the engine will sign with, named when the flow knows
     /// it — a renewal's reissuance kid; the device key when unnamed.
     #[serde(default)]

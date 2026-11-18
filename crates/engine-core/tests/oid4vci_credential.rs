@@ -59,19 +59,49 @@ impl Host for FakeHost {
 /// 7638 thumbprint kid — the SDK's shape).
 struct KeyHost {
     jwk: Value,
+    /// The asks recorded: (sign?, configuration id, key id) — the #558-twin
+    /// pin reads them.
+    asks: std::sync::Mutex<Vec<RecordedAsk>>,
+}
+
+/// One recorded ask: which kind (sign vs signing-key) and the configuration
+/// it names — the #558-twin pin reads them. (The key id rides the asks the
+/// other tests already assert.)
+#[derive(Clone)]
+struct RecordedAsk {
+    sign: bool,
+    configuration_id: Option<String>,
 }
 
 #[async_trait::async_trait]
 impl Host for KeyHost {
-    async fn request_sign(&self, _p: SignParams) -> Result<SignResult, HostError> {
+    async fn request_sign(&self, p: SignParams) -> Result<SignResult, HostError> {
+        self.asks
+            .lock()
+            .map(|mut asks| {
+                asks.push(RecordedAsk {
+                    sign: true,
+                    configuration_id: p.credential_configuration_id.clone(),
+                })
+            })
+            .ok();
         Ok(SignResult {
             signature: vec![0xde, 0xad, 0xbe, 0xef],
         })
     }
     async fn request_signing_key(
         &self,
-        _params: engine_ports::SigningKeyParams,
+        params: engine_ports::SigningKeyParams,
     ) -> Result<engine_ports::SigningKeyResult, HostError> {
+        self.asks
+            .lock()
+            .map(|mut asks| {
+                asks.push(RecordedAsk {
+                    sign: false,
+                    configuration_id: params.credential_configuration_id.clone(),
+                })
+            })
+            .ok();
         Ok(engine_ports::SigningKeyResult {
             jwk: self.jwk.clone(),
         })
@@ -900,6 +930,7 @@ async fn the_proof_header_identifies_the_key_with_the_jwk_and_the_thumbprint_kid
             "x": "yD-oreWV0aEuPH94c_DGCtOvqIvFujzIoloNCcfjZyY",
             "y": "HO-K1-uhDZXpdSn3U6sxr0792PwurIcGraTFIV4x51k",
         }),
+        asks: std::sync::Mutex::new(Vec::new()),
     };
     let http = BodyHttp {
         body: std::sync::Mutex::new(Vec::new()),
@@ -1034,4 +1065,62 @@ async fn a_bearer_token_does_not_carry_a_dpop_proof() {
         .map(|(_, v)| v.clone());
     assert_eq!(authorization.as_deref(), Some("Bearer at-test"));
     assert!(!headers[0].iter().any(|(n, _)| n == "DPoP"));
+}
+
+/// go-wallet-backend#558's twin: every sign ask of one configuration's
+/// credential — the signing-key ask and the proof ask — names the
+/// configuration, so the client pairs each key (and the credential it
+/// binds) with the completion entry carrying the same id. The asks that
+/// are not one configuration's (the DPoP proof, the client-auth proof)
+/// carry none.
+#[tokio::test]
+async fn every_configuration_ask_names_its_credential_configuration_id() {
+    struct PlainHttp;
+    #[async_trait::async_trait]
+    impl HttpClient for PlainHttp {
+        async fn send(
+            &self,
+            _request: HttpRequest,
+        ) -> Result<engine_ports::HttpResponse, HttpError> {
+            Ok(engine_ports::HttpResponse {
+                status: 200,
+                headers: Vec::new(),
+                body: br#"{"credential":"jwt-1"}"#.to_vec(),
+            })
+        }
+    }
+    let host = KeyHost {
+        jwk: serde_json::json!({
+            "kty": "EC",
+            "crv": "P-256",
+            "x": "yD-oreWV0aEuPH94c_DGCtOvqIvFujzIoloNCcfjZyY",
+            "y": "HO-K1-uhDZXpdSn3U6sxr0792PwurIcGraTFIV4x51k",
+        }),
+        asks: std::sync::Mutex::new(Vec::new()),
+    };
+    let response = request_credential(
+        &PlainHttp,
+        &host,
+        &test_metadata(),
+        &test_token(),
+        "UniversityDegree",
+        "flow-1",
+        None,
+        Some("nonce-1"),
+    )
+    .await
+    .expect("request");
+    assert_eq!(response.credential.as_deref(), Some("jwt-1"));
+
+    // Every ask names the configuration this credential issues under.
+    let asks = host.asks.lock().expect("lock");
+    assert!(!asks.is_empty(), "the proof path asked the host");
+    for ask in asks.iter() {
+        let kind = if ask.sign { "sign" } else { "signing-key" };
+        assert_eq!(
+            ask.configuration_id.as_deref(),
+            Some("UniversityDegree"),
+            "the {kind} ask names its credential_configuration_id"
+        );
+    }
 }

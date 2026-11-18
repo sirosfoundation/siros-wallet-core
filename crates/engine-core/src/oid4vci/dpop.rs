@@ -92,6 +92,10 @@ pub async fn create_dpop_proof(
     // Ask the host to sign.
     let sign_result = host
         .request_sign(SignParams {
+            // Not one configuration's ask (the DPoP / client-auth proof):
+            // no credential_configuration_id (go-wallet-backend#558's
+            // Option member).
+            credential_configuration_id: None,
             flow_id: "dpop-proof".to_owned(),
             to_sign: tbs.as_bytes().to_vec(),
             key_id: None,

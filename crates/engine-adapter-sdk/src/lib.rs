@@ -189,6 +189,9 @@ pub struct SignParams {
     pub key_id: Option<String>,
     /// The signing algorithm.
     pub algorithm: String,
+    /// The credential configuration this ask belongs to (go-wallet-backend#558's
+    /// twin): absent on the asks that are not one configuration's.
+    pub credential_configuration_id: Option<String>,
 }
 
 impl From<SignParams> for engine_ports::SignParams {
@@ -198,6 +201,7 @@ impl From<SignParams> for engine_ports::SignParams {
             to_sign: p.to_sign,
             key_id: p.key_id,
             algorithm: p.algorithm,
+            credential_configuration_id: p.credential_configuration_id,
         }
     }
 }
@@ -818,6 +822,10 @@ pub async fn ping() -> String {
 pub struct SigningKeyParams {
     /// The flow the ask belongs to.
     pub flow_id: String,
+    /// The credential configuration this key is for (go-wallet-backend#558's
+    /// twin): the client pairs each key with the completion entry carrying
+    /// the same id. Absent when the ask is not one configuration's.
+    pub credential_configuration_id: Option<String>,
     /// The key the engine will sign with, named when the flow knows it.
     pub key_id: Option<String>,
     /// Whether the host must answer with a FRESH key (the OID4VCI batch
@@ -830,6 +838,7 @@ impl From<SigningKeyParams> for engine_ports::SigningKeyParams {
     fn from(p: SigningKeyParams) -> Self {
         Self {
             flow_id: p.flow_id,
+            credential_configuration_id: p.credential_configuration_id,
             key_id: p.key_id,
             fresh: p.fresh,
         }

@@ -398,6 +398,10 @@ pub(super) async fn build_client_assertion(
         .to_owned();
     let Ok(sign) = host
         .request_sign(engine_ports::SignParams {
+            // Not one configuration's ask (the DPoP / client-auth proof):
+            // no credential_configuration_id (go-wallet-backend#558's
+            // Option member).
+            credential_configuration_id: None,
             flow_id: exchange.flow_id.to_owned(),
             to_sign: tbs.as_bytes().to_vec(),
             key_id: Some(kid),

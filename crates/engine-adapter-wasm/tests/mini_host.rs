@@ -35,6 +35,7 @@ async fn the_client_key_signs_the_assertion_ask() {
         .request_sign(SignParams {
             flow_id: "flow-1".to_owned(),
             to_sign: tbs.as_bytes().to_vec(),
+            credential_configuration_id: None,
             key_id: Some("client-key-1".to_owned()),
             algorithm: "ES256".to_owned(),
         })
