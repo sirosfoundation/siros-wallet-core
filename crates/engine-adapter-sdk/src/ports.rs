@@ -149,6 +149,7 @@ impl engine_ports::Host for HostBridge {
     ) -> Result<engine_ports::SigningKeyResult, engine_ports::HostError> {
         let params = SigningKeyParams {
             flow_id: params.flow_id,
+            credential_configuration_id: params.credential_configuration_id,
             key_id: params.key_id,
             fresh: params.fresh,
         };
@@ -285,6 +286,7 @@ impl From<engine_ports::SignParams> for SignParams {
             to_sign: p.to_sign,
             key_id: p.key_id,
             algorithm: p.algorithm,
+            credential_configuration_id: p.credential_configuration_id,
         }
     }
 }

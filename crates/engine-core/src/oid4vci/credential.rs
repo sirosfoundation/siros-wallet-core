@@ -262,6 +262,10 @@ pub async fn request_credential(
         if let Ok(answer) = host
             .request_signing_key(engine_ports::SigningKeyParams {
                 flow_id: flow_id.to_owned(),
+                // go-wallet-backend#558's twin: the configuration this key
+                // is for, so the client pairs it with the completion entry
+                // carrying the same id.
+                credential_configuration_id: Some(configuration_id.to_owned()),
                 key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
                 fresh,
             })
@@ -285,6 +289,9 @@ pub async fn request_credential(
             .request_sign(engine_ports::SignParams {
                 flow_id: flow_id.to_owned(),
                 to_sign: proof_tbs.as_bytes().to_vec(),
+                // go-wallet-backend#558's twin: this proof is one
+                // configuration's credential.
+                credential_configuration_id: Some(configuration_id.to_owned()),
                 key_id: answer_kid
                     .or_else(|| aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned)),
                 algorithm: "ES256".to_owned(),
