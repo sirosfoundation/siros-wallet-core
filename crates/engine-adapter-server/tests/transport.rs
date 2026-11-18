@@ -576,6 +576,7 @@ impl FlowHandler for SignAskFlow {
             .request_sign(engine_ports::SignParams {
                 flow_id: params.flow_id.clone(),
                 to_sign: vec![1, 2, 3],
+                credential_configuration_id: None,
                 key_id: None,
                 algorithm: "ES256".to_owned(),
             })
