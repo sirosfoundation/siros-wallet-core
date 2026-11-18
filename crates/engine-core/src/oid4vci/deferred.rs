@@ -188,8 +188,15 @@ pub enum NotificationError {
 /// Sends the credential notification to the issuer's notification endpoint
 /// (OID4VCI §10): the lifecycle event (accepted or failure).
 ///
-/// The notification is best effort: a failure logs but does not fail the
-/// flow — the credential is already received.
+/// # Unused since issue #60's fix — the WALLET's `credential_notification`
+/// flow is the single sender (the engine's per-response registration hands
+/// it every id the issuer names), and the issuance path's own best-effort
+/// send here DOUBLE-delivered: the wallet's flow then answered 409
+/// `illegal_transition` (the issuer already Accepted) and reported
+/// `forward_failed` after every phone-scan issuance. Kept for the deferred
+/// polling's standalone use if a caller returns; the register-before-send
+/// rule stays.
+#[allow(dead_code)]
 pub async fn send_notification(
     http: &dyn HttpClient,
     host: &dyn Host,

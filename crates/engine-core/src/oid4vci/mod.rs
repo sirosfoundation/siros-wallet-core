@@ -1732,24 +1732,6 @@ async fn request_and_deliver(
         credential
     };
 
-    // The notification (OID4VCI 1.0 §11), best effort — only when the
-    // issuer's response named a `notification_id` (the wallet echoes
-    // that exact value), and with the same sender-constrained binding
-    // the credential request carried (the DPoP scheme and a fresh
-    // proof; RFC 9449 §4.3).
-    if let Some(notification_id) = credential.notification_id.as_deref() {
-        let _ = deferred::send_notification(
-            ctx.http().as_ref(),
-            ctx.host().as_ref(),
-            issuer_metadata,
-            Some(token),
-            aux.dpop.as_ref(),
-            notification_id,
-            "credential_accepted",
-        )
-        .await;
-    }
-
     let _ = ctx
         .progress(
             "credential_received",
