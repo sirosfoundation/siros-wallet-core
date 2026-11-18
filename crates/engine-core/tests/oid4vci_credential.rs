@@ -162,6 +162,82 @@ async fn a_batch_shaped_answer_is_the_credential() {
 }
 
 #[tokio::test]
+async fn an_encrypted_batch_shaped_answer_is_the_credential() {
+    // The realeyes repro (2026-11-18, wallet-core's #53 follow-on): the
+    // issuer answers the two-member encryption offer with a JWE whose
+    // plaintext is the Final §8.3 BATCH shape - the credential in
+    // credentials[0], no top-level credential member. The decrypt path
+    // used to return the parsed response EARLY, before the batch fill
+    // (credentials[0].credential -> credential) that the plain path runs -
+    // the completion carried credential.unwrap_or_default() = "" and the
+    // wallet reported "the issuance delivered no credential" while the
+    // credential sat in the decrypted credentials[0] (the same
+    // shape-class as #53: the parse found the member where the draft
+    // put it, not where the Final does). Both paths converge on the
+    // fill now; this pins it for the encrypted path.
+    let key = engine_core::oid4vci::encryption::EphemeralResponseKey::generate().expect("keygen");
+    let public =
+        serde_json::from_value::<jose_rs::jwk::Jwk>(key.public_jwk.clone()).expect("public jwk");
+    let mut recipient = public;
+    recipient.alg = Some("ECDH-ES".to_owned());
+    let plaintext = serde_json::json!({
+        "credentials": [{
+            "credential": "ompuYW1lU3BhY2U.bWV0YWRhdGE.c2ln",
+            "format": "mso_mdoc",
+        }],
+        "credential_metadata": { "auxiliary_data": {} },
+    })
+    .to_string();
+    let jwe = jose_rs::jwe::compact::encrypt_with_jwk_header(
+        &recipient,
+        jose_rs::header::JoseHeader::for_jwe(
+            jose_rs::algorithm::JweAlgorithm::EcdhEs,
+            jose_rs::algorithm::JweEncryption::A256GCM,
+        ),
+        plaintext.as_bytes(),
+        jose_rs::algorithm::JweEncryption::A256GCM,
+    )
+    .expect("the issuer encrypts to the offered key");
+    let http = FakeHttp {
+        status: 200,
+        body: jwe.into_bytes(),
+    };
+    let response = request_credential(
+        &http,
+        &FakeHost,
+        &test_metadata(),
+        &test_token(),
+        "UniversityDegree",
+        "flow-1",
+        Some(&engine_core::oid4vci::credential::CredentialRequestAux {
+            encryption: Some(
+                &engine_core::oid4vci::encryption::NegotiatedResponseEncryption {
+                    negotiated: engine_core::oid4vci::encryption::NegotiatedEncryption {
+                        alg: "ECDH-ES".to_owned(),
+                        enc: "A256GCM".to_owned(),
+                    },
+                    key,
+                    required: true,
+                },
+            ),
+            dpop: None,
+            reissuance_kid: None,
+            auxiliary_data_to_issuer: &[],
+            auxiliary_data_to_wallet: &[],
+            now_unix: 1_000,
+        }),
+        Some("nonce-1"),
+    )
+    .await
+    .expect("request");
+    assert_eq!(
+        response.credential.as_deref(),
+        Some("ompuYW1lU3BhY2U.bWV0YWRhdGE.c2ln"),
+        "the decrypted batch entry IS the credential (the fill runs on the encrypted path)"
+    );
+}
+
+#[tokio::test]
 async fn requests_a_credential_with_the_host_signed_proof() {
     let http = FakeHttp {
         status: 200,

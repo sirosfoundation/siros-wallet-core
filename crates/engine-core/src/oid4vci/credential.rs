@@ -471,39 +471,34 @@ pub async fn request_credential(
         return Err(CredentialError::Status(response.status));
     }
 
-    // Decode the response.
-    //
-    // §7.3: when the wallet offered a key, the issuer MUST encrypt the
-    // response — a plain answer is refused (the P0.6-verified Go engine
-    // accepts it; the Rust core follows the spec, and the vectors pin
-    // the decision). An encrypted answer without an offered key cannot
-    // be opened and is refused too.
-    if super::encryption::is_encrypted_response("", &response.body) {
+    let was_encrypted = super::encryption::is_encrypted_response("", &response.body);
+    let credential_response: CredentialResponse = if was_encrypted {
         let Some(encryption) = encryption else {
             return Err(CredentialError::EncryptedWithoutKey);
         };
         let jwe = String::from_utf8_lossy(&response.body).into_owned();
-        return super::encryption::decrypt_encrypted_response(&jwe, &encryption.key)
-            .map_err(|err| CredentialError::Decrypt(err.to_string()));
-    }
-    if encryption.is_some() {
-        return Err(CredentialError::PlainAfterKeyOffered);
-    }
-
-    let value: serde_json::Value =
-        serde_json::from_slice(&response.body).map_err(|_| CredentialError::NotJson)?;
-
-    // The conflict relay (Credential Auxiliary Data v0.1 §8, the issuer's
-    // `auxiliary_data_conflict`): an entry conflicts with a value the
-    // issuer holds for the subject; retrying never helps, the issuer
-    // resolves it out of band. The issuer's code rides unchanged under
-    // `error`; no other issuer text is relayed.
-    if value.get("error").and_then(|v| v.as_str()) == Some("auxiliary_data_conflict") {
-        return Err(CredentialError::AuxiliaryDataConflict);
-    }
-
-    let credential_response: CredentialResponse =
-        serde_json::from_value(value).map_err(|_| CredentialError::NotJson)?;
+        // §7.3: the issuer MUST encrypt when the wallet offered a key;
+        // a plain answer is refused (the P0.6-verified Go engine accepts
+        // it; the Rust core follows the spec, and the vectors pin the
+        // decision).
+        super::encryption::decrypt_encrypted_response(&jwe, &encryption.key)
+            .map_err(|err| CredentialError::Decrypt(err.to_string()))?
+    } else {
+        if encryption.is_some() {
+            return Err(CredentialError::PlainAfterKeyOffered);
+        }
+        let value: serde_json::Value =
+            serde_json::from_slice(&response.body).map_err(|_| CredentialError::NotJson)?;
+        // The conflict relay (Credential Auxiliary Data v0.1 §8, the
+        // issuer's `auxiliary_data_conflict`): an entry conflicts with a
+        // value the issuer holds for the subject; retrying never helps,
+        // the issuer resolves it out of band. The issuer's code rides
+        // unchanged under `error`; no other issuer text is relayed.
+        if value.get("error").and_then(|v| v.as_str()) == Some("auxiliary_data_conflict") {
+            return Err(CredentialError::AuxiliaryDataConflict);
+        }
+        serde_json::from_value(value).map_err(|_| CredentialError::NotJson)?
+    };
     // The batch shape's credential: the first entry (this request was for
     // one configuration). See the field's doc comment.
     let credential_response = if credential_response.credential.is_none() {
@@ -524,13 +519,18 @@ pub async fn request_credential(
 
     // The plain-secret check (v0.1 §7.1): a PLAIN response carrying
     // auxiliary_data travelled a Secret Value unencrypted — the flow
-    // refuses, nothing of the content logged. A plain response is here
-    // only when the wallet offered no key, so the check is unconditional
-    // on the plain path (an encrypted response was decrypted above; the
-    // member is the client's to read there).
-    if let Some(metadata) = credential_response.credential_metadata.as_ref() {
-        if super::auxiliary::has_auxiliary_data_member(metadata) {
-            return Err(CredentialError::PlainSecret);
+    // refuses, nothing of the content logged. ENCRYPTED responses are
+    // exempt — the member is exactly what the to_wallet plan expects,
+    // delivered encrypted as required (the realeyes issuer's v0.1.3 shape:
+    // every encrypted answer carries it; an unconditional gate refused
+    // them all, found 2026-11-18 as the wall behind the "no credential"
+    // report - the decrypt path's early return never reached here, and
+    // un-conditioning the gate after re-routing it did).
+    if !was_encrypted {
+        if let Some(metadata) = credential_response.credential_metadata.as_ref() {
+            if super::auxiliary::has_auxiliary_data_member(metadata) {
+                return Err(CredentialError::PlainSecret);
+            }
         }
     }
 
