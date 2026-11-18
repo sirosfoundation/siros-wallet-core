@@ -779,12 +779,26 @@ async fn forward(
                 if response.status == 204 || response.status == 200 {
                     return ForwardOutcome::Sent;
                 }
+                // Issue #60's diagnostic: the endpoint and the status,
+                // never the body (the refusal text may carry PII).
+                eprintln!(
+                    "engine: notification forward to {} answered {}",
+                    context.endpoint, response.status
+                );
                 return ForwardOutcome::Failed;
             }
             // A transport failure: the request may have left, so the
             // id stays spent (the Go rule: only a proof that could not
             // be obtained puts the context back).
-            Err(_) => return ForwardOutcome::Failed,
+            Err(err) => {
+                // Issue #60's diagnostic: the endpoint and the transport
+                // error class, never the body or the token material.
+                eprintln!(
+                    "engine: notification forward to {} failed: transport {err}",
+                    context.endpoint
+                );
+                return ForwardOutcome::Failed;
+            }
         }
     }
     ForwardOutcome::Failed
