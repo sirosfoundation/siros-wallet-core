@@ -630,10 +630,12 @@ async fn the_engine_serves_an_issuance_and_its_notification_end_to_end() {
     assert_eq!(notification["notification_id"], "nid-1");
     assert_eq!(notification["event"], "credential_accepted");
 
-    // One issuance, two forwards: the credential endpoint saw the one
-    // request; the notification endpoint saw the engine's own in-flow
-    // best-effort §10 send (deferred.rs) and then the
-    // credential_notification flow's forward of the same event.
+    // One issuance, ONE forward: the credential endpoint saw the one
+    // request; the notification endpoint saw ONLY the
+    // credential_notification flow's §10 send (issue #60: the issuance
+    // path's own best-effort send double-delivered — the issuer answered
+    // 409 illegal_transition to the second, and the wallet's flow reported
+    // forward_failed after every phone-scan issuance; removed).
     assert_eq!(issuer_seen.count_of("/credential"), 1);
-    assert_eq!(issuer_seen.count_of("/notification"), 2);
+    assert_eq!(issuer_seen.count_of("/notification"), 1);
 }

@@ -164,20 +164,6 @@ fn preauth_script() -> serde_json::Value {
             }
         },
         {
-            "http_out": {
-                "expect": {
-                    "method": "POST",
-                    "url": "https://issuer.example/notification",
-                    "purpose": "Notification",
-                    "json": {
-                        "notification_id": "notif-selftest-1",
-                        "event": "credential_accepted"
-                    }
-                },
-                "reply": { "status": 200, "body": {} }
-            }
-        },
-        {
             "wmp_out": {
                 "expect": {
                     "method": "wmp.flow.progress",
