@@ -61,7 +61,16 @@ struct KeyHost {
     jwk: Value,
     /// The asks recorded: (sign?, configuration id, key id) — the #558-twin
     /// pin reads them.
-    asks: std::sync::Mutex<Vec<(bool, Option<String>, Option<String>)>>,
+    asks: std::sync::Mutex<Vec<RecordedAsk>>,
+}
+
+/// One recorded ask: which kind (sign vs signing-key), the configuration it
+/// names, the key it names — the #558-twin pin reads them.
+#[derive(Clone)]
+struct RecordedAsk {
+    sign: bool,
+    configuration_id: Option<String>,
+    key_id: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -70,11 +79,11 @@ impl Host for KeyHost {
         self.asks
             .lock()
             .map(|mut asks| {
-                asks.push((
-                    true,
-                    p.credential_configuration_id.clone(),
-                    p.key_id.clone(),
-                ))
+                asks.push(RecordedAsk {
+                    sign: true,
+                    configuration_id: p.credential_configuration_id.clone(),
+                    key_id: p.key_id.clone(),
+                })
             })
             .ok();
         Ok(SignResult {
@@ -88,11 +97,11 @@ impl Host for KeyHost {
         self.asks
             .lock()
             .map(|mut asks| {
-                asks.push((
-                    false,
-                    params.credential_configuration_id.clone(),
-                    params.key_id.clone(),
-                ))
+                asks.push(RecordedAsk {
+                    sign: false,
+                    configuration_id: params.credential_configuration_id.clone(),
+                    key_id: params.key_id.clone(),
+                })
             })
             .ok();
         Ok(engine_ports::SigningKeyResult {
@@ -1108,10 +1117,10 @@ async fn every_configuration_ask_names_its_credential_configuration_id() {
     // Every ask names the configuration this credential issues under.
     let asks = host.asks.lock().expect("lock");
     assert!(!asks.is_empty(), "the proof path asked the host");
-    for (is_sign, configuration_id, _) in asks.iter() {
-        let kind = if *is_sign { "sign" } else { "signing-key" };
+    for ask in asks.iter() {
+        let kind = if ask.sign { "sign" } else { "signing-key" };
         assert_eq!(
-            configuration_id.as_deref(),
+            ask.configuration_id.as_deref(),
             Some("UniversityDegree"),
             "the {kind} ask names its credential_configuration_id"
         );
