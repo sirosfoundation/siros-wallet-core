@@ -112,7 +112,7 @@ impl HttpClient for RecordingHttp {
                     "application/json".to_owned(),
                 )],
                 // OID4VCI §11.1: the notification_id the wallet must echo.
-                body: br#"{"credential": "credential-jwt-1", "notification_id": "nid-1"}"#
+                body: br#"{"format": "dc+sd-jwt", "credential": "credential-jwt-1", "notification_id": "nid-1"}"#
                     .to_vec(),
             }),
             _ => Ok(HttpResponse {
@@ -854,6 +854,18 @@ async fn the_issuance_completion_registers_and_the_flow_forwards() {
         "https://issuer.example/notification?source=test"
     );
     assert_eq!(issuance["notification_id"], "nid-1");
+    // Every batch entry carries its `format` (issue #57: the Go
+    // engine's `CredentialResult.Format`, the SDK v0.23.5 batch
+    // decode's required member — a member-less entry refused the
+    // issuance as malformed after `credential_received`).
+    assert_eq!(
+        issuance["credentials"][0]["format"], "dc+sd-jwt",
+        "the entry carries the response's format member"
+    );
+    assert_eq!(
+        issuance["credentials"][0]["credential_configuration_id"], "UniversityDegree",
+        "the entry names its configuration"
+    );
 
     // The notification flow, on the same engine: the context the
     // completion registered is the one it forwards from.

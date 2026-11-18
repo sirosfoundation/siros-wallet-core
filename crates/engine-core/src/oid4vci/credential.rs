@@ -33,6 +33,16 @@ pub struct CredentialResponse {
     /// or the format-specific member).
     #[serde(default)]
     pub credential: Option<String>,
+    /// The response's `format` member (OpenID4VCI 1.0 Final §7.2.2:
+    /// `mso_mdoc`, `dc+sd-jwt`, …), when the issuer sends one — the
+    /// single-credential shape carries it; the batch shape carries it
+    /// per entry (`credentials[].format`, §7.5), and the batch fill
+    /// copies the first entry's into the response. The completion's
+    /// per-entry `format` (go-wallet-backend messages.go's
+    /// `CredentialResult.Format`, the SDK's `CredentialResult.format`)
+    /// reads it — a member the #419 SDK decode refuses to run without.
+    #[serde(default)]
+    pub format: Option<String>,
     /// The batch member `credentials[]` (OID4VCI §7.5's batch shape) -
     /// SUNET's GDC apigw answers a single-credential request with this
     /// array anyway, so the first entry IS the credential (found driving
@@ -512,6 +522,12 @@ pub async fn request_credential(
         let mut filled = credential_response.clone();
         if let Some(entry) = filled.credentials.first() {
             filled.credential = entry.credential.clone();
+            // The batch entry's `format` (§7.5) is the response's
+            // `format` (§7.2.2) — the completion's per-entry member
+            // reads it (issue #57).
+            if filled.format.is_none() {
+                filled.format = entry.format.clone();
+            }
             if filled.format_specific.is_none() {
                 filled.format_specific = entry.format.clone().map(serde_json::Value::String);
             }
