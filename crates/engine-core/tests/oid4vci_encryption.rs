@@ -114,6 +114,8 @@ fn the_encrypted_response_roundtrips() {
         // The batch member (OID4VCI §7.5): this test builds the FLAT
         // single-credential shape, so the array is empty.
         credentials: Vec::new(),
+        // The Final §7.2.2 format member (issue #57's completion relay).
+        format: Some("dc+sd-jwt".to_owned()),
         format_specific: None,
         transaction_id: None,
         interval: None,

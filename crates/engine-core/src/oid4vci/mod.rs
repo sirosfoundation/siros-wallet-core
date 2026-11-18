@@ -1524,6 +1524,13 @@ fn issuance_completion(
         .map(|entry| {
             let mut object = serde_json::json!({
                 "credential_configuration_id": entry.configuration_id,
+                // The entry's format (go-wallet-backend messages.go's
+                // `CredentialResult.Format` — always present, no omitempty;
+                // issue #57): the SDK's batch decode (v0.23.5, the #419
+                // parity) requires it with no default, so a member-less
+                // entry refused every issuance as malformed after
+                // `credential_received`.
+                "format": entry.response.format.clone().unwrap_or_default(),
                 "credential": entry.response.credential.clone().unwrap_or_default(),
                 "deferred": entry.response.transaction_id.is_some(),
             });
