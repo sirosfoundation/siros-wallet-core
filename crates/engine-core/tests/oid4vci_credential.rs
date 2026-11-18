@@ -64,13 +64,13 @@ struct KeyHost {
     asks: std::sync::Mutex<Vec<RecordedAsk>>,
 }
 
-/// One recorded ask: which kind (sign vs signing-key), the configuration it
-/// names, the key it names — the #558-twin pin reads them.
+/// One recorded ask: which kind (sign vs signing-key) and the configuration
+/// it names — the #558-twin pin reads them. (The key id rides the asks the
+/// other tests already assert.)
 #[derive(Clone)]
 struct RecordedAsk {
     sign: bool,
     configuration_id: Option<String>,
-    key_id: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -82,7 +82,6 @@ impl Host for KeyHost {
                 asks.push(RecordedAsk {
                     sign: true,
                     configuration_id: p.credential_configuration_id.clone(),
-                    key_id: p.key_id.clone(),
                 })
             })
             .ok();
@@ -100,7 +99,6 @@ impl Host for KeyHost {
                 asks.push(RecordedAsk {
                     sign: false,
                     configuration_id: params.credential_configuration_id.clone(),
-                    key_id: params.key_id.clone(),
                 })
             })
             .ok();
