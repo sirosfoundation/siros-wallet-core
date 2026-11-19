@@ -488,6 +488,26 @@ pub async fn request_credential(
         response.status,
         super::encryption::is_encrypted_response("", &response.body)
     );
+    // The diagnostic body log (issue #72's round 2): a refusal's ERROR BODY —
+    // the issuer's own error text (`invalid_proof`, `invalid_request` …) —
+    // is the only tellable statement of WHY the issuer refused, and a
+    // refusal's body carries no credential material (the credentials ride
+    // 200 responses). Opt-in: `ENGINE_LOG_REFUSAL_BODIES=1` names the
+    // diagnostic deployments; the default refuses to log anything.
+    if response.status != 200
+        && std::env::var("ENGINE_LOG_REFUSAL_BODIES")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+    {
+        // The first 256 bytes only, and only of a REFUSAL (the credentials
+        // ride 200 responses, never here).
+        let head: &[u8] = response.body.get(..256).unwrap_or(&response.body);
+        eprintln!(
+            "engine: credential refusal body for {}: {}",
+            configuration_id,
+            String::from_utf8_lossy(head)
+        );
+    }
     if response.status != 200 {
         // The P0.6-verified rule: an error body carrying `invalid_nonce` —
         // or any refreshed `c_nonce` — is retryable; everything else is
