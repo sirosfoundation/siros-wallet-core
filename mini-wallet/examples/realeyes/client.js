@@ -90,7 +90,7 @@ document.getElementById("run").addEventListener("click", async () => {
         <li>the ssc opening (the zkp proofs' seed): <code>${sscOpening ? String(sscOpening).slice(0, 24) + "…" : "ABSENT"}</code></li>
         <li>the device key: <code>${deviceKey ? "present (an ES256 JWK)" : "ABSENT"}</code></li>
       </ul>`;
-    log("4/4 the credential received. The adopt step: ask, passkey, move…");
+    log("4/4 the credential received. The adopt runs as a modal…");
 
     // The permanent-wallet arc: the ask (this page's), the passkey
     // (the browser's real WebAuthn ceremony over gdc's AS), the move
@@ -100,9 +100,13 @@ document.getElementById("run").addEventListener("click", async () => {
     // origin or its CORS list.
     const adopt = await wallet.adopt({
       target: new (await import("/lib/index.js")).GoWalletBackendTarget("/api/backend", "default"),
+      // The adopt as a MODAL (the decision: the page serves from the
+      // wallet's origin, the onboard/set-passkey/move arc runs as a
+      // modal) — the library renders the steps; the ceremony stays the
+      // browser's own prompt.
+      modal: true,
       ui: {
-        ask: async ({ credentials }) =>
-          confirm(`Add a permanent wallet on the gdc backend?\n${credentials.length} credential(s) move out of this page.`),
+        ask: async () => true,
         create: (options) => navigator.credentials.create(options),
       },
     });

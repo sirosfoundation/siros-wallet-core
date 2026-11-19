@@ -24,6 +24,8 @@ import type { TrustPlugin } from "./trust.js";
 import type { MiniWalletPdpOption } from "./types.js";
 import { GoWalletBackendTarget, NullCipher } from "./adopt.js";
 import type { AdoptReport, AdoptTarget, AdoptUi, PrivateDataCipher } from "./adopt.js";
+import { renderAdoptModal } from "./modal.js";
+import type { AdoptModal } from "./modal.js";
 import { AuthzenTrustPlugin } from "./trust.js";
 import type { TrustTokenProvider } from "./trust.js";
 import { migrateWalletStorage } from "./migration.js";
@@ -554,40 +556,70 @@ export class MiniWallet {
    */
   async adopt(options: {
     /** The backend to adopt; a GoWalletBackendTarget built from the
-     *  URL when a string is given (the gdc instance, for the demo). */
-    target: AdoptTarget | string;
+     *  URL when a string is given (the gdc instance, for the demo).
+     *  Omitted when the wallet is backend-configured. */
+    target?: AdoptTarget | string;
     /** The page's UI: the ask and the WebAuthn ceremony. */
     ui: AdoptUi;
     /** The blob's cipher — the private-data library's slot. */
     cipher?: PrivateDataCipher;
+    /** The adopt as a MODAL on the page (the decision: the page serves
+     *  from the wallet's origin and the onboard/set-passkey/move arc
+     *  runs as a modal). The library renders the steps (the buttons ARE
+     *  the ask's answer); `true` mounts on document.body, an element
+     *  mounts there. The page's callbacks still run alongside. */
+    modal?: boolean | HTMLElement;
   }): Promise<AdoptReport | null> {
     const target = options.target === undefined && this.#opts.backend
       ? new GoWalletBackendTarget(this.#opts.backend.url, this.#opts.backend.tenantId)
       : typeof options.target === "string"
         ? new GoWalletBackendTarget(options.target)
-        : options.target;
+        : options.target!;
+    const modal: AdoptModal | null = options.modal
+      ? renderAdoptModal(options.modal === true ? undefined : options.modal)
+      : null;
     const credentials = await this.credentials();
-    // The page's ask — its answer gates everything.
-    const go = await options.ui.ask({ credentials, backend: target.backend });
-    if (!go) return null;
-    // The passkey: the AS's begin/finish around the page's ceremony.
-    const { account } = await target.registerPasskey(options.ui);
-    // The move: the migration contract onto the backend's storage.
-    const cipher = options.cipher ?? new NullCipher();
-    const report = await this.migrate(target.storage(cipher));
-    if (report.failed) return { account, keys: report.keys, failed: report.failed };
-    // The authz of the adopted configuration: the backend's PDP-proxy
-    // carries the SESSION's token now (the adopt's continuity — the
-    // pre-registration token's job ended with the user's arrival).
-    const factory = target.sessionToken?.();
-    this.#sessionToken = typeof factory === "function" ? factory : undefined;
-    if (this.#opts.backend) {
-      this.#opts = { ...this.#opts, backend: { ...this.#opts.backend, url: target.backend } };
-    } else {
-      this.#opts = { ...this.#opts, backend: { url: target.backend } };
+    const ask = { credentials, backend: target.backend };
+    // The page's ask gates; the modal's buttons answer when it renders.
+    const go = modal
+      ? (await Promise.all([
+          options.ui.ask(ask),
+          modal.ask(ask),
+        ]))[1]
+      : await options.ui.ask(ask);
+    if (!go) {
+      modal?.declined();
+      return null;
     }
-    this.#opts.onEvent?.({ type: "adopted", account, backend: target.backend });
-    return { account, keys: report.keys };
+    try {
+      modal?.passkey();
+      // The passkey: the AS's begin/finish around the page's ceremony.
+      const { account } = await target.registerPasskey(options.ui);
+      // The move: the migration contract onto the backend's storage.
+      const cipher = options.cipher ?? new NullCipher();
+      modal?.moving(credentials.map((c) => c.key));
+      const report = await this.migrate(target.storage(cipher));
+      if (report.failed) {
+        modal?.failed(report.failed);
+        return { account, keys: report.keys, failed: report.failed };
+      }
+      // The authz of the adopted configuration: the backend's PDP-proxy
+      // carries the SESSION's token now (the adopt's continuity — the
+      // pre-registration token's job ended with the user's arrival).
+      const factory = target.sessionToken?.();
+      this.#sessionToken = typeof factory === "function" ? factory : undefined;
+      if (this.#opts.backend) {
+        this.#opts = { ...this.#opts, backend: { ...this.#opts.backend, url: target.backend } };
+      } else {
+        this.#opts = { ...this.#opts, backend: { url: target.backend } };
+      }
+      this.#opts.onEvent?.({ type: "adopted", account, backend: target.backend });
+      modal?.done({ account, backend: target.backend, keys: report.keys });
+      return { account, keys: report.keys };
+    } catch (error) {
+      modal?.close();
+      throw error;
+    }
   }
 }
 

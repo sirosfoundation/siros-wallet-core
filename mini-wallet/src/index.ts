@@ -16,6 +16,8 @@ export { AlwaysTrustedPlugin, AuthzenTrustPlugin, asPdp } from "./trust.js";
 export type { TrustPlugin, TrustAsk, TrustAnswer } from "./trust.js";
 export { GoWalletBackendTarget, NullCipher } from "./adopt.js";
 export type { AdoptAsk, AdoptReport, AdoptTarget, AdoptUi, PrivateDataCipher } from "./adopt.js";
+export { renderAdoptModal } from "./modal.js";
+export type { AdoptModal } from "./modal.js";
 export type { MigrationReport } from "./migration.js";
 export {
   isOfferUri,
