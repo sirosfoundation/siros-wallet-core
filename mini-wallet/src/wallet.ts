@@ -19,6 +19,9 @@ import {
   LocalStorageWalletStorage,
   MemoryWalletStorage,
 } from "./storage.js";
+import { asPdp } from "./trust.js";
+import type { TrustPlugin } from "./trust.js";
+import type { MiniWalletPdpOption } from "./types.js";
 import { migrateWalletStorage } from "./migration.js";
 import {
   isOfferUri,
@@ -56,8 +59,10 @@ export interface MiniWalletOptions {
   storage?: WalletStorage;
   /** The page's UI callbacks — delegated verbatim to the engine host. */
   ui?: MiniWalletUi;
-  /** The trust callback — the engine's PDP. Required. */
-  pdp: MiniWalletPdp;
+  /** The trust layer — the engine's PDP. Required: a TrustPlugin
+   *  (the authzen-client's home; AlwaysTrustedPlugin is the demo shim)
+   *  or the raw port shape. */
+  pdp: MiniWalletPdpOption;
   /** The page's fetch; the browser default when absent. */
   fetch?: MiniWalletFetch;
   /** The wasm URL — the bundler-resolved default when absent. */
@@ -103,7 +108,7 @@ export class MiniWallet {
     await mod.init(this.#opts.wasmUrl);
     const engine = new mod.WasmEngine({
       fetch: this.#opts.fetch ?? defaultFetch(),
-      pdp: { evaluate: (request: unknown) => this.#opts.pdp.evaluate(request) },
+      pdp: asPdp(this.#opts.pdp as TrustPlugin),
       host: {
         sign: (params: {
           flow_id: string;

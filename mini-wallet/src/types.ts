@@ -41,12 +41,15 @@ export interface MiniWalletUi {
   attestation?: (params: unknown) => Promise<unknown>;
 }
 
-/** The trust callback: the engine's PDP. The page supplies the policy
- *  (its own go-trust endpoint, or an allowlist — the wallet never decides
- *  trust itself). */
+import type { TrustPlugin } from "./trust.js";
+
+/** The engine's PDP port shape. The MiniWallet's `pdp` option accepts
+ *  this OR a TrustPlugin (the plugin is the first-class form — the
+ *  authzen-client's layer); asPdp adapts. */
 export interface MiniWalletPdp {
-  evaluate(request: unknown): Promise<{ trusted: boolean; decision?: unknown }>;
+  evaluate(request: unknown): Promise<{ trusted: boolean; decision?: string; context?: unknown }>;
 }
+export type MiniWalletPdpOption = MiniWalletPdp | TrustPlugin;
 
 /** The page's fetch — the engine's HTTP. Carrying it lets the page pin
  *  proxies, CORS shims and request logging; the browser default when

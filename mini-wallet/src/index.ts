@@ -12,6 +12,8 @@ export {
   memoryStore,
 } from "./storage.js";
 export { migrateWalletStorage } from "./migration.js";
+export { AlwaysTrustedPlugin, AuthzenTrustPlugin, asPdp } from "./trust.js";
+export type { TrustPlugin, TrustAsk, TrustAnswer } from "./trust.js";
 export type { MigrationReport } from "./migration.js";
 export {
   isOfferUri,
@@ -24,6 +26,7 @@ export type {
   MiniWalletEvent,
   MiniWalletFetch,
   MiniWalletPdp,
+  MiniWalletPdpOption,
   MiniWalletUi,
   StoredCredential,
   WalletStorage,

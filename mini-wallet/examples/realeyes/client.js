@@ -4,7 +4,7 @@
 // terminal-simple: the page owns every decision (the consent answers
 // true for the harness; a real page asks its person).
 
-import { MiniWallet, LocalStorageWalletStorage } from "/lib/index.js";
+import { MiniWallet, LocalStorageWalletStorage, AlwaysTrustedPlugin } from "/lib/index.js";
 import init, { WasmEngine } from "/engine/engine_adapter_wasm.js";
 
 const out = document.getElementById("out");
@@ -48,13 +48,10 @@ document.getElementById("run").addEventListener("click", async () => {
       // a passkey migrates it later without losing anything.
       storage,
       fetch: pageFetch,
-      // The trust decision: the page's policy, through this harness's
-      // PDP proxy.
-      pdp: {
-        evaluate: (request) =>
-          fetch("/api/pdp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) })
-            .then((r) => r.json()),
-      },
+      // The trust layer — the DEMO SHIM: AlwaysTrustedPlugin, no
+      // authzen client. A real page plugs the AuthzenTrustPlugin (the
+      // authzen-client's layer) against its PDP instead.
+      pdp: new AlwaysTrustedPlugin(),
       // ALL UI delegated: the consent is this page's answer (the harness
       // says yes; a real page asks).
       ui: { consent: async () => ({ consented: true }) },
@@ -88,6 +85,6 @@ document.getElementById("run").addEventListener("click", async () => {
       </ul>`;
     log("4/4 done — the wallet holds the nym_auth credential; a passkey can wrap it later via migrate().");
   } catch (e) {
-    log(`the flow stopped: ${JSON.stringify(e).slice(0, 600)}`);
+    log(`the flow stopped: ${e && e.message ? e.message : JSON.stringify(e).slice(0, 600)}\n${e && e.stack ? e.stack.split('\n').slice(1, 4).join('\n') : ''}`);
   }
 });
