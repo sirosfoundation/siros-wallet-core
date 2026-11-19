@@ -11,6 +11,9 @@ struct FakeHttp {
     /// The request bodies this HTTP saw (the §11.3 pin reads the one the
     /// credential request produced).
     sent: std::sync::Mutex<Vec<Vec<u8>>>,
+    /// The headers of the last request (the §11.3 pin asserts the wire
+    /// content type follows the encrypted body).
+    last_headers: std::sync::Mutex<Vec<(String, String)>>,
 }
 
 impl FakeHttp {
@@ -31,6 +34,7 @@ impl HttpClient for FakeHttp {
         assert_eq!(request.purpose, FetchPurpose::Credential);
         // docs/engine-spec.md §Fetch policy: every request carries a size limit.
         assert!(request.max_response_bytes < usize::MAX);
+        *self.last_headers.lock().expect("lock") = request.headers.clone();
         self.sent.lock().expect("lock").push(request.body.clone());
         Ok(engine_ports::HttpResponse {
             status: self.status,
@@ -189,6 +193,7 @@ async fn a_batch_shaped_answer_is_the_credential() {
         status: 200,
         body: br#"{"credentials":[{"credential":"eyJhbGciOiJFUzI1NiJ9.batch.sig","format":"dc+sd-jwt"}]}"#.to_vec(),
         sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
     };
     let response = request_credential(
         &http,
@@ -250,6 +255,7 @@ async fn an_encrypted_batch_shaped_answer_is_the_credential() {
         status: 200,
         body: jwe.into_bytes(),
         sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
     };
     let response = request_credential(
         &http,
@@ -294,6 +300,7 @@ async fn requests_a_credential_with_the_host_signed_proof() {
         status: 200,
         body: br#"{"credential":"eyJhbGciOiJFUzI1NiJ9.payload.sig"}"#.to_vec(),
         sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
     };
     let response = request_credential(
         &http,
@@ -316,6 +323,7 @@ async fn a_deferred_credential_answer_names_the_transaction() {
         status: 200,
         body: br#"{"transaction_id":"tx-1","interval":5}"#.to_vec(),
         sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
     };
     let response = request_credential(
         &http,
@@ -339,6 +347,7 @@ async fn a_non_200_refuses() {
         status: 400,
         body: Vec::new(),
         sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
     };
     assert!(matches!(
         request_credential(
@@ -446,6 +455,7 @@ async fn a_plain_answer_after_the_offer_refuses() {
         status: 200,
         body: br#"{"credential":"plain"}"#.to_vec(),
         sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
     };
     // §7.3: the issuer MUST encrypt when a key was offered. The Go
     // engine accepts the plain answer (P0.6); the Rust core refuses.
@@ -478,6 +488,7 @@ async fn an_encrypted_answer_without_an_offer_refuses() {
         status: 200,
         body: b"header.key.iv.ciphertext.tag".to_vec(),
         sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
     };
     assert!(matches!(
         request_credential(
@@ -1401,6 +1412,7 @@ async fn an_issuer_publishing_request_encryption_gets_an_encrypted_request() {
         status: 200,
         body: br#"{"credential":"plain-credential-1"}"#.to_vec(),
         sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
     };
     let response = request_credential(
         &http,
@@ -1426,6 +1438,19 @@ async fn an_issuer_publishing_request_encryption_gets_an_encrypted_request() {
     assert!(
         !sent.starts_with('{'),
         "the request body is not plain JSON: {sent}"
+    );
+
+    // The wire content type follows the body (§11.3): the JWE rides
+    // `application/jwt`, never the plain body's `application/json`.
+    let sent_headers = http.last_headers.lock().expect("lock").clone();
+    let sent_content_type = sent_headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+        .map(|(_, value)| value.clone())
+        .unwrap_or_default();
+    assert_eq!(
+        sent_content_type, "application/jwt",
+        "the encrypted request rides the JWE content type"
     );
 
     // The JWE header names the issuer's key by its kid (§11.3): the
@@ -1473,4 +1498,138 @@ fn base64url_decode(encoded: &str) -> Vec<u8> {
         );
     }
     out
+}
+
+// ─── §11.3's failure modes (the regression guards) ────────────────────────
+
+/// §11.3 `encryption_required: true` with an UNSATISFIABLE config (a key set
+/// with no EC encryption key): the request FAILS — never the plain body the
+/// issuer's required flag would refuse. A demanded encryption is not
+/// negotiable down to plain.
+#[tokio::test]
+async fn a_required_but_unsatisfiable_request_encryption_fails_the_request() {
+    let mut metadata = test_metadata();
+    metadata.credential_request_encryption = Some(serde_json::json!({
+        "jwks": { "keys": [
+            { "kty": "OKP", "crv": "X25519", "kid": "not-an-ec-key" }
+        ]},
+        "enc_values_supported": ["A256GCM"],
+        "encryption_required": true
+    }));
+    let http = FakeHttp {
+        status: 200,
+        body: br#"{"credential":"plain-credential-1"}"#.to_vec(),
+        sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
+    };
+    assert!(
+        request_credential(
+            &http,
+            &FakeHost,
+            &metadata,
+            &test_token(),
+            "UniversityDegree",
+            "flow-1",
+            None,
+            Some("nonce-1"),
+        )
+        .await
+        .is_err(),
+        "a required but unsatisfiable §11.3 config fails the request"
+    );
+    // And NOTHING was sent: no plain body ever reached the issuer.
+    assert!(
+        http.sent.lock().expect("lock").is_empty(),
+        "no request body was sent to the issuer"
+    );
+}
+
+/// §11.3 `encryption_required: false` with an unsatisfiable config: the
+/// plain body rides (the issuer takes it or leaves it) — the optional
+/// encryption never blocks the flow. The 200 answer parses as ever.
+#[tokio::test]
+async fn an_optional_unsatisfiable_request_encryption_rides_plain() {
+    let mut metadata = test_metadata();
+    metadata.credential_request_encryption = Some(serde_json::json!({
+        "jwks": { "keys": [
+            { "kty": "OKP", "crv": "X25519", "kid": "not-an-ec-key" }
+        ]},
+        "enc_values_supported": ["A256GCM"],
+        "encryption_required": false
+    }));
+    let http = FakeHttp {
+        status: 200,
+        body: br#"{"credential":"plain-credential-1"}"#.to_vec(),
+        sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
+    };
+    let response = request_credential(
+        &http,
+        &FakeHost,
+        &metadata,
+        &test_token(),
+        "UniversityDegree",
+        "flow-1",
+        None,
+        Some("nonce-1"),
+    )
+    .await
+    .expect("the optional encryption softens to plain");
+    // The body rides PLAIN: JSON, the application/json content type.
+    let sent = String::from_utf8_lossy(&http.last_sent()).into_owned();
+    assert!(sent.starts_with('{'), "the plain body is JSON: {sent}");
+    let headers = http.last_headers.lock().expect("lock").clone();
+    let content_type = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+        .map(|(_, value)| value.clone())
+        .unwrap_or_default();
+    assert_eq!(content_type, "application/json");
+    assert_eq!(response.credential.as_deref(), Some("plain-credential-1"));
+}
+
+/// §11.3's `alg_values_supported` GATE: an issuer that advertises ONLY
+/// algorithms this stack does not implement (RSA-OAEP say) cannot be
+/// negotiated down to an unadvertised ECDH-ES — the request fails under
+/// the required flag, plain under the optional one. Never a silent
+/// algorithm substitution.
+#[tokio::test]
+async fn an_unimplemented_alg_list_is_not_negotiated_around() {
+    let mut metadata = test_metadata();
+    metadata.credential_request_encryption = Some(serde_json::json!({
+        "jwks": { "keys": [
+            { "kty": "EC", "crv": "P-256",
+              "x": "PrFW9c4Y65Xu5lpKLRCpWs09L-0Ncls6CzjsbLphBeE",
+              "y": "pwtQj6DVTT2vH87uqzLmRBhGlVVeK7Pk9iu5liBzttw",
+              "kid": "alg-gated-key", "use": "enc", "alg": "ECDH-ES" }
+        ]},
+        "alg_values_supported": ["RSA-OAEP"],
+        "enc_values_supported": ["A256GCM"],
+        "encryption_required": true
+    }));
+    let http = FakeHttp {
+        status: 200,
+        body: br#"{"credential":"plain-credential-1"}"#.to_vec(),
+        sent: std::sync::Mutex::new(Vec::new()),
+        last_headers: std::sync::Mutex::new(Vec::new()),
+    };
+    assert!(
+        request_credential(
+            &http,
+            &FakeHost,
+            &metadata,
+            &test_token(),
+            "UniversityDegree",
+            "flow-1",
+            None,
+            Some("nonce-1"),
+        )
+        .await
+        .is_err(),
+        "an explicit unimplemented alg list is not negotiated around"
+    );
+    assert!(
+        http.sent.lock().expect("lock").is_empty(),
+        "nothing was sent to the issuer"
+    );
 }

@@ -86,6 +86,36 @@ pub async fn poll_deferred_credential(
     let interval_ms = interval_secs.unwrap_or(5).max(1).saturating_mul(1000) as u64;
 
     let request_body = serde_json::json!({ "transaction_id": transaction_id });
+    // The §11.3 request-body encryption (OID4VCI 1.0 Final §11.3): the
+    // DEFERRED Credential Request rides the same encryption as the
+    // Credential Request when the issuer publishes
+    // `credential_request_encryption` (Spherity's error text names both:
+    // "the Credential/Deferred Credential Request itself to be
+    // encrypted"). The wire content type follows the body
+    // (`application/jwt` for the JWE); the `encryption_required` flag
+    // fails an unsatisfiable demand, a not-required unbuildable config
+    // softens to the plain body.
+    let mut content_type = "application/json".to_owned();
+    let deferred_request_bytes: Vec<u8> = match metadata
+        .credential_request_encryption
+        .as_ref()
+        .and_then(|raw| {
+            serde_json::from_value::<super::encryption::RequestEncryptionConfig>(raw.clone()).ok()
+        })
+        .filter(|config| !config.jwks.is_null() && !config.enc_values.is_empty())
+    {
+        Some(config) => match super::encryption::encrypt_request_body(&config, &request_body) {
+            Ok(jwe) => {
+                content_type = "application/jwt".to_owned();
+                jwe.into_bytes()
+            }
+            Err(_unbuildable) if config.required => {
+                return Err(DeferredError::NotJson);
+            }
+            Err(_unbuildable) => serde_json::to_vec(&request_body).unwrap_or_default(),
+        },
+        None => serde_json::to_vec(&request_body).unwrap_or_default(),
+    };
     // The sender-constrained binding (RFC 9449 §4.3): a DPoP-bound
     // token authorizes with the DPoP scheme and a fresh `ath`-bound
     // proof per poll, the resource nonce threading along.
@@ -108,7 +138,7 @@ pub async fn poll_deferred_credential(
                 format!("Bearer {}", token.access_token)
             };
             let mut headers = vec![
-                ("content-type".to_owned(), "application/json".to_owned()),
+                ("content-type".to_owned(), content_type.clone()),
                 ("authorization".to_owned(), authorization),
             ];
             if dpop_bound {
@@ -138,7 +168,7 @@ pub async fn poll_deferred_credential(
                     method: "POST".to_owned(),
                     url: deferred_endpoint.clone(),
                     headers,
-                    body: serde_json::to_vec(&request_body).unwrap_or_default(),
+                    body: deferred_request_bytes.clone(),
                     purpose: FetchPurpose::Deferred,
                     max_response_bytes: MAX_DEFERRED_BYTES,
                     redirects: RedirectPolicy::None,

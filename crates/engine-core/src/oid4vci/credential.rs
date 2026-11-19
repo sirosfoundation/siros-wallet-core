@@ -400,8 +400,56 @@ pub async fn request_credential(
     let mut dpop_nonce = dpop.and_then(|dpop| dpop.dpop_nonce).map(str::to_owned);
     let mut response: Option<engine_ports::HttpResponse> = None;
     for attempt in 0..2 {
+        // §11.3 request-body encryption: the issuer's
+        // `credential_request_encryption` key set. When published, the
+        // Credential Request IS a JWE to the issuer's key (the `kid`
+        // naming it, the `enc` from its supported list) — Spherity's
+        // issuer enforces it alongside a response-encryption offer
+        // ("to prevent the response-encryption key from being
+        // substituted by an attacker", their `invalid_encryption_parameters`
+        // refusal of the plain request).
+        //
+        // The wire content type follows the body: `application/jwt` for
+        // the JWE (§11.3's form), `application/json` for the plain body.
+        // The `encryption_required` flag (§11.3): a config that demands
+        // encryption but cannot be satisfied (no key, no negotiable pair)
+        // FAILS the request — never the plain body the issuer would
+        // refuse; when not required, an unusable config softens to the
+        // plain body (the issuer takes it or leaves it).
+        let mut content_type = "application/json".to_owned();
+        let request_bytes: Vec<u8> = match metadata
+            .credential_request_encryption
+            .as_ref()
+            .and_then(|raw| {
+                serde_json::from_value::<super::encryption::RequestEncryptionConfig>(raw.clone())
+                    .ok()
+            })
+            .filter(|config| !config.jwks.is_null() && !config.enc_values.is_empty())
+        {
+            Some(config) => match super::encryption::encrypt_request_body(&config, &request_body) {
+                Ok(jwe) => {
+                    content_type = "application/jwt".to_owned();
+                    jwe.into_bytes()
+                }
+                Err(err) if config.required => {
+                    return Err(CredentialError::Decrypt(err.to_string()));
+                }
+                Err(_unbuildable) => {
+                    // Not required and unbuildable: the plain body, the
+                    // issuer's own choice to accept.
+                    eprintln!(
+                        "engine: credential request for {} rides plain: the §11.3 config cannot be satisfied",
+                        configuration_id
+                    );
+                    serde_json::to_vec(&request_body).map_err(|_| CredentialError::NotJson)?
+                }
+            },
+            // No §11.3 configuration: the plain body.
+            None => serde_json::to_vec(&request_body).map_err(|_| CredentialError::NotJson)?,
+        };
+
         let mut headers = vec![
-            ("content-type".to_owned(), "application/json".to_owned()),
+            ("content-type".to_owned(), content_type),
             ("accept".to_owned(), "application/json".to_owned()),
             ("authorization".to_owned(), authorization.clone()),
         ];
@@ -427,32 +475,6 @@ pub async fn request_credential(
                 }
             }
         }
-
-        // §11.3 request-body encryption: the issuer's
-        // `credential_request_encryption` key set. When published, the
-        // Credential Request IS a JWE to the issuer's key (the `kid`
-        // naming it, the `enc` from its supported list) — Spherity's
-        // issuer enforces it alongside a response-encryption offer
-        // ("to prevent the response-encryption key from being
-        // substituted by an attacker", their `invalid_encryption_parameters`
-        // refusal of the plain request).
-        let request_bytes: Vec<u8> = match metadata
-            .credential_request_encryption
-            .as_ref()
-            .and_then(|raw| {
-                serde_json::from_value::<super::encryption::RequestEncryptionConfig>(raw.clone())
-                    .ok()
-            })
-            .filter(|config| !config.jwks.is_null() && !config.enc_values.is_empty())
-        {
-            Some(config) => {
-                let jwe = super::encryption::encrypt_request_body(&config, &request_body)
-                    .map_err(|err| CredentialError::Decrypt(err.to_string()))?;
-                jwe.into_bytes()
-            }
-            // No §11.3 configuration: the plain body.
-            None => serde_json::to_vec(&request_body).map_err(|_| CredentialError::NotJson)?,
-        };
 
         let sent = http
             .send(HttpRequest {

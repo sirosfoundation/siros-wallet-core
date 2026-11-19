@@ -73,7 +73,7 @@ pub async fn resolve_issuer_metadata(
         match response.status {
             200 => {
                 // Parse the document.
-                let metadata = parse_metadata(&response.body, &response.headers)
+                let mut metadata = parse_metadata(&response.body, &response.headers)
                     .map_err(|_| IssuerMetadataError::NotAnObject)?;
 
                 // Exact identity: `credential_issuer` must equal the
@@ -83,6 +83,49 @@ pub async fn resolve_issuer_metadata(
                         expected: credential_issuer.to_owned(),
                         actual: metadata.credential_issuer,
                     });
+                }
+
+                // §11.3's `jwks_uri`: the issuer may publish its request-
+                // encryption key set by reference instead of inline (`jwks`).
+                // Resolve it here, at the metadata fetch — the request
+                // encryptor reads only the inline `jwks`. A fetch failure
+                // softens to no key set (the issuer's `encryption_required`
+                // then fails the request where it belongs, not the metadata).
+                if let Some(config) = metadata.credential_request_encryption.as_mut() {
+                    let jwks_uri = config
+                        .get("jwks_uri")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned);
+                    let inline_empty = config
+                        .pointer("/jwks/keys")
+                        .and_then(serde_json::Value::as_array)
+                        .is_none_or(|keys| keys.is_empty());
+                    if let (Some(uri), true) = (jwks_uri, inline_empty) {
+                        if let Ok(response) = http
+                            .send(HttpRequest {
+                                method: "GET".to_owned(),
+                                url: uri,
+                                headers: vec![("accept".to_owned(), "application/json".to_owned())],
+                                body: Vec::new(),
+                                purpose: FetchPurpose::IssuerMetadata,
+                                max_response_bytes: MAX_METADATA_BYTES,
+                                redirects: RedirectPolicy::Max(5),
+                                allow_plaintext: false,
+                                timeout_ms: 15_000,
+                            })
+                            .await
+                        {
+                            if response.status == 200 {
+                                if let Ok(keys) =
+                                    serde_json::from_slice::<serde_json::Value>(&response.body)
+                                {
+                                    if let Some(target) = config.as_object_mut() {
+                                        target.insert("jwks".to_owned(), keys);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 return Ok(metadata);

@@ -8,21 +8,30 @@ use super::credential::CredentialResponse;
 
 /// The issuer's `credential_request_encryption` metadata (OID4VCI 1.0
 /// **Final §11.3**): the issuer's own key set the Credential Request is
-/// encrypted to, the content-encryption algorithms it supports, and
-/// whether it requires the request encrypted.
+/// encrypted to, the algorithms it supports, and whether it requires the
+/// request encrypted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestEncryptionConfig {
     /// The issuer's keys (§11.3 `jwks`): the request encrypts to one of
-    /// these, its `kid` naming it in the JWE header.
+    /// these, its `kid` naming it in the JWE header. When the issuer
+    /// publishes `jwks_uri` instead, the metadata resolver fetches it and
+    /// populates this member (the resolution lives in `issuer.rs`, where
+    /// the metadata fetch itself runs).
     #[serde(default)]
     pub jwks: serde_json::Value,
+    /// The key-management algorithms the issuer supports (§11.3's
+    /// `alg_values_supported`, e.g. `ECDH-ES`). This stack implements
+    /// ECDH-ES; a list without it cannot be negotiated — unless the list
+    /// is empty and the key's own `alg` names it (Spherity's shape).
+    #[serde(default, alias = "alg_values_supported")]
+    pub alg_values: Vec<String>,
     /// The content-encryption algorithms the issuer supports (e.g.
     /// `A256GCM`) — the JWE's `enc`.
     #[serde(default, alias = "enc_values_supported")]
     pub enc_values: Vec<String>,
     /// Whether the issuer requires the request encrypted (§11.3's
-    /// `encryption_required`; Spherity's issuer enforces it with the
-    /// response offer even when false).
+    /// `encryption_required`). Spherity's issuer enforces it with the
+    /// response offer even when false.
     #[serde(default, alias = "encryption_required")]
     pub required: bool,
 }
@@ -49,6 +58,35 @@ impl RequestEncryptionConfig {
                     .to_owned();
                 Some((key.clone(), kid))
             })
+    }
+
+    /// The negotiated key-management algorithm (§11.3's
+    /// `alg_values_supported` × this stack's implemented family — ECDH-ES
+    /// direct, the same the response-side negotiation implements). An
+    /// issuer that publishes no list falls back to its key's own `alg`
+    /// (Spherity's shape: the key carries `alg: ECDH-ES`). `None` when
+    /// neither yields something implemented: the request cannot be
+    /// encrypted for this issuer.
+    #[must_use]
+    pub fn negotiated_alg(&self) -> Option<String> {
+        const IMPLEMENTED: [&str; 1] = ["ECDH-ES"];
+        if let Some(alg) = IMPLEMENTED
+            .iter()
+            .find(|alg| self.alg_values.iter().any(|v| v == *alg))
+        {
+            return Some((*alg).to_owned());
+        }
+        if !self.alg_values.is_empty() {
+            // A list that carries nothing implemented: the fallback must
+            // not second-guess the issuer's explicit advertisement.
+            return None;
+        }
+        self.encryption_key().and_then(|(key, _)| {
+            key.get("alg")
+                .and_then(serde_json::Value::as_str)
+                .filter(|alg| IMPLEMENTED.contains(alg))
+                .map(str::to_owned)
+        })
     }
 
     /// The first supported content-encryption algorithm (§11.3's
@@ -441,14 +479,15 @@ fn decode_base64url(encoded: &str) -> Option<Vec<u8>> {
 /// key, the `enc` from the issuer's `enc_values_supported` list, the
 /// issuer key's `kid` in the JWE header naming the target.
 ///
-/// §11.3: the Credential Request (or Deferred Credential Request) is sent
-/// as a JWE — the request body IS the plaintext, `application/oauth-authz-req+jwt`
-/// rides the content type. Spherity's issuer enforces it alongside a
-/// response-encryption offer ("to prevent the response-encryption key from
-/// being substituted by an attacker").
+/// §11.3: the Credential Request (and the Deferred Credential Request)
+/// is sent as a JWE — the request body IS the plaintext, the wire
+/// content type `application/jwt`. Spherity's issuer enforces it
+/// alongside a response-encryption offer ("to prevent the
+/// response-encryption key from being substituted by an attacker").
 ///
-/// The alg is ECDH-ES (the key-management the issuer's EC key carries);
-/// the `enc` is the issuer's first supported one.
+/// The alg is the §11.3 negotiation (`alg_values_supported` × this
+/// stack's ECDH-ES, the key's own `alg` as the empty-list fallback); the
+/// `enc` is the issuer's first supported one.
 pub fn encrypt_request_body(
     config: &RequestEncryptionConfig,
     request_body: &serde_json::Value,
@@ -456,24 +495,27 @@ pub fn encrypt_request_body(
     let (key, kid) = config
         .encryption_key()
         .ok_or(EncryptionError::KeyGeneration)?;
-    let enc = config
-        .preferred_enc()
-        .ok_or(EncryptionError::KeyGeneration)?;
+    let alg = config.negotiated_alg().ok_or(EncryptionError::NoOverlap)?;
+    let enc = config.preferred_enc().ok_or(EncryptionError::NoOverlap)?;
     let enc_name = match enc.as_str() {
         "A256GCM" => jose_rs::algorithm::JweEncryption::A256GCM,
         "A128GCM" => jose_rs::algorithm::JweEncryption::A128GCM,
         // The preferred_enc filter only yields the implemented pair.
-        _ => return Err(EncryptionError::KeyGeneration),
+        _ => return Err(EncryptionError::NoOverlap),
+    };
+    let alg_name = match alg.as_str() {
+        "ECDH-ES" => jose_rs::algorithm::JweAlgorithm::EcdhEs,
+        // The negotiated_alg filter only yields the implemented family.
+        _ => return Err(EncryptionError::NoOverlap),
     };
     let jwk: jose_rs::jwk::Jwk =
         serde_json::from_value(key).map_err(|_| EncryptionError::KeyGeneration)?;
     let mut recipient = jwk;
-    recipient.alg = Some("ECDH-ES".to_owned());
+    recipient.alg = Some(alg.clone());
     let plaintext = serde_json::to_vec(request_body).map_err(|_| EncryptionError::NotJson)?;
     // The JWE header names the target key by its kid (§11.3): the issuer
     // resolves its own key set from it.
-    let mut header =
-        jose_rs::header::JoseHeader::for_jwe(jose_rs::algorithm::JweAlgorithm::EcdhEs, enc_name);
+    let mut header = jose_rs::header::JoseHeader::for_jwe(alg_name, enc_name);
     header.kid = Some(kid);
     jose_rs::jwe::compact::encrypt_with_jwk_header(&recipient, header, &plaintext, enc_name)
         .map_err(|_| EncryptionError::KeyGeneration)
