@@ -187,6 +187,16 @@ export class MiniWallet {
         flowId,
         step: typeof (params as Record<string, unknown>).step === "string" ? (params as Record<string, unknown>).step as string : "",
       });
+      return;
+    }
+    if (message.method === "wmp.flow.complete") {
+      // The completion frame: {wmp, flow_id, …result}. The credentials
+      // ride the result members (params.result when the transport wraps
+      // one, the params themselves when they ARE the result).
+      const result = ((params.result ?? params) as Record<string, unknown>);
+      const pending = this.#pending.get(flowId);
+      this.#pending.delete(flowId);
+      pending?.resolve(this.#complete(flowId, result));
     }
   }
 
@@ -221,17 +231,18 @@ export class MiniWallet {
       typeof offer === "string" ? await this.#resolveOffer(offer) : normalizeOffer(offer, "inline");
     const { engine, sessionId } = await this.#ensureEngine();
     const flowId = `flow-${crypto.randomUUID()}`;
-    const answer = (await engine.request("wmp.flow.start", {
-      wmp: { session_id: sessionId, version: "0.1" },
-      flow_id: flowId,
-      flow_type: "oid4vci",
-      params: {
-        credential_issuer: normalized.credential_issuer,
-        credential_configuration_ids: normalized.credential_configuration_ids,
-        grants: normalized.grants,
-      },
-    })) as Record<string, unknown> | null;
-    return answer ? this.#complete(flowId, answer) : answer;
+    return this.#runFlow(flowId, () =>
+      engine.request("wmp.flow.start", {
+        wmp: { session_id: sessionId, version: "0.1" },
+        flow_id: flowId,
+        flow_type: "oid4vci",
+        params: {
+          credential_issuer: normalized.credential_issuer,
+          credential_configuration_ids: normalized.credential_configuration_ids,
+          grants: normalized.grants,
+        },
+      }),
+    );
   }
 
   /**
@@ -243,13 +254,56 @@ export class MiniWallet {
     const { params } = unwrapAuthorizationRequest(request);
     const { engine, sessionId } = await this.#ensureEngine();
     const flowId = `flow-${crypto.randomUUID()}`;
-    const answer = (await engine.request("wmp.flow.start", {
-      wmp: { session_id: sessionId, version: "0.1" },
-      flow_id: flowId,
-      flow_type: "oid4vp",
-      params,
-    })) as Record<string, unknown> | null;
-    return answer ? this.#complete(flowId, answer) : answer;
+    return this.#runFlow(flowId, () =>
+      engine.request("wmp.flow.start", {
+        wmp: { session_id: sessionId, version: "0.1" },
+        flow_id: flowId,
+        flow_type: "oid4vp",
+        params,
+      }),
+    );
+  }
+
+  /** Run one flow: the start's request may resolve WITH the completion
+   *  (the synchronous shape — the conformance smoke's) or with the bare
+   *  started envelope ({flow_id, flow_type, wmp}), the completion joining
+   *  later through the notification sink. Both paths resolve the same
+   *  promise exactly once. */
+  #runFlow(flowId: string, start: () => Promise<unknown>): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (value: unknown) => {
+        if (settled) return;
+        settled = true;
+        this.#pending.delete(flowId);
+        resolve(value);
+      };
+      this.#pending.set(flowId, {
+        resolve: (result) => finish(this.#complete(flowId, result as Record<string, unknown>)),
+        reject: (err) => {
+          if (settled) return;
+          settled = true;
+          this.#pending.delete(flowId);
+          reject(err);
+        },
+      });
+      start()
+        .then((answer) => {
+          const result = answer as Record<string, unknown> | null;
+          // The synchronous completion carries the flow's result members
+          // (credentials, redirect_uri); the bare started envelope does
+          // not — the completion joins via the sink.
+          if (result && (result.credentials || result.redirect_uri !== undefined)) {
+            finish(this.#complete(flowId, result));
+          }
+        })
+        .catch((err) => {
+          if (settled) return;
+          settled = true;
+          this.#pending.delete(flowId);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        });
+    });
   }
 
   async #resolveOffer(uri: string) {
@@ -427,6 +481,11 @@ export class MiniWallet {
 function publicOf(jwk: Record<string, unknown>): Record<string, unknown> {
   const out = { ...jwk };
   delete out.d;
+  // The private export's key_ops says ["sign"] — a public JWK advertising
+  // sign-only makes every verifier refuse to verify with it (found on
+  // the wire: the issuer's invalid_proof, "JWK key_ops does not include
+  // verify"). The public half carries no key_ops at all.
+  delete out.key_ops;
   return out;
 }
 
@@ -445,9 +504,13 @@ function defaultFetch(): MiniWalletFetch {
       headers[req.headers[i]!] = req.headers[i + 1]!;
     }
     const init: RequestInit = { method: req.method, headers };
-    // The port sends body: null on bodyless requests — the fetch API
-    // refuses a body on GET/HEAD.
-    if (req.body != null && req.method !== "GET" && req.method !== "HEAD") init.body = req.body;
+    // The port sends body: null on bodyless requests (the fetch API
+    // refuses a body on GET/HEAD), and its bodies are BYTE ARRAYS —
+    // fetch stringifies a bare array comma-joined, so the bytes must
+    // cross as bytes.
+    if (req.body != null && req.method !== "GET" && req.method !== "HEAD") {
+      init.body = typeof req.body === "string" ? req.body : new Uint8Array(req.body);
+    }
     const response = await fetch(req.url, init);
     const flat: string[] = [];
     response.headers.forEach((value, name) => flat.push(name, value));

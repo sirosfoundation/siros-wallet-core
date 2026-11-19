@@ -33,9 +33,13 @@ document.getElementById("run").addEventListener("click", async () => {
         ? "/api/issuer" + req.url.slice(ISSUER.length)
         : req.url;
       const init = { method: req.method, headers };
-      // The engine's port sends body: null on bodyless requests — the
-      // fetch API refuses a body on GET/HEAD.
-      if (req.body != null && req.method !== "GET" && req.method !== "HEAD") init.body = req.body;
+      // The engine's port sends body: null on bodyless requests (the
+      // fetch API refuses a body on GET/HEAD), and its bodies are BYTE
+      // ARRAYS - fetch stringifies a bare array comma-joined, so the
+      // bytes must cross as bytes.
+      if (req.body != null && req.method !== "GET" && req.method !== "HEAD") {
+        init.body = typeof req.body === "string" ? req.body : new Uint8Array(req.body);
+      }
       const response = await fetch(url, init);
       const flat = [];
       response.headers.forEach((value, name) => flat.push(name, value));
@@ -85,6 +89,6 @@ document.getElementById("run").addEventListener("click", async () => {
       </ul>`;
     log("4/4 done — the wallet holds the nym_auth credential; a passkey can wrap it later via migrate().");
   } catch (e) {
-    log(`the flow stopped: ${e && e.message ? e.message : JSON.stringify(e).slice(0, 600)}\n${e && e.stack ? e.stack.split('\n').slice(1, 4).join('\n') : ''}`);
+    log(`the flow stopped: ${e && e.data ? JSON.stringify(e).slice(0, 700) : (e && e.message ? e.message : JSON.stringify(e).slice(0, 700))}`);
   }
 });

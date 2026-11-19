@@ -87,13 +87,21 @@ const server = createServer(async (req, res) => {
       // issuer (no CORS on the OID4VCI surface); the page's fetch port
       // rewrites issuer URLs onto this proxy.
       const path = url.pathname.slice("/api/issuer".length) + url.search;
+      // Forward the meaningful headers verbatim — the engine's DPoP
+      // and the access token's Authorization ride the same hop (dropping
+      // them made the credential endpoint answer "missing access token"
+      // with the token right there in the request; found on the wire).
+      const HOP = new Set(["host", "connection", "content-length", "accept-encoding", "accept", "user-agent", "origin", "referer", "sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "accept-language"]);
       const init = { method: req.method, headers: {} };
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (!HOP.has(k)) init.headers[k] = v;
+      }
       if (req.method !== "GET" && req.method !== "HEAD") {
-        init.headers["Content-Type"] = "application/json";
         init.body = await readBody(req);
       }
       const upstream = await fetch(`${ISSUER}${path}`, init);
       const text = await upstream.text();
+      console.log(`[issuer] ${req.method} ${path} -> ${upstream.status}${upstream.status >= 400 ? " answer: " + text.slice(0, 300) : ""} headers: ${JSON.stringify(req.headers)}${init.body ? " body: " + String(init.body).slice(0, 1500) : ""}`);
       res.writeHead(upstream.status, {
         "content-type": upstream.headers.get("content-type") ?? "application/json",
       });
