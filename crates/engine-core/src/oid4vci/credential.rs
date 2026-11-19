@@ -499,7 +499,9 @@ pub async fn request_credential(
             .map(|v| v == "1")
             .unwrap_or(false)
     {
-        let head = &response.body[..response.body.len().min(256)];
+        // The first 256 bytes only, and only of a REFUSAL (the credentials
+        // ride 200 responses, never here).
+        let head: &[u8] = response.body.get(..256).unwrap_or(&response.body);
         eprintln!(
             "engine: credential refusal body for {}: {}",
             configuration_id,
