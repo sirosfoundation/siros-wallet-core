@@ -38,6 +38,17 @@ pub struct EngineHandler {
     /// new flows). The standalone default answers nothing; the backend
     /// adapter implements it against its store.
     gate: Arc<dyn crate::token::TokenGate>,
+    /// The invitation store + verifier (issue #77): a `wmp.session.create`
+    /// carrying an `invitation_nonce` consumes it single-use here.
+    invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+    invitation_verifier: Option<Arc<dyn wmp_core::invitation::InvitationVerifier>>,
+    /// The message mailbox (issue #77): the `wmp.message.deliver` target
+    /// store, the `wmp.message.poll` source.
+    mailbox: Arc<crate::mailbox::Mailbox>,
+    /// The outbound event log (issue #77's deliver pushes through it): the
+    /// recipient session's SSE stream delivers the message live, the
+    /// replay serves the reconnect.
+    outbox: Arc<crate::outbox::Outbox>,
 }
 
 impl EngineHandler {
@@ -57,7 +68,9 @@ impl EngineHandler {
                 store: Some(store.clone()),
                 default_ttl_secs: config.default_session_ttl_secs,
                 entropy: Some(os_entropy()),
-                replay: Some(Arc::new(OutboxReplayer { outbox })),
+                replay: Some(Arc::new(OutboxReplayer {
+                    outbox: outbox.clone(),
+                })),
                 // The flows capability the engine's families gate on
                 // (core §10.3): the session create advertises it, so a
                 // client that did not offer it refuses at the session,
@@ -79,7 +92,62 @@ impl EngineHandler {
             runtime,
             flows,
             gate: Arc::new(crate::token::NoTokenGate),
+            // The without-invitations shape (issue #77): an empty store —
+            // a create carrying a nonce answers -31002 (nobody issued it).
+            invitations: Arc::new(wmp_core::invitation::MemoryInvitationStore::new()),
+            invitation_verifier: None,
+            mailbox: Arc::new(crate::mailbox::Mailbox::new()),
+            outbox,
         })
+    }
+
+    /// Builds the handler with the invitation service (issue #77): the
+    /// store (the consume path's single-use source) and the verifier
+    /// (the engine's own invitation key — the provider-delegate model).
+    #[must_use]
+    pub fn new_with_invitations(
+        config: &Config,
+        store: &Arc<MemorySessionStore>,
+        outbox: &Arc<Outbox>,
+        flows: &Arc<crate::host_bridge::FlowSessions>,
+        runtime: &Arc<engine_core::runtime::FlowRuntime>,
+        invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+        invitation_key: Option<&Arc<crate::invitation::InvitationKey>>,
+    ) -> Arc<Self> {
+        let mut handler = Self::new(
+            config,
+            store,
+            runtime.clone(),
+            outbox.clone(),
+            flows.clone(),
+        );
+        let invitation_verifier = invitation_key.map(|key| {
+            Arc::new(crate::invitation::EngineInvitationVerifier::new(
+                key.clone(),
+            )) as Arc<dyn wmp_core::invitation::InvitationVerifier>
+        });
+        // A uniquely-held handler at construction: the swap cannot fail in
+        // the build path that calls it (new() answers a refcount-1 Arc).
+        let Some(mut_handler) = Arc::get_mut(&mut handler) else {
+            eprintln!("engine-server: the handler invitation service cannot be set under shares");
+            std::process::exit(1);
+        };
+        mut_handler.invitations = invitations;
+        mut_handler.invitation_verifier = invitation_verifier;
+        handler
+    }
+
+    /// The message mailbox (issue #77): `wmp.message.deliver` writes,
+    /// `wmp.message.poll` reads. The builder's setter (the peer's
+    /// constructor path keeps the default).
+    #[must_use]
+    pub fn with_mailbox(mut self: Arc<Self>, mailbox: Arc<crate::mailbox::Mailbox>) -> Arc<Self> {
+        let handler = Arc::get_mut(&mut self).unwrap_or_else(|| {
+            eprintln!("engine-server: the mailbox cannot be set under shares");
+            std::process::exit(1);
+        });
+        handler.mailbox = mailbox;
+        self
     }
 
     /// Overrides the #319 lifecycle gate (the backend adapter's
@@ -105,6 +173,19 @@ impl Handler for EngineHandler {
         ctx: &RequestContext,
         params: &SessionCreateParams,
     ) -> Result<SessionCreateResult, HandlerError> {
+        // Issue #77: an `invitation_nonce` consumes single-use here — the
+        // store's consume IS the single-use, the expiry and signature the
+        // same validation (`validate_invitation_nonce`, the core's rule:
+        // every failure is -31002).
+        if !params.invitation_nonce.is_empty() {
+            let now = system_clock()();
+            wmp_core::invitation::validate_invitation_nonce(
+                &*self.invitations,
+                now,
+                &params.invitation_nonce,
+                self.invitation_verifier.as_deref(),
+            )?;
+        }
         self.session.session_create(ctx, params)
     }
 
@@ -126,6 +207,102 @@ impl Handler for EngineHandler {
         params: &SessionAuthenticateParams,
     ) -> Result<SessionAuthenticateResult, HandlerError> {
         self.session.session_authenticate(ctx, params)
+    }
+
+    // ── Message passing (issue #77): deliver → the recipients' mailbox
+    // + outbox; poll → the caller's mailbox; ack → the marks. ─────────
+
+    /// `wmp.message.deliver` (notification): the message lands in each
+    /// recipient session's mailbox AND on its outbox — the SSE stream
+    /// delivers it live, the replay serves the reconnect, the poll pulls.
+    ///
+    /// The message id: the params' own id when carried, else derived
+    /// (`msg-` + the delivery's timestamp). The recipients: `to`'s
+    /// session ids; empty is a refusal (`-32602`) — a delivery to nobody
+    /// is not a delivery.
+    fn message_deliver(&self, _ctx: &RequestContext, params: &MessageDeliverParams) {
+        use wmp_core::methods::METHOD_MESSAGE_DELIVER;
+        // The body (or the ciphertext) rides the envelope verbatim — an
+        // absent body is legal (the ciphertext member may carry it).
+        let message_id = format!(
+            "msg-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or_default()
+        );
+        let envelope = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": METHOD_MESSAGE_DELIVER,
+            "params": serde_json::to_value(params).unwrap_or(serde_json::Value::Null),
+            "wmp_message_id": message_id,
+        });
+        let message = serde_json::to_vec(&envelope).unwrap_or_default();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or_default();
+        let entries = self.mailbox.deliver(params, &message_id, &message, now);
+        // The outbox push per recipient: the SSE stream carries it live.
+        for (session, _entry) in &entries {
+            let push = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": METHOD_MESSAGE_DELIVER,
+                "params": {
+                    "wmp": { "session_id": session, "version": params.wmp.version },
+                    "to": [session],
+                    "message_id": message_id,
+                    "wmp_message_id": message_id,
+                },
+            });
+            let _ = self
+                .outbox
+                .write(serde_json::to_vec(&push).unwrap_or_default().as_slice());
+        }
+    }
+
+    /// `wmp.message.ack` (notification): mark the caller's entries.
+    fn message_ack(&self, ctx: &RequestContext, params: &MessageAckParams) {
+        let session = &params.wmp.session_id;
+        if session.is_empty() {
+            return;
+        }
+        let _ = self
+            .mailbox
+            .ack(session, &params.message_ids, &params.status);
+        let _ = ctx;
+    }
+
+    /// `wmp.message.status` (notification): the status report — the
+    /// engine's mailbox is the source of truth for the ids it names, but
+    /// the notification needs no answer.
+    fn message_status(&self, _ctx: &RequestContext, _params: &MessageStatusParams) {}
+
+    /// `wmp.message.poll`: the caller's entries after `since`, up to
+    /// `limit`, oldest first.
+    fn message_poll(
+        &self,
+        _ctx: &RequestContext,
+        params: &MessagePollParams,
+    ) -> Result<MessagePollResult, HandlerError> {
+        let session = &params.wmp.session_id;
+        if session.is_empty() {
+            return Err(RpcError::code(ERR_INVALID_PARAMS).into());
+        }
+        let entries = self.mailbox.poll(session, &params.since, params.limit);
+        // The entries' envelopes are JSON the deliver serialized; one that
+        // does not parse back (never, by the writer's own serialization)
+        // is skipped, never a panic.
+        let messages = entries
+            .iter()
+            .filter_map(|entry| {
+                serde_json::from_slice::<Box<serde_json::value::RawValue>>(&entry.message).ok()
+            })
+            .collect();
+        Ok(MessagePollResult {
+            wmp: params.wmp.clone(),
+            messages,
+        })
     }
 
     // ── Resolve: the vctm lookup (WMP Core 5.8) ─────────────────────────

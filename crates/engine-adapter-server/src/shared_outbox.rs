@@ -88,6 +88,9 @@ pub fn shared_outbox(
     backend: &str,
     valkey_url: Option<&str>,
 ) -> Result<Arc<dyn SharedOutbox>, String> {
+    // The valkey backend reads it; the memory-only build does not (the
+    // parameter stays for the call sites' one shape).
+    let _ = &valkey_url;
     match backend {
         "memory" | "" => Ok(Arc::new(super::outbox::Outbox::new())),
         #[cfg(feature = "valkey")]

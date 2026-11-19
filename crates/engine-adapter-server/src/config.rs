@@ -74,6 +74,14 @@ pub struct Config {
     /// `sub` is a rotating pseudonym and the tenant owns the session.
     /// Default `user`.
     pub principal_mode: wmp_core::principal::PrincipalMode,
+    /// The provider's own public base URL (`ENGINE_PUBLIC_URL`,
+    /// issue #77): the invitation's `provider` field — the domain the
+    /// counterparty's discovery resolves against. Empty disables the
+    /// invitation endpoint (the create route answers `-32601`).
+    pub public_url: String,
+    /// The invitation TTL in seconds when a create carries none
+    /// (`ENGINE_INVITATION_TTL_SECS`, issue #77). Default 900.
+    pub invitation_ttl_secs: i64,
 }
 
 impl Default for Config {
@@ -93,6 +101,8 @@ impl Default for Config {
             require_authorization_response_issuer: false,
             max_concurrent_flows: 16,
             principal_mode: wmp_core::principal::PrincipalMode::User,
+            public_url: String::new(),
+            invitation_ttl_secs: 900,
         }
     }
 }
@@ -167,6 +177,14 @@ impl Config {
         }
         if let Some(value) = text("ENGINE_PDP_URL") {
             config.pdp_url = value;
+        }
+        if let Some(value) = text("ENGINE_PUBLIC_URL") {
+            config.public_url = value;
+        }
+        if let Some(value) = text("ENGINE_INVITATION_TTL_SECS") {
+            if let Ok(parsed) = value.trim().parse() {
+                config.invitation_ttl_secs = parsed;
+            }
         }
         if let Some(value) = text("ENGINE_PDP_TOKEN") {
             config.pdp_token = value;

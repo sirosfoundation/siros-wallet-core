@@ -36,6 +36,9 @@ pub fn router(server: Arc<EngineServer>) -> Router {
     Router::new()
         .route("/wmp", get(get_wmp_ws).post(post_wmp))
         .route("/wmp/events", get(get_events))
+        // Issue #77: the invitation create — the QR/deep-link the
+        // counterparty consumes out-of-band to bootstrap a session.
+        .route("/wmp/invitation", post(post_invitation))
         .route("/v1/evaluate", post(post_evaluate))
         .route("/v1/resolve", post(post_resolve))
         .route("/healthz", get(get_healthz))
@@ -319,6 +322,122 @@ async fn get_readyz(State(server): State<Arc<EngineServer>>) -> Response {
     // here, not in a client's flow.
     let _probe = wmp_core::session::SessionStore::get(&*server.store, "readyz-probe");
     (StatusCode::OK, "ready").into_response()
+}
+
+/// `POST /wmp/invitation` (issue #77): mints, signs and stores one
+/// invitation, answering its URI + the invitation object.
+///
+/// The principal: the bearer token (the same `bearer_principal` gate the
+/// POST route uses — the invitation's sender IS the authenticated
+/// caller). The provider: the deployment's `public_url`
+/// (`ENGINE_PUBLIC_URL`); unset answers `-32601` (the deployment opted
+/// out of the invitation endpoint).
+///
+/// The TTL: the caller's `ttl_secs` when carried (capped at the config's
+/// `invitation_ttl_secs`), else the config's default. The nonce:
+/// `generate_nonce` (128 entropy bits). The signature: the engine's
+/// `InvitationKey` signs the signing payload (the ES256 JWS compact,
+/// the `signature` field). The store: `put` (the consume path's
+/// single-use source).
+///
+/// The answer: `{ invitation, uri }` — the `wmp://invite?data=` form
+/// (the QR/deep-link), the invitation itself for the caller's records.
+/// The HTTPS fallback form is derivable (`invitation.https_uri()`).
+async fn post_invitation(
+    State(server): State<Arc<EngineServer>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    use wmp_core::invitation::{new_invitation, InvitationStore};
+
+    // The principal: the bearer token the AS validated (the sender).
+    let principal = bearer_principal(&headers, &server.validator, server.config.principal_mode);
+    let Some(principal) = principal.filter(|p| p.is_authenticated()) else {
+        return error_response(
+            wmp_core::error::ERR_NOT_AUTHORIZED as i64,
+            "authentication required",
+        );
+    };
+    // The provider: the deployment's public URL. Unset: the endpoint opts
+    // out (the invitation names a provider the counterparty resolves).
+    if server.config.public_url.is_empty() {
+        return error_response(
+            wmp_core::error::ERR_METHOD_NOT_FOUND as i64,
+            "the invitation endpoint is not configured",
+        );
+    }
+    let Some(key) = server.invitation_key.as_ref() else {
+        return error_response(
+            wmp_core::error::ERR_INTERNAL_ERROR as i64,
+            "the invitation key is unavailable",
+        );
+    };
+
+    // The caller's ttl, else the default, capped.
+    let default_ttl = server.config.invitation_ttl_secs;
+    let ttl_secs = serde_json::from_slice::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|value| value.get("ttl_secs").and_then(serde_json::Value::as_i64))
+        .filter(|ttl| *ttl > 0)
+        .map(|ttl| ttl.min(default_ttl))
+        .unwrap_or(default_ttl);
+
+    // Mint, sign, store.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_default();
+    // The engine's own OS RNG port (ports::OsRng): the same source the
+    // flows' random choices use, wrapped in the entropy closure the
+    // invitation nonce wants.
+    let entropy: wmp_core::sessionservice::EntropyFn = {
+        let rng = crate::ports::OsRng;
+        std::sync::Arc::new(move |bytes: &mut [u8]| {
+            use engine_ports::Rng;
+            rng.fill(bytes)
+        })
+    };
+    let mut invitation = match new_invitation(
+        &server.config.public_url,
+        &principal.key(),
+        ttl_secs,
+        now,
+        &entropy,
+    ) {
+        Ok(invitation) => invitation,
+        Err(err) => {
+            return error_response(wmp_core::error::ERR_INTERNAL_ERROR as i64, &err.to_string())
+        }
+    };
+    if let Err(err) = key.sign(&mut invitation) {
+        return error_response(wmp_core::error::ERR_INTERNAL_ERROR as i64, &err.to_string());
+    }
+    if let Err(err) = server.invitations.put(&invitation.nonce, &invitation) {
+        return error_response(wmp_core::error::ERR_INTERNAL_ERROR as i64, &err.to_string());
+    }
+    let uri = match invitation.uri() {
+        Ok(uri) => uri,
+        Err(err) => {
+            return error_response(wmp_core::error::ERR_INTERNAL_ERROR as i64, &err.to_string())
+        }
+    };
+
+    let invitation_json = serde_json::to_value(&invitation).unwrap_or(serde_json::Value::Null);
+    let json = serde_json::json!({
+        "invitation": invitation_json,
+        "uri": uri,
+    });
+    (StatusCode::OK, axum::Json(json)).into_response()
+}
+
+/// A JSON-RPC error body as an HTTP response (the endpoint's form — the
+/// invitation route is plain HTTP, not a JSON-RPC call, so the codes ride
+/// a simple error object).
+fn error_response(code: i64, message: &str) -> Response {
+    let json = serde_json::json!({
+        "error": { "code": code, "message": message },
+    });
+    (StatusCode::BAD_REQUEST, axum::Json(json)).into_response()
 }
 
 /// The principal from the `Authorization: Bearer <token>` header, validated
