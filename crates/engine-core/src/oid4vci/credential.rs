@@ -441,9 +441,22 @@ pub async fn request_credential(
                 timeout_ms: 30_000,
             })
             .await
-            .map_err(|err| match err {
-                HttpError::Refused => CredentialError::Fetch("refused by the adapter".to_owned()),
-                HttpError::Transport(detail) => CredentialError::Fetch(detail),
+            .map_err(|err| {
+                // Issue #72's diagnostics: the transport failure's class.
+                eprintln!(
+                    "engine: credential POST to {} failed: {}",
+                    credential_endpoint,
+                    match &err {
+                        HttpError::Refused => "refused".to_owned(),
+                        HttpError::Transport(detail) => format!("transport {detail}"),
+                    }
+                );
+                match err {
+                    HttpError::Refused => {
+                        CredentialError::Fetch("refused by the adapter".to_owned())
+                    }
+                    HttpError::Transport(detail) => CredentialError::Fetch(detail),
+                }
             })?;
 
         if attempt == 1 || !super::dpop::is_dpop_nonce_error(&sent) {
@@ -498,6 +511,15 @@ pub async fn request_credential(
         return Err(CredentialError::Status(response.status));
     }
 
+    // Issue #72's diagnostics: the stall point (the engine went silent between
+    // the proof and the POST on a v0.2.28 phone scan). The outcome lines name
+    // the path taken; nothing of the request or response content.
+    eprintln!(
+        "engine: credential response for {} answered {} (encrypted={})",
+        configuration_id,
+        response.status,
+        super::encryption::is_encrypted_response("", &response.body)
+    );
     let was_encrypted = super::encryption::is_encrypted_response("", &response.body);
     let mut credential_response: CredentialResponse = if was_encrypted {
         let Some(encryption) = encryption else {
@@ -516,6 +538,12 @@ pub async fn request_credential(
             // this answers the credential request, not a deferred one).
             // The plaintext response exists only on the host; the engine
             // parses the JSON it relays back, nothing else.
+            // Issue #72's diagnostics: the decrypt ask fires (the stall
+            // window's last visible point).
+            eprintln!(
+                "engine: decrypt ask firing for {} (client-held)",
+                configuration_id
+            );
             let answer = host
                 .request_decrypt_credential_response(
                     engine_ports::DecryptCredentialResponseParams {

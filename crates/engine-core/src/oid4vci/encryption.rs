@@ -207,6 +207,17 @@ pub async fn negotiate_with_host(
         // The legacy host: the engine-held ephemeral pair.
         _ => ResponseKey::Engine(Box::new(EphemeralResponseKey::generate().ok()?)),
     };
+    // Issue #72's diagnostics: which custody the response key took
+    // (never the key material itself).
+    eprintln!(
+        "engine: response key for {} is {}",
+        configuration_id,
+        if key.is_client() {
+            "client-held"
+        } else {
+            "engine-held"
+        }
+    );
     Some(NegotiatedResponseEncryption {
         negotiated,
         key,

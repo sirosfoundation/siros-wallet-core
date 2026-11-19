@@ -251,6 +251,8 @@ impl Host for RemoteHost {
         let session = self.session(&params.flow_id);
         // Issue #59: the host's key generation is fast (a local pair);
         // the MATCH bound (30 s) is the Go ask-family's short one.
+        // Issue #72's diagnostics: the ask's round-trip (start + outcome)
+        // — the phone's stall was silent in this window.
         let answer = bridge
             .request(
                 &ctx,
@@ -261,7 +263,17 @@ impl Host for RemoteHost {
                 crate::host_bridge::ask::MATCH,
             )
             .await
-            .map_err(|err| err.into_host_error())?;
+            .map_err(|err| {
+                eprintln!(
+                    "engine: response_encryption_key ask for {} failed: {err}",
+                    params.credential_configuration_id
+                );
+                err.into_host_error()
+            })?;
+        eprintln!(
+            "engine: response_encryption_key ask for {} answered",
+            params.credential_configuration_id
+        );
         serde_json::from_str(answer.get()).map_err(|_| {
             HostError::Cannot("the response-encryption-key answer does not parse".to_owned())
         })
@@ -276,6 +288,7 @@ impl Host for RemoteHost {
         let session = self.session(&params.flow_id);
         // Issue #59: the decrypt is local to the host (its own key, one
         // JWE); the MATCH bound (30 s) covers it.
+        // Issue #72's diagnostics: the ask's round-trip (start + outcome).
         let answer = bridge
             .request(
                 &ctx,
@@ -286,7 +299,17 @@ impl Host for RemoteHost {
                 crate::host_bridge::ask::MATCH,
             )
             .await
-            .map_err(|err| err.into_host_error())?;
+            .map_err(|err| {
+                eprintln!(
+                    "engine: decrypt_credential_response ask for {} failed: {err}",
+                    params.credential_configuration_id
+                );
+                err.into_host_error()
+            })?;
+        eprintln!(
+            "engine: decrypt_credential_response ask for {} answered",
+            params.credential_configuration_id
+        );
         serde_json::from_str(answer.get()).map_err(|_| {
             HostError::Cannot("the decrypt-credential-response answer does not parse".to_owned())
         })
