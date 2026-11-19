@@ -115,35 +115,53 @@ impl Outbox {
     }
 
     /// The events after `last_id` the session still retains, oldest first.
-    /// A client at 0 — a fresh connect, no `Last-Event-ID` — replays
-    /// nothing and goes straight to the live stream. A client past 0
-    /// replays its gap; a `last_id` below the retained window answers
-    /// [`ReplayGap`] — the SSE binding's `410 Gone`, and the client must
-    /// resume the session.
+    /// A client at 0 — a fresh connect, no `Last-Event-ID` — **replays the
+    /// whole retained window** (issue #72): a stream that never delivered a
+    /// byte (the black-holed half-open socket, the 2026-11-14 class) carries
+    /// no `lastEventId` to name what it missed, and the engine's asks are
+    /// unrecoverable without the replay — the wallet's first scan of a fresh
+    /// pre-authorized code lost its attestation ask this way (the request
+    /// went out without the client attestation, the issuer refused, the
+    /// single-use code burnt). A client past 0 replays its gap; a
+    /// `last_id` below the retained window answers [`ReplayGap`] — the SSE
+    /// binding's `410 Gone`, and the client must resume the session.
+    ///
+    /// The redaction (the log's [`redact`], go-wmp's #163) already guards
+    /// the replayable events; the client dedupes by event id (the SDK's
+    /// `seenEventIds`), so a redelivered overlap is dropped, not doubled.
     pub fn replay(&self, session: &str, last_id: u64) -> Result<Vec<LoggedEvent>, ReplayGap> {
-        // A fresh connect (no last id) goes live: the replay is the
-        // catch-up for a client that was connected, not a start-of-stream
-        // dump.
-        if last_id == 0 {
-            return Ok(Vec::new());
-        }
         let logs = self.logs.lock().unwrap_or_else(|p| p.into_inner());
         let Some(log) = logs.get(session) else {
-            // No log: nothing was ever sent, and the client claims to have
-            // seen something — behind a log that never existed.
+            // No log: nothing was ever sent. A client past 0 claims to have
+            // seen something — behind a log that never existed. A client at
+            // 0 missed nothing: the live stream is the whole truth.
+            if last_id == 0 {
+                return Ok(Vec::new());
+            }
             return Err(ReplayGap);
         };
         let Some(oldest) = log.oldest() else {
             // An empty log: the same rule as no log.
+            if last_id == 0 {
+                return Ok(Vec::new());
+            }
             return Err(ReplayGap);
         };
         if last_id + 1 < oldest {
             return Err(ReplayGap);
         }
+        // A client at 0 replays from the OLDEST RETAINED event (the whole
+        // window): the black-holed first stream never named what it missed
+        // (issue #72), so 0 means "nothing was delivered", not "all was".
+        let after = if last_id == 0 {
+            oldest.saturating_sub(1)
+        } else {
+            last_id
+        };
         Ok(log
             .events
             .iter()
-            .filter(|event| event.id > last_id)
+            .filter(|event| event.id > after)
             .cloned()
             .collect())
     }

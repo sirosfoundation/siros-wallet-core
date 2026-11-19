@@ -101,15 +101,23 @@ fn replay_returns_the_events_after_the_last_id() {
     assert!(outbox.replay("ses-1", 3).expect("at the newest").is_empty());
     // A client ahead of every event has none.
     assert!(outbox.replay("ses-1", 9).expect("ahead").is_empty());
-    // A fresh connect at 0 replays nothing, with or without a log.
+    // A fresh session (no log) replays nothing.
     assert!(outbox
         .replay("another-session", 0)
         .expect("a fresh session replays nothing")
         .is_empty());
-    assert!(outbox
+    // A fresh connect at 0 — the black-holed first stream of issue #72 —
+    // replays the WHOLE retained window (the stream that never delivered a
+    // byte carries no lastEventId to name what it missed): oldest first,
+    // every event the log holds.
+    let fresh = outbox
         .replay("ses-1", 0)
-        .expect("a fresh connect")
-        .is_empty());
+        .expect("a fresh connect replays the window");
+    assert_eq!(
+        fresh.iter().map(|event| event.id).collect::<Vec<_>>(),
+        [1, 2, 3],
+        "the fresh connect's replay is the whole log, oldest first"
+    );
 }
 
 #[test]
@@ -125,11 +133,10 @@ fn replay_behind_the_retention_window_answers_the_gap() {
     }
     // The window holds events 3..=(RETAIN+2). A client at 1 is behind it.
     assert!(matches!(outbox.replay("ses-1", 1), Err(ReplayGap)));
-    // A fresh connect at 0 replays nothing.
-    assert!(outbox
-        .replay("ses-1", 0)
-        .expect("a fresh connect")
-        .is_empty());
+    // A fresh connect at 0 behind the window answers the SAME gap (issue
+    // #72): the whole window cannot be reconstructed — events 1-2 are
+    // gone — so the client must resume the session, not be answered live.
+    assert!(matches!(outbox.replay("ses-1", 0), Err(ReplayGap)));
     // A client at 2 replays from the window's oldest (3) on.
     let inside = outbox
         .replay("ses-1", 2)
