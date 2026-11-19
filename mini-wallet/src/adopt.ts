@@ -16,6 +16,50 @@
 // unencrypted localStorage phase, upgraded to a server-side account.
 
 import type { TrustPlugin, TrustTokenProvider } from "./trust.js";
+
+// ── The tagged-binary wire format ────────────────────────────────────────
+// The backend serializes WebAuthn's binary members (challenge, user.id,
+// the credential's rawId/attestationObject…) as {"$b64u": "…"} tags —
+// the wallet-frontend's jsonParseTaggedBinary/jsonStringifyTaggedBinary
+// pair. Both directions, verbatim semantics.
+
+function fromBase64Url(value: string): Uint8Array {
+  const pad = value.length % 4 === 2 ? "==" : value.length % 4 === 3 ? "=" : "";
+  const binary = atob(value.replace(/-/g, "+").replace(/_/g, "/") + pad);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Revive every {"$b64u"} tag into its Uint8Array (the begin responses). */
+export function reviveTaggedBinary<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => reviveTaggedBinary(v)) as unknown as T;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const tag = record["$b64u"];
+    if (typeof tag === "string") return fromBase64Url(tag) as unknown as T;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(record)) out[k] = reviveTaggedBinary(v);
+    return out as T;
+  }
+  return value;
+}
+
+/** Stringify with the buffers tagged (the finish requests: the
+ *  ceremony's answer carries ArrayBuffers JSON cannot express). */
+export function stringifyWithTaggedBinary(value: unknown): string {
+  return JSON.stringify(value, function replacer(this: Record<string, unknown>, key, val) {
+    const at = this[key];
+    if (at instanceof Uint8Array) return { $b64u: toBase64Url(at) };
+    return val;
+  });
+}
 import { AuthzenTrustPlugin } from "./trust.js";
 import type { WalletStorage } from "./types.js";
 import type { StoredCredential } from "./types.js";
@@ -102,13 +146,20 @@ export class GoWalletBackendTarget implements AdoptTarget {
     const begin = await this.#post("/auth/passkey/register/begin", {
       tenantId: this.#tenantId,
     }, { "X-Token-Mode": "session", "X-Tenant-ID": this.#tenantId });
-    // The page's ceremony over the options the backend built.
-    const credential = await ui.create(begin.getOptions ?? begin);
+    // The page's ceremony over the options the backend built: the
+    // register begin's createOptions (the {publicKey: …} envelope the
+    // wallet-frontend spreads into navigator.credentials.create), the
+    // $b64u-tagged binary members revived into Uint8Arrays.
+    const options = reviveTaggedBinary(begin.createOptions ?? begin.getOptions ?? begin);
+    const credential = await ui.create(options);
     // The finish: the ceremony's answer establishes the session.
-    const finish = await this.#post("/auth/passkey/register/finish", {
+    // The ceremony's answer carries ArrayBuffers JSON cannot express —
+    // the tagged-binary stringify crosses them (the frontend's
+    // jsonStringifyTaggedBinary shape).
+    const finish = await this.#postRaw("/auth/passkey/register/finish", stringifyWithTaggedBinary({
       challengeId: begin.challengeId,
       credential,
-    }, { "X-Token-Mode": "session", "X-Tenant-ID": this.#tenantId });
+    }), { "X-Token-Mode": "session", "X-Tenant-ID": this.#tenantId });
     const token = typeof finish.token === "string" ? finish.token : undefined;
     const session = typeof finish.session === "string" ? finish.session : undefined;
     if (token) this.#sessionHeaders.Authorization = `Bearer ${token}`;
@@ -197,12 +248,20 @@ export class GoWalletBackendTarget implements AdoptTarget {
   }
 
   async #post(path: string, body: unknown, headers: Record<string, string>): Promise<Record<string, unknown>> {
+    return this.#postRaw(path, JSON.stringify(body), headers);
+  }
+
+  async #postRaw(path: string, body: string, headers: Record<string, string>): Promise<Record<string, unknown>> {
     const response = await fetch(`${this.backend}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(body),
+      body,
     });
-    if (!response.ok) throw new Error(`the backend's ${path} answered ${response.status}`);
+    if (!response.ok) {
+      // The answer's message rides the error — the diagnostics need it.
+      const text = await response.text().catch(() => "");
+      throw new Error(`the backend's ${path} answered ${response.status}: ${text.slice(0, 200)}`);
+    }
     return (await response.json().catch(() => ({}))) as Record<string, unknown>;
   }
 }

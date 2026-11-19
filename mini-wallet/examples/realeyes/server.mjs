@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { SignJWT, importJWK } from "jose";
 
 const ISSUER = process.env.ISSUER_URL || "https://sirosid-realeyes-siros-issuer.fly.dev";
+const BACKEND = process.env.BACKEND_URL || "https://sirosid-gdc-wallet-proxy.fly.dev";
 const JWK_PATH = process.env.INTEGRATOR_JWK_FILE
   || "/home/leifj/work/siros.org/sirosid-realeyes/fixtures/rendered/fly-realeyes/integratorJwk";
 const PDP = process.env.PDP_URL || "https://sirosid-realeyes-pdp.fly.dev";
@@ -81,6 +82,26 @@ const server = createServer(async (req, res) => {
         wallet_redirect: session.wallet_redirect,
         session_id: session.session_id,
       });
+    }
+    if (url.pathname.startsWith("/api/backend/")) {
+      // The wallet-backend proxy: the AS (the passkey register
+      // begin/finish), the per-user private-data store, the PDP-proxy
+      // (/v1/evaluate). The browser cannot cross-origin it.
+      const path = url.pathname.slice("/api/backend".length) + url.search;
+      const init = { method: req.method, headers: {} };
+      const HOPB = new Set(["host", "connection", "content-length", "accept-encoding", "accept", "user-agent", "origin", "referer", "sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "accept-language"]);
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (!HOPB.has(k)) init.headers[k] = v;
+      }
+      if (req.method !== "GET" && req.method !== "HEAD") init.body = await readBody(req);
+      const upstream = await fetch(`${BACKEND}${path}`, init);
+      const text = await upstream.text();
+      console.log(`[backend] ${req.method} ${path} -> ${upstream.status}`);
+      const out = { "content-type": upstream.headers.get("content-type") ?? "application/json" };
+      const setCookie = upstream.headers.getSetCookie?.() ?? [];
+      if (setCookie.length) out["set-cookie"] = setCookie.join("||");
+      res.writeHead(upstream.status, out);
+      return res.end(text);
     }
     if (url.pathname.startsWith("/api/issuer/")) {
       // The issuer proxy: a browser wallet cannot cross-origin the

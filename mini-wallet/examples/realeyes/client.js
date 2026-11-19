@@ -52,9 +52,12 @@ document.getElementById("run").addEventListener("click", async () => {
       // a passkey migrates it later without losing anything.
       storage,
       fetch: pageFetch,
-      // The trust layer — the DEMO SHIM: AlwaysTrustedPlugin, no
-      // authzen client. A real page plugs the AuthzenTrustPlugin (the
-      // authzen-client's layer) against its PDP instead.
+      // The trust layer — the DEMO SHIM for the INITIAL issuance
+      // (AlwaysTrustedPlugin, no authzen client). The backend
+      // configuration flips this to gdc's PDP-proxy the moment
+      // go-wallet-backend#566's pre-registration tenant token ships
+      // (the slot is wired below); post-adopt the session's token
+      // carries the evaluations either way.
       pdp: new AlwaysTrustedPlugin(),
       // ALL UI delegated: the consent is this page's answer (the harness
       // says yes; a real page asks).
@@ -87,7 +90,30 @@ document.getElementById("run").addEventListener("click", async () => {
         <li>the ssc opening (the zkp proofs' seed): <code>${sscOpening ? String(sscOpening).slice(0, 24) + "…" : "ABSENT"}</code></li>
         <li>the device key: <code>${deviceKey ? "present (an ES256 JWK)" : "ABSENT"}</code></li>
       </ul>`;
-    log("4/4 done — the wallet holds the nym_auth credential; a passkey can wrap it later via migrate().");
+    log("4/4 the credential received. The adopt step: ask, passkey, move…");
+
+    // The permanent-wallet arc: the ask (this page's), the passkey
+    // (the browser's real WebAuthn ceremony over gdc's AS), the move
+    // (the migration contract onto gdc's private-data store). The
+    // backend rides the page's proxy (the browser cannot cross-origin
+    // it); a real deployment serves the page from the backend's own
+    // origin or its CORS list.
+    const adopt = await wallet.adopt({
+      target: new (await import("/lib/index.js")).GoWalletBackendTarget("/api/backend", "default"),
+      ui: {
+        ask: async ({ credentials }) =>
+          confirm(`Add a permanent wallet on the gdc backend?\n${credentials.length} credential(s) move out of this page.`),
+        create: (options) => navigator.credentials.create(options),
+      },
+    });
+    if (!adopt) {
+      log("4/4 done — the credential stays in the page's wallet (the adopt declined).");
+    } else if (adopt.failed) {
+      log(`the adopt's move failed at ${adopt.failed} — the page's wallet is intact.`);
+    } else {
+      cred.innerHTML += `<p><strong>Adopted:</strong> account <code>${adopt.account}</code> on <code>gdc</code> — ${adopt.keys.length} records moved; the wallet's authz is now the backend's PDP-proxy (the session's token).</p>`;
+      log("done — a permanent wallet on the gdc backend holds the credential.");
+    }
   } catch (e) {
     log(`the flow stopped: ${e && e.data ? JSON.stringify(e).slice(0, 700) : (e && e.message ? e.message : JSON.stringify(e).slice(0, 700))}`);
   }
