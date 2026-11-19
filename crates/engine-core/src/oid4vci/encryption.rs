@@ -115,23 +115,98 @@ pub fn build_encryption_request(
 pub struct NegotiatedResponseEncryption {
     /// The negotiated alg/enc pair.
     pub negotiated: NegotiatedEncryption,
-    /// The ephemeral key pair: public in the request, private for the
-    /// decrypt.
-    pub key: EphemeralResponseKey,
+    /// The response key: whose custody the decrypt runs under — the
+    /// host's (#59, the client-held pair it generated) or the engine's
+    /// (the legacy ephemeral pair).
+    pub key: ResponseKey,
     /// Whether the issuer required encryption (the metadata's
     /// `encryption_required`).
     pub required: bool,
 }
 
+/// Whose custody a credential response's encryption key is under.
+#[derive(Debug)]
+pub enum ResponseKey {
+    /// Client-held (issue #59): the host answered the key ask with the
+    /// PUBLIC JWK of a pair it generated and holds; the engine relays
+    /// the JWE back through the decrypt ask, and the plaintext
+    /// response exists only on the host. A `to_wallet` secret (the ssc
+    /// seed, Credential Auxiliary Data §7.1) reaches the wallet and
+    /// only the wallet.
+    Client {
+        /// The public JWK the credential request offered.
+        public_jwk: serde_json::Value,
+    },
+    /// Engine-held (the legacy hosts, #59's default refusal): the
+    /// ephemeral pair lives in the engine for this one response, and
+    /// the engine decrypts in-process. The LOCAL/wasm engine IS the
+    /// client, so its engine-held custody is client-held in fact.
+    /// Boxed: the pair is the large variant (the client arm is one JWK).
+    Engine(Box<EphemeralResponseKey>),
+}
+
+impl ResponseKey {
+    /// The public JWK the credential request's
+    /// `credential_response_encryption` carries, whichever custody.
+    #[must_use]
+    pub fn public_jwk(&self) -> &serde_json::Value {
+        match self {
+            Self::Client { public_jwk } => public_jwk,
+            Self::Engine(key) => &key.public_jwk,
+        }
+    }
+
+    /// Whether the host holds the private half (#59's client-held mode).
+    #[must_use]
+    pub fn is_client(&self) -> bool {
+        matches!(self, Self::Client { .. })
+    }
+}
+
 /// Negotiates and generates in one step: the alg/enc pair from the
 /// issuer's metadata, the ephemeral key for it. `None` when no pair
 /// overlaps (the caller decides whether that is fatal: it is when the
-/// issuer required encryption).
+/// issuer required encryption). The ENGINE-held form — the legacy
+/// hosts whose [engine_ports::Host::request_response_encryption_key]
+/// refuses.
 pub fn negotiate_with_key(
     config: &ResponseEncryptionConfig,
 ) -> Option<NegotiatedResponseEncryption> {
     let negotiated = negotiate_encryption(config)?;
     let key = EphemeralResponseKey::generate().ok()?;
+    Some(NegotiatedResponseEncryption {
+        negotiated,
+        key: ResponseKey::Engine(Box::new(key)),
+        required: config.required,
+    })
+}
+
+/// Negotiates with the host's key (issue #59): the alg/enc pair from the
+/// issuer's metadata, the response key from the HOST — its
+/// [engine_ports::Host::request_response_encryption_key] answer's
+/// public JWK, client-held — falling back to the engine-held ephemeral
+/// pair when the host cannot answer (the legacy mode, so every existing
+/// host keeps working). `None` when no pair overlaps.
+pub async fn negotiate_with_host(
+    host: &dyn engine_ports::Host,
+    flow_id: &str,
+    configuration_id: &str,
+    config: &ResponseEncryptionConfig,
+) -> Option<NegotiatedResponseEncryption> {
+    let negotiated = negotiate_encryption(config)?;
+    let key = match host
+        .request_response_encryption_key(engine_ports::ResponseEncryptionKeyParams {
+            flow_id: flow_id.to_owned(),
+            credential_configuration_id: configuration_id.to_owned(),
+        })
+        .await
+    {
+        Ok(answer) if !answer.public_jwk.is_null() => ResponseKey::Client {
+            public_jwk: answer.public_jwk,
+        },
+        // The legacy host: the engine-held ephemeral pair.
+        _ => ResponseKey::Engine(Box::new(EphemeralResponseKey::generate().ok()?)),
+    };
     Some(NegotiatedResponseEncryption {
         negotiated,
         key,

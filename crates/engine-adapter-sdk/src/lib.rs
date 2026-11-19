@@ -746,6 +746,35 @@ pub trait Host: Send + Sync {
         params: CredentialSelectionParams,
     ) -> Result<CredentialSelectionResult, SdkError>;
 
+    /// Asks the host to generate the response-encryption key pair for
+    /// one credential request's offer (issue #59): answer with the
+    /// PUBLIC JWK, hold the private half for
+    /// [`Host::request_decrypt_credential_response`]. The default
+    /// refusal keeps pre-#59 hosts working (the legacy engine-held
+    /// ephemeral key).
+    async fn request_response_encryption_key(
+        &self,
+        _params: ResponseEncryptionKeyParams,
+    ) -> Result<ResponseEncryptionKeyResult, SdkError> {
+        Err(SdkError::Cannot(
+            "response-encryption keys are engine-held on this host".to_owned(),
+        ))
+    }
+
+    /// Asks the host to open a JWE-encrypted credential response with
+    /// the private half of the key its
+    /// [`Host::request_response_encryption_key`] answer generated
+    /// (issue #59). The default refusal keeps pre-#59 hosts working
+    /// (the legacy engine-held decrypt).
+    async fn request_decrypt_credential_response(
+        &self,
+        _params: DecryptCredentialResponseParams,
+    ) -> Result<DecryptCredentialResponseResult, SdkError> {
+        Err(SdkError::Cannot(
+            "credential responses are engine-decrypted on this host".to_owned(),
+        ))
+    }
+
     /// Reports progress on a flow.
     fn progress(&self, flow_id: String, step: String, detail: Option<String>);
 }
@@ -858,6 +887,55 @@ impl From<SigningKeyResult> for engine_ports::SigningKeyResult {
             jwk: serde_json::from_str(&r.jwk).unwrap_or_default(),
         }
     }
+}
+
+/// The response-encryption key ask (issue #59): the host generates a
+/// fresh P-256 pair for one credential request's encryption offer and
+/// answers with the PUBLIC JWK only — the private half stays on the
+/// host (the Go wallet-frontend's client-held key). Mirrors
+/// `engine_ports::ResponseEncryptionKeyParams`/`Result`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct ResponseEncryptionKeyParams {
+    /// The flow the ask belongs to.
+    pub flow_id: String,
+    /// The credential configuration this key encrypts the response of
+    /// (the #558 pairing): the client pairs the key — and the
+    /// credential it decrypts — with the completion entry of the same
+    /// id.
+    pub credential_configuration_id: String,
+}
+
+/// The response-encryption key answer: the public JWK of the pair the
+/// host generated and holds.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct ResponseEncryptionKeyResult {
+    /// The public JWK as JSON text, public members only.
+    pub public_jwk: String,
+}
+
+/// The credential-response decrypt ask (issue #59): the host opens the
+/// JWE with the private half of the key it generated. Mirrors
+/// `engine_ports::DecryptCredentialResponseParams`/`Result`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct DecryptCredentialResponseParams {
+    /// The flow the ask belongs to.
+    pub flow_id: String,
+    /// The credential configuration this response is for (#558's
+    /// pairing).
+    pub credential_configuration_id: String,
+    /// True when the JWE answers a Deferred Credential Request
+    /// (OID4VCI 1.0 §9) — the Go engine's shape.
+    pub deferred: bool,
+    /// The compact JWE the issuer answered.
+    pub jwe: String,
+}
+
+/// The decrypt answer: the plaintext credential response, as JSON
+/// text.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct DecryptCredentialResponseResult {
+    /// The decrypted credential response as JSON text.
+    pub response: String,
 }
 
 /// The client-attestation request. Mirrors

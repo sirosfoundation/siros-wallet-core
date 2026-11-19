@@ -111,8 +111,12 @@ impl HttpClient for RecordingHttp {
                     "content-type".to_owned(),
                     "application/json".to_owned(),
                 )],
-                // OID4VCI §11.1: the notification_id the wallet must echo.
-                body: br#"{"format": "dc+sd-jwt", "credential": "credential-jwt-1", "notification_id": "nid-1"}"#
+                // OID4VCI §11.1: the notification_id the wallet must echo;
+                // the response-level credential_metadata (§ the 1.0/1.1
+                // member) the completion relays (issue #59, the Go
+                // engine's oid4vci_blind_response.go parity) — the ssc
+                // seed-delivery path.
+                body: br#"{"format": "dc+sd-jwt", "credential": "credential-jwt-1", "notification_id": "nid-1", "credential_metadata": [{"label": "ssc", "value": "seed-delivery"}]}"#
                     .to_vec(),
             }),
             _ => Ok(HttpResponse {
@@ -865,6 +869,28 @@ async fn the_issuance_completion_registers_and_the_flow_forwards() {
     assert_eq!(
         issuance["credentials"][0]["credential_configuration_id"], "UniversityDegree",
         "the entry names its configuration"
+    );
+    // Issue #59, the Go engine's `CredentialResult` parity: the
+    // per-entry `credential_response_encrypted` flag (false — this
+    // response answered plain) and the response-level
+    // `credential_metadata` relay (the seed-delivery path: without it
+    // a `to_wallet` secret can never reach the wallet through the
+    // server engine).
+    assert_eq!(
+        issuance["credentials"][0]["credential_response_encrypted"], false,
+        "the entry flags the plain arrival"
+    );
+    assert_eq!(
+        issuance["credentials"][0]["credential_metadata"][0]["label"], "ssc",
+        "the entry relays the response-level credential_metadata"
+    );
+    assert_eq!(
+        issuance["credential_response_encrypted"], false,
+        "the legacy flow-level view carries the first entry's flag"
+    );
+    assert_eq!(
+        issuance["credential_metadata"][0]["value"], "seed-delivery",
+        "the legacy flow-level view relays the first entry's metadata"
     );
 
     // The notification flow, on the same engine: the context the

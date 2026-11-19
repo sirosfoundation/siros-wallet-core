@@ -253,6 +253,66 @@ pub struct SigningKeyResult {
     pub jwk: serde_json::Value,
 }
 
+/// The response-encryption key ask (issue #59): the host generates a
+/// fresh P-256 pair for one credential request's encryption offer —
+/// the Go wallet-frontend's client-held key — and answers with the
+/// PUBLIC JWK only. The private half never crosses the Host boundary;
+/// the response the issuer encrypts to it is opened by the decrypt ask
+/// ([DecryptCredentialResponseParams]) on the same host.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ResponseEncryptionKeyParams {
+    /// The flow the ask belongs to.
+    pub flow_id: String,
+    /// The credential configuration this key encrypts the response of
+    /// (go-wallet-backend#558's pairing convention): the client pairs
+    /// the key — and the credential it decrypts — with the completion
+    /// entry carrying the same id.
+    pub credential_configuration_id: String,
+}
+
+/// The response-encryption key answer: the public JWK the credential
+/// request's `credential_response_encryption` carries (kty EC, crv
+/// P-256, x, y — public members only).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseEncryptionKeyResult {
+    /// The public JWK of the pair the host generated and holds.
+    #[serde(default)]
+    pub public_jwk: serde_json::Value,
+}
+
+/// The credential-response decrypt ask (issue #59): the host opens the
+/// JWE with the private half of the key its
+/// [ResponseEncryptionKeyParams] answer generated — the Go engine's
+/// `decrypt_credential_response` (go-wallet-backend#558's shape). The
+/// engine relays the JWE; the plaintext response exists only on the
+/// host.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DecryptCredentialResponseParams {
+    /// The flow the ask belongs to.
+    pub flow_id: String,
+    /// The credential configuration this response is for
+    /// (go-wallet-backend#558): the client pairs the decrypted response
+    /// with the completion entry carrying the same id.
+    pub credential_configuration_id: String,
+    /// True when the JWE answers a Deferred Credential Request
+    /// (OID4VCI 1.0 §9) — the Go engine's shape (always sent, false
+    /// included, so the answer shape does not depend on the grant).
+    pub deferred: bool,
+    /// The compact JWE the issuer answered (five dot-separated
+    /// base64url parts).
+    pub jwe: String,
+}
+
+/// The decrypt answer: the plaintext credential response, as JSON —
+/// the host parsed nothing, it decrypted and returned the bytes as
+/// JSON (the engine parses the response shape itself).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecryptCredentialResponseResult {
+    /// The decrypted credential response.
+    #[serde(default)]
+    pub response: serde_json::Value,
+}
+
 /// The client_id scheme, inferred from the `client_id` prefix — a
 /// wire contract (it crosses the Host boundary in the verifier info).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -826,6 +886,47 @@ pub trait Host: Send + Sync {
     ) -> Result<CredentialSelectionResult, HostError> {
         Err(HostError::Cannot(
             "credential selection not supported by this host".to_owned(),
+        ))
+    }
+
+    /// Asks the host to generate the response-encryption key pair for
+    /// one credential request's encryption offer (issue #59, the Go
+    /// wallet-frontend's client-held key): the HOST generates a fresh
+    /// P-256 pair, returns the PUBLIC JWK for the request's
+    /// `credential_response_encryption`, and holds the private half for
+    /// the decrypt ask ([Host::request_decrypt_credential_response]). The
+    /// engine never sees the private key — a response the issuer
+    /// encrypts to it is opened by the wallet alone, so a `to_wallet`
+    /// secret (the ssc seed, Credential Auxiliary Data §7.1) reaches the
+    /// wallet and only the wallet.
+    ///
+    /// The default implementation refuses — the legacy engine-held
+    /// ephemeral key keeps working for the hosts that predate #59.
+    async fn request_response_encryption_key(
+        &self,
+        _params: ResponseEncryptionKeyParams,
+    ) -> Result<ResponseEncryptionKeyResult, HostError> {
+        Err(HostError::Cannot(
+            "response-encryption keys are engine-held on this host".to_owned(),
+        ))
+    }
+
+    /// Asks the host to open a JWE-encrypted credential response with
+    /// the private half of the key [Host::request_response_encryption_key]
+    /// returned (issue #59, the Go engine's `decrypt_credential_response`
+    /// ask — go-wallet-backend#558's shape: the configuration this
+    /// response is for, `deferred` true when it answers a Deferred
+    /// Credential Request). The host decrypts and returns the plaintext
+    /// response JSON; the engine parses it and never holds either key.
+    ///
+    /// The default implementation refuses — the legacy engine-held
+    /// decrypt keeps working for the hosts that predate #59.
+    async fn request_decrypt_credential_response(
+        &self,
+        _params: DecryptCredentialResponseParams,
+    ) -> Result<DecryptCredentialResponseResult, HostError> {
+        Err(HostError::Cannot(
+            "credential responses are engine-decrypted on this host".to_owned(),
         ))
     }
 

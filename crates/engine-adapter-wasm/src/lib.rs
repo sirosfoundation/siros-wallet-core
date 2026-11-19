@@ -122,6 +122,11 @@ impl WasmEngine {
                 attestation: optional(&host, "attestation").unwrap_or_else(no_refuse),
                 progress: optional(&host, "progress"),
                 signing_key: optional(&host, "signingKey"),
+                // Issue #59's client-held key callbacks, both optional
+                // (absent → the legacy engine-held mode: this engine IS
+                // the client in the browser).
+                response_encryption_key: optional(&host, "responseEncryptionKey"),
+                decrypt_credential_response: optional(&host, "decryptCredentialResponse"),
             }),
             Err(err) => return Err(err),
         };

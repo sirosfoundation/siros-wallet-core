@@ -246,7 +246,9 @@ async fn an_encrypted_batch_shaped_answer_is_the_credential() {
                         alg: "ECDH-ES".to_owned(),
                         enc: "A256GCM".to_owned(),
                     },
-                    key,
+                    // The ENGINE-held form (the legacy path this test
+                    // pins): the pair generated below.
+                    key: engine_core::oid4vci::encryption::ResponseKey::Engine(Box::new(key)),
                     required: true,
                 },
             ),
@@ -1123,4 +1125,216 @@ async fn every_configuration_ask_names_its_credential_configuration_id() {
             "the {kind} ask names its credential_configuration_id"
         );
     }
+}
+
+// ─── Issue #59: the client-held response key ──────────────────────────────
+
+/// The host that HOLDS the response-encryption pair (issue #59): it
+/// answers the key ask with the public half (generated on the host,
+/// never the engine), and the decrypt ask with the plaintext it
+/// opened with the private half — recording what the engine asked, so
+/// the pin can prove the engine relays and never decrypts.
+struct ClientKeyHost {
+    /// The pair the host generated for the key ask.
+    private: std::sync::Mutex<Option<jose_rs::jwk::Jwk>>,
+    /// The decrypt asks, recorded: (flow, configuration, deferred, jwe).
+    decrypt_asks: std::sync::Mutex<Vec<(String, String, bool, String)>>,
+}
+
+#[async_trait::async_trait]
+impl Host for ClientKeyHost {
+    async fn request_sign(&self, _p: SignParams) -> Result<SignResult, HostError> {
+        Ok(SignResult {
+            signature: vec![0xde, 0xad, 0xbe, 0xef],
+        })
+    }
+    async fn request_response_encryption_key(
+        &self,
+        params: engine_ports::ResponseEncryptionKeyParams,
+    ) -> Result<engine_ports::ResponseEncryptionKeyResult, HostError> {
+        // The pair is generated ON THE HOST: the engine offered nothing,
+        // it only named the configuration (the #558 pairing).
+        assert_eq!(
+            params.credential_configuration_id, "UniversityDegree",
+            "the key ask names its configuration (the #558 pairing)"
+        );
+        let private = jose_rs::jwk::generate::generate_ec("P-256")
+            .map_err(|_| HostError::Cannot("the host cannot generate a pair".to_owned()))?;
+        let public: serde_json::Value =
+            serde_json::from_str(&private.to_public_jwk().to_json().map_err(|_| {
+                HostError::Cannot("the host cannot serialize its public JWK".to_owned())
+            })?)
+            .map_err(|_| HostError::Cannot("the public JWK is not JSON".to_owned()))?;
+        *self.private.lock().expect("lock") = Some(private);
+        Ok(engine_ports::ResponseEncryptionKeyResult { public_jwk: public })
+    }
+    async fn request_decrypt_credential_response(
+        &self,
+        params: engine_ports::DecryptCredentialResponseParams,
+    ) -> Result<engine_ports::DecryptCredentialResponseResult, HostError> {
+        self.decrypt_asks.lock().expect("lock").push((
+            params.flow_id.clone(),
+            params.credential_configuration_id.clone(),
+            params.deferred,
+            params.jwe.clone(),
+        ));
+        let private = self
+            .private
+            .lock()
+            .expect("lock")
+            .clone()
+            .ok_or_else(|| HostError::Cannot("no pair was generated".to_owned()))?;
+        let mut private = private;
+        private.alg = Some("ECDH-ES".to_owned());
+        let plaintext = jose_rs::jwe::compact::decrypt_with_jwk(&private, &params.jwe)
+            .map_err(|err| HostError::Cannot(format!("the host decrypt failed: {err}")))?;
+        let response: Value = serde_json::from_slice(&plaintext)
+            .map_err(|_| HostError::Cannot("the plaintext is not JSON".to_owned()))?;
+        Ok(engine_ports::DecryptCredentialResponseResult { response })
+    }
+    async fn request_match(
+        &self,
+        _params: engine_ports::MatchParams,
+    ) -> Result<engine_ports::MatchResult, HostError> {
+        Err(HostError::Cannot("no match in the test".to_owned()))
+    }
+    async fn request_consent(
+        &self,
+        _p: engine_ports::ConsentParams,
+    ) -> Result<engine_ports::ConsentResult, HostError> {
+        Err(HostError::Cannot("no consent in the test".to_owned()))
+    }
+    async fn request_tx_code(&self, _f: &str) -> Result<String, HostError> {
+        Ok("1234".to_owned())
+    }
+    async fn open_authorization(&self, _f: &str, _u: &str) -> Result<(), HostError> {
+        Ok(())
+    }
+    fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
+}
+
+/// Issue #59: a host that answers the key ask holds the pair, so the
+/// JWE the issuer answers opens ON THE HOST — the engine relays the
+/// JWE (one decrypt ask, `deferred: false`, the #558 configuration
+/// pairing) and parses the JSON the host returns. The engine never
+/// holds the private half; a `to_wallet` secret (the ssc seed) reaches
+/// the wallet and only the wallet.
+#[tokio::test]
+async fn a_client_held_key_opens_the_response_through_the_decrypt_ask() {
+    let host = ClientKeyHost {
+        private: std::sync::Mutex::new(None),
+        decrypt_asks: std::sync::Mutex::new(Vec::new()),
+    };
+    // The negotiation runs THROUGH the host's key ask (#59):
+    // negotiate_with_host falls back to the engine-held pair only when
+    // the host refuses — this one answers.
+    let encryption = engine_core::oid4vci::encryption::negotiate_with_host(
+        &host,
+        "flow-1",
+        "UniversityDegree",
+        &engine_core::oid4vci::encryption::ResponseEncryptionConfig {
+            alg_values: vec!["ECDH-ES".to_owned()],
+            enc_values: vec!["A256GCM".to_owned()],
+            required: true,
+        },
+    )
+    .await
+    .expect("negotiate");
+    assert!(
+        encryption.key.is_client(),
+        "the host answered the key ask: the pair is client-held"
+    );
+
+    // EncryptingHttp encrypts to whatever public JWK the offer carries
+    // — the HOST's, here.
+    let response = request_credential(
+        &EncryptingHttp,
+        &host,
+        &test_metadata(),
+        &test_token(),
+        "UniversityDegree",
+        "flow-1",
+        Some(&CredentialRequestAux {
+            auxiliary_data_to_issuer: &[],
+            auxiliary_data_to_wallet: &[],
+            encryption: Some(&encryption),
+            dpop: None,
+            reissuance_kid: None,
+            now_unix: 1_000,
+        }),
+        Some("nonce-1"),
+    )
+    .await
+    .expect("request");
+    assert_eq!(
+        response.credential.as_deref(),
+        Some("encrypted-credential-1")
+    );
+    assert!(
+        response.encrypted,
+        "the response's encrypted-arrival flag is set (the completion's #59 relay)"
+    );
+
+    // One decrypt ask, relayed to the host, `deferred: false`, the
+    // configuration named (#558's pairing) — and the engine never
+    // decrypted in-process (the ask carries the issuer's JWE).
+    let asks = host.decrypt_asks.lock().expect("lock");
+    assert_eq!(asks.len(), 1, "exactly one decrypt ask");
+    let (flow, configuration, deferred, jwe) = &asks[0];
+    assert_eq!(flow, "flow-1");
+    assert_eq!(configuration, "UniversityDegree");
+    assert!(!deferred, "the direct response is not deferred");
+    assert_eq!(
+        jwe.split('.').count(),
+        5,
+        "the ask relays the issuer's compact JWE"
+    );
+}
+
+/// Issue #59's legacy fallback: a host that REFUSES the key ask (the
+/// pre-#59 hosts, the trait's default) keeps the flow working — the
+/// engine-held ephemeral pair decrypts in-process, exactly as before.
+#[tokio::test]
+async fn a_refusing_host_keeps_the_engine_held_pair() {
+    let host = FakeHost;
+    let encryption = engine_core::oid4vci::encryption::negotiate_with_host(
+        &host,
+        "flow-1",
+        "UniversityDegree",
+        &engine_core::oid4vci::encryption::ResponseEncryptionConfig {
+            alg_values: vec!["ECDH-ES".to_owned()],
+            enc_values: vec!["A256GCM".to_owned()],
+            required: true,
+        },
+    )
+    .await
+    .expect("negotiate");
+    assert!(
+        !encryption.key.is_client(),
+        "the refusing host falls back to the engine-held pair"
+    );
+    // And the engine-held pair still decrypts (the pre-#59 path).
+    let response = request_credential(
+        &EncryptingHttp,
+        &FakeHost,
+        &test_metadata(),
+        &test_token(),
+        "UniversityDegree",
+        "flow-1",
+        Some(&CredentialRequestAux {
+            auxiliary_data_to_issuer: &[],
+            auxiliary_data_to_wallet: &[],
+            encryption: Some(&encryption),
+            dpop: None,
+            reissuance_kid: None,
+            now_unix: 1_000,
+        }),
+        Some("nonce-1"),
+    )
+    .await
+    .expect("request");
+    assert_eq!(
+        response.credential.as_deref(),
+        Some("encrypted-credential-1")
+    );
 }

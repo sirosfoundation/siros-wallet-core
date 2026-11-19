@@ -190,6 +190,19 @@ pub struct JsHost {
     /// header's `jwk` / `kid`. Absent, the engine falls back to the
     /// Host default (the proof goes out without key identification).
     pub signing_key: Option<js_sys::Function>,
+    /// The optional `responseEncryptionKey(params) ->
+    /// Promise<{public_jwk}>` (issue #59): the host generates the
+    /// P-256 pair for one credential request's encryption offer and
+    /// answers with the PUBLIC JWK, holding the private half. Absent,
+    /// the engine falls back to the legacy engine-held ephemeral pair
+    /// (this engine IS the client in the browser, so its custody is
+    /// client-held in fact).
+    pub response_encryption_key: Option<js_sys::Function>,
+    /// The optional `decryptCredentialResponse(params) ->
+    /// Promise<{response}>` (issue #59): the host opens a JWE-encrypted
+    /// credential response with its held private key. Absent, the
+    /// legacy engine-held decrypt.
+    pub decrypt_credential_response: Option<js_sys::Function>,
 }
 
 impl JsHost {
@@ -234,6 +247,32 @@ impl Host for JsHost {
             Some(signing_key) => Self::call(signing_key, &params).await,
             None => Err(HostError::Cannot(
                 "the page did not provide the signingKey host callback".to_owned(),
+            )),
+        }
+    }
+
+    async fn request_response_encryption_key(
+        &self,
+        params: engine_ports::ResponseEncryptionKeyParams,
+    ) -> Result<engine_ports::ResponseEncryptionKeyResult, HostError> {
+        // Issue #59: absent callback → the Host default (the legacy
+        // engine-held ephemeral pair) — negotiate_with_host's fallback.
+        match &self.response_encryption_key {
+            Some(ask) => Self::call(ask, &params).await,
+            None => Err(HostError::Cannot(
+                "the page did not provide the responseEncryptionKey host callback".to_owned(),
+            )),
+        }
+    }
+
+    async fn request_decrypt_credential_response(
+        &self,
+        params: engine_ports::DecryptCredentialResponseParams,
+    ) -> Result<engine_ports::DecryptCredentialResponseResult, HostError> {
+        match &self.decrypt_credential_response {
+            Some(ask) => Self::call(ask, &params).await,
+            None => Err(HostError::Cannot(
+                "the page did not provide the decryptCredentialResponse host callback".to_owned(),
             )),
         }
     }

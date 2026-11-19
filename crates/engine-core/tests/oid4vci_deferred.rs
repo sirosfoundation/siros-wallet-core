@@ -136,6 +136,11 @@ async fn polls_until_the_credential_is_ready() {
         "tx-1",
         Some(1),
         &|_| {},
+        // Issue #59: the engine-held pair (this test pins the legacy
+        // decrypt), no flow-scoped configuration.
+        "flow-1",
+        None,
+        "UniversityDegree",
     )
     .await
     .expect("credential");
@@ -156,6 +161,9 @@ async fn times_out_after_the_max_attempts() {
         "tx-2",
         Some(1),
         &|_| {},
+        "flow-1",
+        None,
+        "UniversityDegree",
     )
     .await
     .expect_err("timeout");
@@ -181,6 +189,9 @@ async fn a_non_200_non_202_is_terminal() {
             "tx-3",
             Some(1),
             &|_| {},
+            "flow-1",
+            None,
+            "UniversityDegree",
         )
         .await,
         Err(DeferredError::Status(404))

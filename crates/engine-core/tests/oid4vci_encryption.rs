@@ -122,6 +122,8 @@ fn the_encrypted_response_roundtrips() {
         nonce: None,
         notification_id: None,
         credential_metadata: None,
+        // The encrypted-arrival flag (#59): not a wire member.
+        encrypted: false,
     };
     let plaintext = serde_json::to_vec(&credential_response).expect("serialize");
     let jwe = jose_rs::jwe::compact::encrypt_with_jwk_header(

@@ -4,6 +4,8 @@ import uniffi.engine_adapter_sdk.ConsentParams
 import uniffi.engine_adapter_sdk.ConsentResult
 import uniffi.engine_adapter_sdk.CredentialSelectionParams
 import uniffi.engine_adapter_sdk.CredentialSelectionResult
+import uniffi.engine_adapter_sdk.DecryptCredentialResponseParams
+import uniffi.engine_adapter_sdk.DecryptCredentialResponseResult
 import uniffi.engine_adapter_sdk.FetchPurpose
 import uniffi.engine_adapter_sdk.HeaderPair
 import uniffi.engine_adapter_sdk.Host
@@ -12,6 +14,8 @@ import uniffi.engine_adapter_sdk.HttpRequest
 import uniffi.engine_adapter_sdk.HttpResponse
 import uniffi.engine_adapter_sdk.MatchResult
 import uniffi.engine_adapter_sdk.MatchParams
+import uniffi.engine_adapter_sdk.ResponseEncryptionKeyParams
+import uniffi.engine_adapter_sdk.ResponseEncryptionKeyResult
 import uniffi.engine_adapter_sdk.SigningKeyParams
 import uniffi.engine_adapter_sdk.SigningKeyResult
 import uniffi.engine_adapter_sdk.VpParams
@@ -106,6 +110,22 @@ class TestHost : Host {
         throw SdkException.Cannot("no selection UI")
     }
 
+    override suspend fun requestResponseEncryptionKey(
+        params: ResponseEncryptionKeyParams,
+    ): ResponseEncryptionKeyResult {
+        // Issue #59: engine-held keys in the smoke (the refusal falls
+        // back to the engine's ephemeral pair).
+        throw SdkException.Cannot("engine-held keys in the smoke")
+    }
+
+    override suspend fun requestDecryptCredentialResponse(
+        params: DecryptCredentialResponseParams,
+    ): DecryptCredentialResponseResult {
+        // Issue #59: engine-decrypted responses in the smoke (the
+        // refusal keeps the in-process decrypt).
+        throw SdkException.Cannot("engine-decrypted responses in the smoke")
+    }
+
     override fun progress(flowId: String, step: String, detail: String?) {
         // No progress in the smoke.
     }
@@ -143,6 +163,16 @@ fun main() = kotlinx.coroutines.runBlocking {
                     params: CredentialSelectionParams,
                 ): CredentialSelectionResult =
                     throw SdkException.Cannot("no selection UI")
+                // Issue #59: the refusing defaults — the engine-held
+                // fallback path.
+                override suspend fun requestResponseEncryptionKey(
+                    params: ResponseEncryptionKeyParams,
+                ): ResponseEncryptionKeyResult =
+                    throw SdkException.Cannot("engine-held keys")
+                override suspend fun requestDecryptCredentialResponse(
+                    params: DecryptCredentialResponseParams,
+                ): DecryptCredentialResponseResult =
+                    throw SdkException.Cannot("engine-decrypted responses")
                 override fun progress(flowId: String, step: String, detail: String?) {}
             },
             "https://issuer.example",

@@ -11,8 +11,9 @@
 use std::sync::Mutex;
 
 use crate::{
-    AttestationParams, ConsentParams, ConsentResult, CredentialSelectionParams, DpopProofParams,
-    EvaluationRequest, Host, HttpClient, MatchParams, MatchResult, Pdp, ResolveRequest, SdkError,
+    AttestationParams, ConsentParams, ConsentResult, CredentialSelectionParams,
+    DecryptCredentialResponseParams, DpopProofParams, EvaluationRequest, Host, HttpClient,
+    MatchParams, MatchResult, Pdp, ResolveRequest, ResponseEncryptionKeyParams, SdkError,
     SignParams, SignResult, SigningKeyParams, VpParams,
 };
 
@@ -160,6 +161,46 @@ impl engine_ports::Host for HostBridge {
             .map_err(host_error)?;
         Ok(engine_ports::SigningKeyResult {
             jwk: serde_json::from_str(&answer.jwk).unwrap_or_default(),
+        })
+    }
+
+    async fn request_response_encryption_key(
+        &self,
+        params: engine_ports::ResponseEncryptionKeyParams,
+    ) -> Result<engine_ports::ResponseEncryptionKeyResult, engine_ports::HostError> {
+        // Issue #59: the SDK's `public_jwk` rides as JSON text (the
+        // uniffi-Record string shape); the engine-ports Value form is
+        // parsed here, and a refusal (the legacy host's default) maps to
+        // the engine-ports Cannot — negotiate_with_host's fallback.
+        let answer = self
+            .0
+            .request_response_encryption_key(ResponseEncryptionKeyParams {
+                flow_id: params.flow_id,
+                credential_configuration_id: params.credential_configuration_id,
+            })
+            .await
+            .map_err(host_error)?;
+        Ok(engine_ports::ResponseEncryptionKeyResult {
+            public_jwk: serde_json::from_str(&answer.public_jwk).unwrap_or_default(),
+        })
+    }
+
+    async fn request_decrypt_credential_response(
+        &self,
+        params: engine_ports::DecryptCredentialResponseParams,
+    ) -> Result<engine_ports::DecryptCredentialResponseResult, engine_ports::HostError> {
+        let answer = self
+            .0
+            .request_decrypt_credential_response(DecryptCredentialResponseParams {
+                flow_id: params.flow_id,
+                credential_configuration_id: params.credential_configuration_id,
+                deferred: params.deferred,
+                jwe: params.jwe,
+            })
+            .await
+            .map_err(host_error)?;
+        Ok(engine_ports::DecryptCredentialResponseResult {
+            response: serde_json::from_str(&answer.response).unwrap_or_default(),
         })
     }
 

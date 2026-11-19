@@ -1402,8 +1402,25 @@ async fn issue_the_set(
             || encryption_config_for(issuer_metadata, Some(&configuration))
                 .as_ref()
                 .is_some_and(|config| config.required);
+        // #59: the response key comes from the HOST — its
+        // `response_encryption_key` answer holds the private half, so
+        // the JWE the issuer answers opens on the wallet (the seed
+        // reaches the wallet and only the wallet). The legacy host
+        // (the ask's default refusal) falls back to the engine-held
+        // ephemeral pair inside `negotiate_with_host`.
         let negotiated_encryption =
-            negotiated_encryption_for(issuer_metadata, Some(&configuration));
+            match encryption_config_for(issuer_metadata, Some(&configuration)) {
+                Some(config) => {
+                    encryption::negotiate_with_host(
+                        ctx.host().as_ref(),
+                        flow_id,
+                        configuration_id,
+                        &config,
+                    )
+                    .await
+                }
+                None => None,
+            };
         if encryption_required && negotiated_encryption.is_none() {
             fail(
                 &mut failures,
@@ -1533,7 +1550,26 @@ fn issuance_completion(
                 "format": entry.response.format.clone().unwrap_or_default(),
                 "credential": entry.response.credential.clone().unwrap_or_default(),
                 "deferred": entry.response.transaction_id.is_some(),
+                // Issue #59, the Go engine's `CredentialResult`
+                // (messages.go) parity: whether THIS response arrived
+                // encrypted — so the wallet's receipt check knows a
+                // `to_wallet` secret travelled a response IT opened
+                // (the client-held key), not one the engine decrypted
+                // for it.
+                "credential_response_encrypted": entry.response.encrypted,
             });
+            // Issue #59, the Go engine's `oid4vci_blind_response.go`
+            // parity: the response-level `credential_metadata` — the
+            // to_wallet auxiliary data (§7.1) the issuer delivered
+            // beside the credential. The seed-delivery path: without
+            // the relay a `to_wallet` secret can never reach the
+            // wallet through the server engine, and the SDK's receipt
+            // check refuses SEED_UNAVAILABLE.
+            if let Some(metadata) = entry.response.credential_metadata.as_ref() {
+                if let Some(target) = object.as_object_mut() {
+                    target.insert("credential_metadata".to_owned(), metadata.clone());
+                }
+            }
             if let (Some(target), Some(members)) = (
                 object.as_object_mut(),
                 entry.notification_members.as_object(),
@@ -1563,6 +1599,17 @@ fn issuance_completion(
             for (key, value) in members {
                 object.insert(key.clone(), value.clone());
             }
+        }
+        // The legacy flow-level #59 members: the first entry's — a
+        // pre-#28 consumer of a single-configuration flow reads the
+        // encrypted flag and the metadata exactly as the entry carries
+        // them.
+        object.insert(
+            "credential_response_encrypted".to_owned(),
+            serde_json::Value::Bool(first.response.encrypted),
+        );
+        if let Some(metadata) = first.response.credential_metadata.as_ref() {
+            object.insert("credential_metadata".to_owned(), metadata.clone());
         }
         // The renewal relay: the refresh token, and the DPoP key it
         // must be reused with (the next flow may land on another
@@ -1622,7 +1669,7 @@ fn joined_scope_of(metadata: &types::IssuerMetadata, ids: &[String]) -> Option<S
 
 async fn request_and_deliver(
     ctx: &FlowContext,
-    _flow_id: &str,
+    flow_id: &str,
     issuer_metadata: &types::IssuerMetadata,
     token: &token::TokenResponse,
     configuration_id: &str,
@@ -1714,6 +1761,11 @@ async fn request_and_deliver(
             &|attempt| {
                 let _ = attempt;
             },
+            flow_id,
+            // The negotiated encryption this response may arrive under
+            // (issue #59: the JWE opens on the key's holder).
+            aux.encryption,
+            configuration_id,
         )
         .await
         .map_err(|err| flow_error(err.to_string()))?;
