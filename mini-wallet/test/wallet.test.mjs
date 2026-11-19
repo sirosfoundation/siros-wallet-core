@@ -327,3 +327,79 @@ test("a failed move keeps the local wallet intact", async () => {
   assert.equal(report.failed, "credential:2");
   assert.equal((await wallet.credentials()).length, 1, "the LOCAL wallet keeps everything on failure");
 });
+
+// ── The backend configuration: the PDP-proxy from the first issuance ────
+
+test("a backend-configured wallet trusts through the backend's PDP-proxy", async () => {
+  const evaluations = [];
+  const tokens = [];
+  // A stand-in backend: the /v1/evaluate the trust layer hits.
+  const backendUrl = "https://backend.example";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith("/v1/evaluate")) {
+      evaluations.push({ auth: init?.headers?.Authorization ?? null, body: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ decision: true }), { headers: { "Content-Type": "application/json" } });
+    }
+    throw new Error("unexpected fetch: " + url);
+  };
+  try {
+    const storage = new MemoryWalletStorage();
+    const wallet = new MiniWallet({
+      storage,
+      backend: {
+        url: backendUrl,
+        token: async () => { tokens.push("the-pre-registration-token"); return "the-pre-registration-token"; },
+      },
+    });
+    // The trust layer consults the backend's proxy with the
+    // pre-registration token — before any user exists.
+    const answer = await wallet.evaluateTrust({ action: "credential-issuer" });
+    assert.equal(answer.trusted, true);
+    assert.equal(evaluations.length, 1);
+    assert.equal(evaluations[0].auth, "Bearer the-pre-registration-token",
+      "the initial issuance's trust carries the pre-registration tenant token");
+    assert.equal(tokens.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("after the adopt the session's token carries the evaluations", async () => {
+  const evaluations = [];
+  const backendUrl = "https://backend.example";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith("/v1/evaluate")) {
+      evaluations.push(init?.headers?.Authorization ?? null);
+      return new Response(JSON.stringify({ decision: true }), { headers: { "Content-Type": "application/json" } });
+    }
+    throw new Error("unexpected fetch: " + url);
+  };
+  try {
+    const storage = new MemoryWalletStorage();
+    await storage.put("credential:1", JSON.stringify({ format: "mso_mdoc", credential: "x" }));
+    const wallet = new MiniWallet({
+      storage,
+      backend: { url: backendUrl, token: async () => "the-pre-registration-token" },
+    });
+    await wallet.evaluateTrust({ action: "credential-issuer" });
+    const target = {
+      backend: backendUrl,
+      registerPasskey: async (ui) => { await ui.create({}); return { account: "user-1" }; },
+      storage: () => new MemoryWalletStorage(),
+      trustPlugin: () => ({ async evaluate() { return { trusted: true }; } }),
+      // The factory shape: sessionToken() returns the PROVIDER.
+      sessionToken: () => async () => "the-session-token",
+    };
+    await wallet.adopt({ target, ui: { ask: async () => true, create: async (o) => ({ o }) } });
+    await wallet.evaluateTrust({ action: "credential-verifier" });
+    // The continuity: pre-registration first, the session's after.
+    assert.deepEqual(evaluations, [
+      "Bearer the-pre-registration-token",
+      "Bearer the-session-token",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

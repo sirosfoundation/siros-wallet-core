@@ -24,6 +24,8 @@ import type { TrustPlugin } from "./trust.js";
 import type { MiniWalletPdpOption } from "./types.js";
 import { GoWalletBackendTarget, NullCipher } from "./adopt.js";
 import type { AdoptReport, AdoptTarget, AdoptUi, PrivateDataCipher } from "./adopt.js";
+import { AuthzenTrustPlugin } from "./trust.js";
+import type { TrustTokenProvider } from "./trust.js";
 import { migrateWalletStorage } from "./migration.js";
 import {
   isOfferUri,
@@ -56,15 +58,42 @@ interface EngineLike {
   request(method: string, params: unknown): Promise<unknown>;
 }
 
+/** The permanent-wallet backend the page's wallet is configured against
+ *  — a go-wallet-backend. When present, the wallet's trust layer is the
+ *  BACKEND'S PDP-PROXY from the first issuance (the tenant's policy
+ *  decides which issuers this deployment trusts — the page never
+ *  guesses), and the adopt defaults to this backend.
+ *
+ *  The evaluations carry the token the backend demands: before any user
+ *  exists, the PRE-REGISTRATION TENANT TOKEN (go-wallet-backend#566's
+ *  slot — supply it until the backend ships the anonymous path); after
+ *  the adopt, the passkey session's token (the provider swaps
+ *  automatically — the trust plugin never sees the difference). */
+export interface MiniWalletBackend {
+  /** The backend's base URL (the gdc instance, for the demo). */
+  url: string;
+  /** The AS's tenant (the register/login headers). */
+  tenantId?: string;
+  /** The evaluation token — the provider the trust layer consults on
+   *  every evaluation. Supply the pre-registration tenant token here
+   *  until #566 ships. */
+  token?: TrustTokenProvider;
+}
+
 export interface MiniWalletOptions {
   /** The storage backend; the browser localStorage by default. */
   storage?: WalletStorage;
   /** The page's UI callbacks — delegated verbatim to the engine host. */
   ui?: MiniWalletUi;
-  /** The trust layer — the engine's PDP. Required: a TrustPlugin
-   *  (the authzen-client's home; AlwaysTrustedPlugin is the demo shim)
-   *  or the raw port shape. */
-  pdp: MiniWalletPdpOption;
+  /** The trust layer — the engine's PDP. A TrustPlugin (the
+   *  authzen-client's home; AlwaysTrustedPlugin is the demo shim) or
+   *  the raw port shape — OR derived from the `backend` when present
+   *  (the backend's PDP-proxy; the backend's token rides along). */
+  pdp?: MiniWalletPdpOption;
+  /** The permanent-wallet backend (see MiniWalletBackend). When set,
+   *  the trust layer is the backend's PDP-proxy and the adopt defaults
+   *  to this backend. */
+  backend?: MiniWalletBackend;
   /** The page's fetch; the browser default when absent. */
   fetch?: MiniWalletFetch;
   /** The wasm URL — the bundler-resolved default when absent. */
@@ -89,8 +118,13 @@ export class MiniWallet {
    *  the start's request itself. */
   readonly #pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 
+  #trustToken: TrustTokenProvider | undefined;
+
   constructor(options: MiniWalletOptions) {
-    if (!options.pdp) throw new Error("MiniWallet needs a pdp (the trust callback)");
+    if (!options.pdp && !options.backend) {
+      throw new Error("MiniWallet needs a trust layer: a pdp plugin or a backend (its PDP-proxy)");
+    }
+    this.#trustToken = options.backend?.token;
     this.#opts = options;
     this.#storage =
       options.storage ??
@@ -98,6 +132,24 @@ export class MiniWallet {
         ? new LocalStorageWalletStorage()
         : new MemoryWalletStorage());
   }
+
+  /** The wallet's trust layer: the backend's PDP-proxy when configured
+   *  (the token provider riding along), the pdp option otherwise. */
+  #pdpOf(): MiniWalletPdpOption {
+    const backend = this.#opts.backend;
+    if (backend) {
+      return new AuthzenTrustPlugin(`${backend.url.replace(/\/$/, "")}/v1/evaluate`, () => this.#evaluationToken());
+    }
+    return this.#opts.pdp!;
+  }
+
+  /** The evaluation token: the session's after the adopt, the
+   *  configured pre-registration provider before it. */
+  async #evaluationToken(): Promise<string | null> {
+    return this.#sessionToken ? await this.#sessionToken() : (this.#trustToken ? await this.#trustToken() : null);
+  }
+
+  #sessionToken: TrustTokenProvider | undefined;
 
   // ── The engine: loaded once, the session created once ──────────────────
 
@@ -110,7 +162,7 @@ export class MiniWallet {
     await mod.init(this.#opts.wasmUrl);
     const engine = new mod.WasmEngine({
       fetch: this.#opts.fetch ?? defaultFetch(),
-      pdp: asPdp(this.#opts.pdp as TrustPlugin),
+      pdp: asPdp(this.#pdpOf() as TrustPlugin),
       host: {
         sign: (params: {
           flow_id: string;
@@ -220,6 +272,16 @@ export class MiniWallet {
   }
 
   // ── The flows ───────────────────────────────────────────────────────────
+
+  /**
+   * Probe the trust layer directly — the page's own trust question
+   * (the backend's PDP-proxy when configured; the token rides along).
+   */
+  async evaluateTrust(ask: Record<string, unknown>): Promise<{ trusted: boolean; decision?: string; context?: unknown }> {
+    const pdp = this.#pdpOf();
+    const plugin = "evaluate" in pdp ? (pdp as TrustPlugin) : asPdp(pdp as MiniWalletPdpOption) as unknown as TrustPlugin;
+    return plugin.evaluate(ask as Parameters<TrustPlugin["evaluate"]>[0]);
+  }
 
   /**
    * Receive a credential: an offer URI (https), the
@@ -499,9 +561,11 @@ export class MiniWallet {
     /** The blob's cipher — the private-data library's slot. */
     cipher?: PrivateDataCipher;
   }): Promise<AdoptReport | null> {
-    const target = typeof options.target === "string"
-      ? new GoWalletBackendTarget(options.target)
-      : options.target;
+    const target = options.target === undefined && this.#opts.backend
+      ? new GoWalletBackendTarget(this.#opts.backend.url, this.#opts.backend.tenantId)
+      : typeof options.target === "string"
+        ? new GoWalletBackendTarget(options.target)
+        : options.target;
     const credentials = await this.credentials();
     // The page's ask — its answer gates everything.
     const go = await options.ui.ask({ credentials, backend: target.backend });
@@ -512,8 +576,16 @@ export class MiniWallet {
     const cipher = options.cipher ?? new NullCipher();
     const report = await this.migrate(target.storage(cipher));
     if (report.failed) return { account, keys: report.keys, failed: report.failed };
-    // The authz of the adopted configuration: the backend's PDP-proxy.
-    this.#opts = { ...this.#opts, pdp: target.trustPlugin() };
+    // The authz of the adopted configuration: the backend's PDP-proxy
+    // carries the SESSION's token now (the adopt's continuity — the
+    // pre-registration token's job ended with the user's arrival).
+    const factory = target.sessionToken?.();
+    this.#sessionToken = typeof factory === "function" ? factory : undefined;
+    if (this.#opts.backend) {
+      this.#opts = { ...this.#opts, backend: { ...this.#opts.backend, url: target.backend } };
+    } else {
+      this.#opts = { ...this.#opts, backend: { url: target.backend } };
+    }
     this.#opts.onEvent?.({ type: "adopted", account, backend: target.backend });
     return { account, keys: report.keys };
   }

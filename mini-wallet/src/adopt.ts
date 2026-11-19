@@ -15,7 +15,7 @@
 // the backend's opaque bytes, the same accepted posture as the
 // unencrypted localStorage phase, upgraded to a server-side account.
 
-import type { TrustPlugin } from "./trust.js";
+import type { TrustPlugin, TrustTokenProvider } from "./trust.js";
 import { AuthzenTrustPlugin } from "./trust.js";
 import type { WalletStorage } from "./types.js";
 import type { StoredCredential } from "./types.js";
@@ -76,6 +76,11 @@ export interface AdoptTarget {
   storage(cipher: PrivateDataCipher): WalletStorage;
   /** The adopted configuration's authz: the backend's PDP-proxy. */
   trustPlugin(): TrustPlugin;
+  /** The SESSION's token — the adopt's continuity: the trust
+   *  evaluations carry this token from the adopt on (the
+   *  pre-registration tenant token's job ended with the user's
+   *  arrival). Absent when the target keeps no token (a test mock). */
+  sessionToken?(): TrustTokenProvider | undefined;
 }
 
 /** The go-wallet-backend target: the passkey AS, the private-data store,
@@ -85,6 +90,7 @@ export class GoWalletBackendTarget implements AdoptTarget {
   readonly #tenantId: string;
   #sessionHeaders: Record<string, string> = {};
   #etag: string | undefined;
+  #accessToken: string | null = null;
 
   constructor(backend: string, tenantId = "default") {
     this.backend = backend.replace(/\/$/, "");
@@ -107,7 +113,25 @@ export class GoWalletBackendTarget implements AdoptTarget {
     const session = typeof finish.session === "string" ? finish.session : undefined;
     if (token) this.#sessionHeaders.Authorization = `Bearer ${token}`;
     else if (session) this.#sessionHeaders.Cookie = session;
+    this.#accessToken = token ?? null;
     return { account: String(finish.uuid ?? finish.account ?? "") };
+  }
+
+  sessionToken(): TrustTokenProvider | undefined {
+    // The registered session's token: the finish's access token, or a
+    // fresh mint through /auth/token when the finish established the
+    // session cookie alone.
+    return async () => {
+      if (this.#accessToken) return this.#accessToken;
+      const answer = await this.#post("/auth/token", { aud: "wallet-backend" }, {
+        "X-Token-Mode": "token",
+        "X-Tenant-ID": this.#tenantId,
+        ...(this.#sessionHeaders.Cookie ? { Cookie: this.#sessionHeaders.Cookie } : {}),
+      });
+      const token = typeof answer.token === "string" ? answer.token : (typeof answer.access_token === "string" ? answer.access_token : null);
+      if (token) this.#accessToken = token;
+      return token;
+    };
   }
 
   storage(cipher: PrivateDataCipher): WalletStorage {

@@ -99,6 +99,29 @@ target backend's business and this library never changes when the
 private-data library lands. `report.keys` names what moved; a failure
 names the key and touches nothing.
 
+## The backend configuration: the tenant's policy from the first issuance
+
+When the wallet is configured with a backend, its trust layer is **the backend's PDP-proxy from the FIRST credential issuance** — the tenant's policy decides which issuers this deployment trusts; the page never guesses:
+
+```ts
+const wallet = new MiniWallet({
+  backend: {
+    url: "https://sirosid-gdc-wallet-backend.fly.dev",
+    tenantId: "default",
+    // The PRE-REGISTRATION TENANT TOKEN (go-wallet-backend#566): the
+    // evaluations carry it before any user exists. Supply it until the
+    // backend ships the anonymous path; after the adopt the passkey
+    // session's token takes over automatically — the provider swaps
+    // beneath the trust layer, nothing else changes.
+    token: async () => myPage.tenantToken(),
+  },
+  ui: { consent: async () => myPage.askConsent() },
+});
+await wallet.receiveCredential(offerUri); // the trust check: the backend's /v1/evaluate
+```
+
+The adopt needs no target then — it defaults to the configured backend.
+
 ## The adopt flow: a permanent wallet
 
 The arc the brief draws for a page with an embedded issuer flow: the
