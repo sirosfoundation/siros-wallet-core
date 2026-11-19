@@ -190,6 +190,16 @@ impl Outbox {
             .or_insert_with(SessionLog::new);
         log.broadcast.subscribe()
     }
+
+    /// How many live subscribers the session's log has (issue #72): the
+    /// ask's delivery anchor — an ask streamed while this is 0 has no
+    /// reader, and its timeout must not burn in the delivery-less window.
+    pub fn subscriber_count(&self, session: &str) -> usize {
+        let logs = self.logs.lock().unwrap_or_else(|p| p.into_inner());
+        logs.get(session)
+            .map(|log| log.broadcast.receiver_count())
+            .unwrap_or(0)
+    }
 }
 
 /// The log cannot replay from `Last-Event-ID`: the events were dropped by
