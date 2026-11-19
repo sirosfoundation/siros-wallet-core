@@ -28,10 +28,22 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", features = ["util"] }
 futures-util = "0.3"
 tokio-tungstenite = "0.24"
+dashmap = { version = "6", optional = true }
+# The Valkey client (issue #65): "an async client for Redis and Valkey" -
+# RESP-compatible either way; Valkey is the open source store this
+# deployment targets. Feature-gated behind `valkey`.
+fred = { version = "10", default-features = false, features = ["enable-rustls", "i-pubsub", "i-lists", "i-hashes", "i-keys"], optional = true }
 
 [[bin]]
 name = "engine-server"
 path = "src/main.rs"
+
+[features]
+# The Valkey-backed shared outbox (issue #65): a multi-replica deployment
+# backs the event log with a shared store - a Valkey server (the
+# RESP-compatible open source store) via fred. The memory log stays the
+# default.
+valkey = ["dep:fred", "dep:dashmap"]
 
 [lints]
 workspace = true

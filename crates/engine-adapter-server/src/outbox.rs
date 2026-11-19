@@ -281,3 +281,33 @@ fn redact(message: &[u8]) -> Vec<u8> {
     }
     serde_json::to_vec(&value).unwrap_or_else(|_| message.to_vec())
 }
+
+// ─── The shared-outbox trait over the memory log (issue #65) ──────────────
+
+/// The memory log AS the shared outbox: the deployment's default backend.
+/// The trait's [`SharedOutbox::write`] takes the session and the
+/// **already-redacted** data (the redaction stays the transport's job —
+/// a shared store never sees the withheld members); the memory log's own
+/// [`Outbox::write`] derives the session from the message, so the adapter
+/// re-derives and writes the redacted bytes directly.
+impl crate::shared_outbox::SharedOutbox for Outbox {
+    fn write(&self, session: &str, data: &[u8]) -> LoggedEvent {
+        let mut logs = self.logs.lock().unwrap_or_else(|p| p.into_inner());
+        let log = logs
+            .entry(session.to_owned())
+            .or_insert_with(SessionLog::new);
+        log.push(data.to_vec())
+    }
+
+    fn replay(&self, session: &str, last_id: u64) -> Result<Vec<LoggedEvent>, ReplayGap> {
+        Outbox::replay(self, session, last_id)
+    }
+
+    fn subscribe(&self, session: &str) -> tokio::sync::broadcast::Receiver<LoggedEvent> {
+        Outbox::subscribe(self, session)
+    }
+
+    fn subscriber_count(&self, session: &str) -> usize {
+        Outbox::subscriber_count(self, session)
+    }
+}
