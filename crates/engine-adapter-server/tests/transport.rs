@@ -847,3 +847,69 @@ async fn an_anonymous_flow_start_refuses_with_31002() {
         "the reason names the requirement: {body}"
     );
 }
+
+/// Issue #72 (wallet-core): a stream that connects with NO `Last-Event-ID`
+/// against a session whose log already holds events gets **the whole
+/// retained window replayed** — not a silent go-live. The black-holed first
+/// stream (the half-open socket, the 2026-11-14 class) never delivers a
+/// byte, so the client carries no `lastEventId` to name what it missed; the
+/// go-live answer dropped the engine's asks instead, and the flow burned a
+/// single-use pre-authorized code on requests without their attestation.
+/// The client dedupes by event id, so a redelivered overlap is dropped.
+#[tokio::test]
+async fn a_fresh_stream_replays_the_whole_retained_window() {
+    let server = test_server();
+    let session = create_session(&server).await;
+    // Events in the log BEFORE any stream connected.
+    for step in ["parsing_offer", "offer_parsed"] {
+        let ctx = wmp_core::context::RequestContext::default();
+        server
+            .peer
+            .notify(
+                &ctx,
+                "wmp.flow.progress",
+                &serde_json::json!({
+                    "wmp": { "session_id": session, "version": "0.1" },
+                    "flow_id": "flow-72",
+                    "step": step,
+                }),
+            )
+            .expect("the notification is sent");
+    }
+
+    let app = engine_adapter_server::transport::router(server.clone());
+    // NO Last-Event-ID header: the stream that never delivered a byte.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/wmp/events?session_id={session}"))
+                .body(Body::empty())
+                .expect("build"),
+        )
+        .await
+        .expect("serve");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // The whole window replays, oldest first, before the live stream.
+    use futures_util::StreamExt;
+    let mut stream = response.into_body().into_data_stream();
+    let mut text = String::new();
+    for _ in 0..16 {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+            .await
+            .expect("the frame arrives in time");
+        let Some(Ok(bytes)) = frame else { break };
+        text.push_str(&String::from_utf8_lossy(&bytes));
+        if text.contains("parsing_offer") && text.contains("offer_parsed") {
+            break;
+        }
+    }
+    assert!(
+        text.contains("parsing_offer") && text.contains("offer_parsed"),
+        "the fresh stream replays the retained events it never saw: {text}"
+    );
+    // Oldest first: the replay order is the log's.
+    let first = text.find("parsing_offer");
+    let second = text.find("offer_parsed");
+    assert!(first < second, "the replay is oldest first: {text}");
+}

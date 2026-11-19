@@ -477,6 +477,17 @@ pub async fn request_credential(
         }
     };
 
+    // Issue #72's diagnostics: the stall point (the engine went silent between
+    // the proof and the POST on a v0.2.28 phone scan). The outcome lines name
+    // the path taken; nothing of the request or response content. Placed
+    // BEFORE the non-200 branch: a refusal (the missing-attestation 400 of
+    // the lost-ask scan) logs its status too, not only the 200 path.
+    eprintln!(
+        "engine: credential response for {} answered {} (encrypted={})",
+        configuration_id,
+        response.status,
+        super::encryption::is_encrypted_response("", &response.body)
+    );
     if response.status != 200 {
         // The P0.6-verified rule: an error body carrying `invalid_nonce` —
         // or any refreshed `c_nonce` — is retryable; everything else is
@@ -511,15 +522,6 @@ pub async fn request_credential(
         return Err(CredentialError::Status(response.status));
     }
 
-    // Issue #72's diagnostics: the stall point (the engine went silent between
-    // the proof and the POST on a v0.2.28 phone scan). The outcome lines name
-    // the path taken; nothing of the request or response content.
-    eprintln!(
-        "engine: credential response for {} answered {} (encrypted={})",
-        configuration_id,
-        response.status,
-        super::encryption::is_encrypted_response("", &response.body)
-    );
     let was_encrypted = super::encryption::is_encrypted_response("", &response.body);
     let mut credential_response: CredentialResponse = if was_encrypted {
         let Some(encryption) = encryption else {
