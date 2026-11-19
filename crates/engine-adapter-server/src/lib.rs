@@ -33,6 +33,8 @@
 pub mod config;
 pub mod handler;
 pub mod host_bridge;
+pub mod invitation;
+pub mod mailbox;
 pub mod outbox;
 pub mod ports;
 pub mod shared_outbox;
@@ -66,6 +68,13 @@ pub struct EngineServer {
     /// The engine's per-token revocation list (engine-parity.md §8 G2):
     /// `revoke` a `jti` and every later bearer of that token is refused.
     pub revocation: Arc<token::JtiBlacklist>,
+    /// The invitation store (issue #77): the issued nonces, consumed
+    /// single-use at the `wmp.session.create` that answers them.
+    pub invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+    /// The engine's invitation key (issue #77): the provider-delegate
+    /// ES256 pair the create endpoint signs with and the consume path
+    /// verifies. None when `public_url` is unset (the endpoint refuses).
+    pub invitation_key: Option<Arc<crate::invitation::InvitationKey>>,
     /// The engine's configuration.
     pub config: config::Config,
 }
@@ -124,8 +133,29 @@ impl EngineServer {
         let peer_config = config.clone();
         let _peer_validator = validator.clone();
         let peer_outbox = outbox.clone();
-        let (peer, runtime) =
-            build_peer(&peer_config, &peer_store, ports.clone(), peer_outbox, flows);
+        // The invitation service (issue #77): the store always, the key
+        // when the provider's public URL is configured.
+        let invitations = Arc::new(wmp_core::invitation::MemoryInvitationStore::new());
+        let invitation_key = (!config.public_url.is_empty())
+            .then(|| {
+                crate::invitation::InvitationKey::generate()
+                    .map(Arc::new)
+                    .map_err(|err| {
+                        eprintln!("engine-server: {err}");
+                        err
+                    })
+                    .ok()
+            })
+            .flatten();
+        let (peer, runtime) = build_peer(
+            &peer_config,
+            &peer_store,
+            ports.clone(),
+            peer_outbox,
+            flows,
+            invitations.clone(),
+            invitation_key.as_ref(),
+        );
 
         // The host bridge: the engine's asks as child flows over the peer,
         // their completions routed back through the same registry the
@@ -160,6 +190,8 @@ impl EngineServer {
             runtime,
             outbox,
             revocation,
+            invitations,
+            invitation_key,
             config,
         }
     }
@@ -179,6 +211,8 @@ fn build_peer(
     ports: Arc<engine_core::Ports>,
     outbox: Arc<Outbox>,
     flows: Arc<crate::host_bridge::FlowSessions>,
+    invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+    invitation_key: Option<&Arc<crate::invitation::InvitationKey>>,
 ) -> (Arc<Peer>, Arc<engine_core::runtime::FlowRuntime>) {
     // The peer needs a handler; the handler needs the runtime; the runtime
     // needs the peer. Break the cycle: build the runtime over a
@@ -194,8 +228,15 @@ fn build_peer(
         ports,
         placeholder_peer,
     ));
-    let handler =
-        handler::EngineHandler::new(config, store, runtime.clone(), outbox.clone(), flows);
+    let handler = handler::EngineHandler::new_with_invitations(
+        config,
+        store,
+        &outbox,
+        &flows,
+        &runtime,
+        invitations,
+        invitation_key,
+    );
     let peer = wmp_core::peer::PeerBuilder::new(handler)
         .session_store(store.clone())
         .transport(Arc::new(crate::outbox::OutboxTransport::new(outbox)))
