@@ -589,8 +589,13 @@ impl FlowHandler for Oid4vciFlow {
         // carries each entry's own notification members, plus the
         // legacy single-configuration members of the first (the Go
         // CompleteWithRefreshToken).
-        let completion =
-            issuance_completion(&issued, &failures, _token.as_ref(), dpop_key.as_ref());
+        let completion = issuance_completion(
+            &issued,
+            &failures,
+            _token.as_ref(),
+            dpop_key.as_ref(),
+            &issuer_metadata.credential_issuer,
+        );
         let _ = ctx.complete(&completion).await;
 
         Ok(FlowStartResult {
@@ -1187,7 +1192,13 @@ async fn resume_authorization_code(
     // notification contexts (#527) registered per response inside the
     // loop, so a wallet that finished its issuance over the
     // authorization-code round trip can notify too.
-    let completion = issuance_completion(&issued, &failures, Some(&token), dpop_key.as_ref());
+    let completion = issuance_completion(
+        &issued,
+        &failures,
+        Some(&token),
+        dpop_key.as_ref(),
+        &issuer_metadata.credential_issuer,
+    );
     let _ = ctx.complete(&completion).await;
 
     Ok(FlowActionResult {
@@ -1535,6 +1546,14 @@ fn issuance_completion(
     failures: &[IssuanceFailure],
     token: Option<&token::TokenResponse>,
     dpop_key: Option<&dpop::DpopKey>,
+    // The flow's credential_issuer (the offer's): the completion's
+    // flow-level member (go-wallet-backend's SendFlowComplete —
+    // flow.Data[credential_issuer] into FlowCompleteMessage.CredentialIssuer,
+    // session.go:1471 — the Go parity this engine never carried; the SDK's
+    // completion lookup keyed on it since, and a clean seed delivery
+    // answered NAMESPACE_ABSENT every scan — the realeyes wall,
+    // 2026-11-20).
+    issuer: &str,
 ) -> serde_json::Value {
     let credentials: Vec<serde_json::Value> = issued
         .iter()
@@ -1584,6 +1603,16 @@ fn issuance_completion(
 
     let mut completion = serde_json::json!({ "credentials": credentials });
     if let (Some(object), Some(first)) = (completion.as_object_mut(), issued.first()) {
+        // The flow-level `credential_issuer` (go-wallet-backend's
+        // `FlowCompleteMessage.CredentialIssuer` — the Go parity this
+        // engine never carried; the SDK's advertisement lookup keys on it,
+        // and its absence answered NAMESPACE_ABSENT on every clean seed
+        // delivery). The offer's issuer: the one the flow resolved its
+        // metadata against, the one the credential was issued by.
+        object.insert(
+            "credential_issuer".to_owned(),
+            serde_json::Value::String(issuer.to_owned()),
+        );
         // The legacy single-configuration view: the first entry's.
         object.insert(
             "credential".to_owned(),
