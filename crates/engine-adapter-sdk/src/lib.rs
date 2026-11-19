@@ -903,6 +903,11 @@ pub struct ResponseEncryptionKeyParams {
     /// credential it decrypts — with the completion entry of the same
     /// id.
     pub credential_configuration_id: String,
+    /// The negotiated key-agreement algorithm (the engine resolved it
+    /// against the issuer's credential_response_encryption).
+    pub alg: String,
+    /// The negotiated content-encryption method.
+    pub enc: String,
 }
 
 /// The response-encryption key answer: the public JWK of the pair the

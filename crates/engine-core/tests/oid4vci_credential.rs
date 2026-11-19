@@ -1153,10 +1153,19 @@ impl Host for ClientKeyHost {
         params: engine_ports::ResponseEncryptionKeyParams,
     ) -> Result<engine_ports::ResponseEncryptionKeyResult, HostError> {
         // The pair is generated ON THE HOST: the engine offered nothing,
-        // it only named the configuration (the #558 pairing).
+        // it named the configuration (the #558 pairing) AND the
+        // negotiated pair (the §7.3 alg/enc the engine resolved).
         assert_eq!(
             params.credential_configuration_id, "UniversityDegree",
             "the key ask names its configuration (the #558 pairing)"
+        );
+        assert_eq!(
+            params.alg, "ECDH-ES",
+            "the key ask carries the negotiated alg"
+        );
+        assert_eq!(
+            params.enc, "A256GCM",
+            "the key ask carries the negotiated enc"
         );
         let private = jose_rs::jwk::generate::generate_ec("P-256")
             .map_err(|_| HostError::Cannot("the host cannot generate a pair".to_owned()))?;
