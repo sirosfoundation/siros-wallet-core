@@ -268,6 +268,16 @@ pub struct ResponseEncryptionKeyParams {
     /// the key — and the credential it decrypts — with the completion
     /// entry carrying the same id.
     pub credential_configuration_id: String,
+    /// The negotiated key-agreement algorithm (OpenID4VCI §7.3, the
+    /// `alg` the engine resolved against the issuer's
+    /// `credential_response_encryption`): `ECDH-ES` and its AES key
+    /// wrap composites. The host generates the pair FOR THIS ALG —
+    /// the decrypt ask's JWE must use it.
+    pub alg: String,
+    /// The negotiated content-encryption method (the `enc` of the same
+    /// negotiation): `A128GCM`/`A192GCM`/`A256GCM` (and the CBC-HS
+    /// family).
+    pub enc: String,
 }
 
 /// The response-encryption key answer: the public JWK the credential

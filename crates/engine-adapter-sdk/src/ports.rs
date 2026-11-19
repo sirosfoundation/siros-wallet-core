@@ -177,6 +177,8 @@ impl engine_ports::Host for HostBridge {
             .request_response_encryption_key(ResponseEncryptionKeyParams {
                 flow_id: params.flow_id,
                 credential_configuration_id: params.credential_configuration_id,
+                alg: params.alg,
+                enc: params.enc,
             })
             .await
             .map_err(host_error)?;

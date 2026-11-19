@@ -3251,7 +3251,16 @@ data class ResponseEncryptionKeyParams (
      * credential it decrypts — with the completion entry of the same
      * id.
      */
-    var `credentialConfigurationId`: kotlin.String
+    var `credentialConfigurationId`: kotlin.String, 
+    /**
+     * The negotiated key-agreement algorithm (the engine resolved it
+     * against the issuer's credential_response_encryption).
+     */
+    var `alg`: kotlin.String, 
+    /**
+     * The negotiated content-encryption method.
+     */
+    var `enc`: kotlin.String
 ) {
     
     companion object
@@ -3265,17 +3274,23 @@ public object FfiConverterTypeResponseEncryptionKeyParams: FfiConverterRustBuffe
         return ResponseEncryptionKeyParams(
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
         )
     }
 
     override fun allocationSize(value: ResponseEncryptionKeyParams) = (
             FfiConverterString.allocationSize(value.`flowId`) +
-            FfiConverterString.allocationSize(value.`credentialConfigurationId`)
+            FfiConverterString.allocationSize(value.`credentialConfigurationId`) +
+            FfiConverterString.allocationSize(value.`alg`) +
+            FfiConverterString.allocationSize(value.`enc`)
     )
 
     override fun write(value: ResponseEncryptionKeyParams, buf: ByteBuffer) {
             FfiConverterString.write(value.`flowId`, buf)
             FfiConverterString.write(value.`credentialConfigurationId`, buf)
+            FfiConverterString.write(value.`alg`, buf)
+            FfiConverterString.write(value.`enc`, buf)
     }
 }
 

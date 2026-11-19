@@ -198,6 +198,11 @@ pub async fn negotiate_with_host(
         .request_response_encryption_key(engine_ports::ResponseEncryptionKeyParams {
             flow_id: flow_id.to_owned(),
             credential_configuration_id: configuration_id.to_owned(),
+            // The negotiated pair the engine resolved against the
+            // issuer's credential_response_encryption — the host
+            // generates the pair FOR IT, and the JWE must use it.
+            alg: negotiated.alg.clone(),
+            enc: negotiated.enc.clone(),
         })
         .await
     {
