@@ -1012,9 +1012,8 @@ async fn the_engine_serves_a_client_held_encrypted_issuance_end_to_end() {
                     serde_json::json!({ "signature": [4, 3, 2, 1] })
                 } else if flow_id.contains("::tx_code::") {
                     serde_json::json!("1234")
-                } else if flow_id.contains("::attestation::") {
-                    serde_json::json!({})
-                } else if flow_id.contains("::signing_key::") {
+                } else if flow_id.contains("::attestation::") || flow_id.contains("::signing_key::")
+                {
                     serde_json::json!({})
                 } else {
                     panic!("an unexpected child ask streamed: {message}");
