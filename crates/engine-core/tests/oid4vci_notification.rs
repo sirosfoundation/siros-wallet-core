@@ -870,6 +870,16 @@ async fn the_issuance_completion_registers_and_the_flow_forwards() {
         issuance["credentials"][0]["credential_configuration_id"], "UniversityDegree",
         "the entry names its configuration"
     );
+    // The flow-level credential_issuer (go-wallet-backend's
+    // FlowCompleteMessage.CredentialIssuer — the Go parity): the SDK's
+    // completion-side advertisement lookup keys on it, and its absence
+    // answered NAMESPACE_ABSENT ("the delivered secret does not match
+    // what the issuer advertised") on every clean seed delivery — the
+    // realeyes wall, 2026-11-20 23:46Z.
+    assert_eq!(
+        issuance["credential_issuer"], "https://issuer.example",
+        "the completion carries the flow-level credential_issuer (the Go parity)"
+    );
     // Issue #59, the Go engine's `CredentialResult` parity: the
     // per-entry `credential_response_encrypted` flag (false — this
     // response answered plain) and the response-level
