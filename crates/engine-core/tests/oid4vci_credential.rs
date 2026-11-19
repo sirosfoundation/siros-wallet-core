@@ -377,9 +377,14 @@ impl HttpClient for EncryptingHttp {
         let offer = body["credential_response_encryption"]
             .as_object()
             .expect("the offer is in the request");
-        // The 1.0 wire form: jwk + enc only — the key-management
-        // algorithm rides the JWE header, not the offer.
-        assert!(offer.get("alg").is_none());
+        // The 1.0 wire form (§7.3): `alg` + `jwk` + `enc` — the negotiated
+        // key-management algorithm rides the OFFER itself (Spherity's issuer
+        // reads it and refuses `<missing>`; found in the 20:42 scan's
+        // refusal body, #72 round 4 — the earlier pin had it absent).
+        assert_eq!(
+            offer["alg"], "ECDH-ES",
+            "the offer carries the negotiated alg"
+        );
         assert_eq!(offer["enc"], "A256GCM");
         assert_eq!(offer["jwk"]["kty"], "EC");
 

@@ -181,9 +181,13 @@ pub fn negotiate_encryption(config: &ResponseEncryptionConfig) -> Option<Negotia
 /// instead.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseEncryptionRequest {
-    /// The negotiated key-management algorithm — engine-internal
-    /// only; never serialized to the wire.
-    #[serde(skip_serializing)]
+    /// The negotiated key-management algorithm, ON THE WIRE
+    /// (OpenID4VCI 1.0 Final §7.3's offer shape: `alg_values_supported`
+    /// × the wallet's choice — Spherity's issuer reads the member and
+    /// refuses `<missing>`; the earlier pin skipped it, "the alg rides
+    /// the JWE header" — true of the RESPONSE but not of the OFFER.
+    /// Found in the 20:42 scan's refusal body, #72 round 4).
+    #[serde(rename = "alg")]
     pub alg: String,
     /// The negotiated content-encryption algorithm.
     pub enc: String,
