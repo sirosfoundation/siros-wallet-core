@@ -77,7 +77,19 @@ pub struct SessionCreateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<AuthObject>,
     /// The nonce of the invitation this create answers, if any.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    /// `deserialize_with`: the null-default rule (26d5b6b's drop-in
+    /// parity — params decode accepts explicit nulls): a client whose
+    /// codec encodes defaults (kotlinx `encodeDefaults = true`) names the
+    /// member on every create, null when no invitation rides it, and a
+    /// plain `String` refused the whole params ("Session creation failed:
+    /// Invalid params", every login — the v0.2.34 GDC engine, found live
+    /// 2026-11-20). Null is the empty nonce: no invitation, the same as
+    /// the member's absence.
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub invitation_nonce: String,
 }
 

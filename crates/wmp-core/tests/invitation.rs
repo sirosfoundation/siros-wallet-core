@@ -104,3 +104,38 @@ fn rfc3339_conversions_agree() {
     // A date without a time does not read.
     assert!(expiring("2024-05-01").is_expired(i64::MIN));
 }
+
+/// Issue #77's regression guard (the 2026-11-20 live finding): the session
+/// create params' `invitation_nonce` — a plain `String` — MUST accept an
+/// explicit JSON null. A client whose codec encodes defaults (kotlinx
+/// `encodeDefaults = true`, the Kotlin SDK's codec) names the member on
+/// EVERY create, null when no invitation rides it; the plain-String
+/// decode refused the whole params ("Session creation failed: Invalid
+/// params", every login — the v0.2.34 GDC engine). Null is the empty
+/// nonce: no invitation, the same as the member's absence — 26d5b6b's
+/// drop-in parity rule, applied to the one member that predated it.
+#[test]
+fn the_create_params_accept_an_explicit_null_invitation_nonce() {
+    // The params' wire shape: a null invitation_nonce decodes; the empty
+    // nonce is "no invitation".
+    let raw = br#"{
+        "wmp": { "version": "0.1", "session_id": "ses-1" },
+        "invitation_nonce": null
+    }"#;
+    let params: wmp_core::methods::SessionCreateParams =
+        serde_json::from_slice(raw).expect("a null invitation_nonce decodes (the empty nonce)");
+    assert!(
+        params.invitation_nonce.is_empty(),
+        "null is the empty nonce"
+    );
+    // The absent member is the same.
+    let absent: wmp_core::methods::SessionCreateParams =
+        serde_json::from_slice(br#"{"wmp": {"version": "0.1"}}"#)
+            .expect("an absent invitation_nonce decodes");
+    assert!(absent.invitation_nonce.is_empty());
+    // A carried nonce round-trips.
+    let carried: wmp_core::methods::SessionCreateParams =
+        serde_json::from_slice(br#"{"wmp": {"version": "0.1"}, "invitation_nonce": "inv-1"}"#)
+            .expect("a carried invitation_nonce decodes");
+    assert_eq!(carried.invitation_nonce, "inv-1");
+}
