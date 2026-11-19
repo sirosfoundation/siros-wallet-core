@@ -74,9 +74,19 @@ pub struct CredentialResponse {
     /// The response-level `credential_metadata` (the 1.0/1.1 member),
     /// kept raw: the plain-secret check reads it (Auxiliary Data v0.1
     /// §7.1 — auxiliary_data MUST NOT travel a plain response), the
-    /// display data is the client's to take.
+    /// display data is the client's to take. The completion relays it
+    /// (issue #59, the Go engine's `oid4vci_blind_response.go` parity)
+    /// so the wallet's receipt check can store what the issuer
+    /// delivered — the ssc seed's delivery path.
     #[serde(default)]
     pub credential_metadata: Option<serde_json::Value>,
+    /// Whether this response arrived ENCRYPTED (issue #59): the
+    /// completion's per-result `credential_response_encrypted` flag
+    /// reads it, so the wallet knows a `to_wallet` secret travelled a
+    /// response it (not the engine) opened. Not a wire member of the
+    /// response — set by the fetch paths.
+    #[serde(skip, default)]
+    pub encrypted: bool,
 }
 
 /// Why the credential request refused.
@@ -336,7 +346,7 @@ pub async fn request_credential(
     if let Some(encryption) = encryption {
         let offer = super::encryption::build_encryption_request(
             &encryption.negotiated,
-            encryption.key.public_jwk.clone(),
+            encryption.key.public_jwk().clone(),
         );
         if let Some(body) = request_body.as_object_mut() {
             body.insert(
@@ -489,7 +499,7 @@ pub async fn request_credential(
     }
 
     let was_encrypted = super::encryption::is_encrypted_response("", &response.body);
-    let credential_response: CredentialResponse = if was_encrypted {
+    let mut credential_response: CredentialResponse = if was_encrypted {
         let Some(encryption) = encryption else {
             return Err(CredentialError::EncryptedWithoutKey);
         };
@@ -498,8 +508,33 @@ pub async fn request_credential(
         // a plain answer is refused (the P0.6-verified Go engine accepts
         // it; the Rust core follows the spec, and the vectors pin the
         // decision).
-        super::encryption::decrypt_encrypted_response(&jwe, &encryption.key)
-            .map_err(|err| CredentialError::Decrypt(err.to_string()))?
+        if encryption.key.is_client() {
+            // Issue #59's client-held key: the host holds the private
+            // half, so the HOST opens the response (the Go engine's
+            // `decrypt_credential_response` ask, #558's shape: the
+            // configuration this response is for, `deferred` false —
+            // this answers the credential request, not a deferred one).
+            // The plaintext response exists only on the host; the engine
+            // parses the JSON it relays back, nothing else.
+            let answer = host
+                .request_decrypt_credential_response(
+                    engine_ports::DecryptCredentialResponseParams {
+                        flow_id: flow_id.to_owned(),
+                        credential_configuration_id: configuration_id.to_owned(),
+                        deferred: false,
+                        jwe,
+                    },
+                )
+                .await
+                .map_err(|err| CredentialError::Decrypt(err.to_string()))?;
+            serde_json::from_value(answer.response).map_err(|_| CredentialError::NotJson)?
+        } else {
+            // The legacy engine-held key: the in-process decrypt.
+            let key = engine_encryption_key(&encryption.key)
+                .map_err(|err| CredentialError::Decrypt(err.to_string()))?;
+            super::encryption::decrypt_encrypted_response(&jwe, key)
+                .map_err(|err| CredentialError::Decrypt(err.to_string()))?
+        }
     } else {
         if encryption.is_some() {
             return Err(CredentialError::PlainAfterKeyOffered);
@@ -516,6 +551,10 @@ pub async fn request_credential(
         }
         serde_json::from_value(value).map_err(|_| CredentialError::NotJson)?
     };
+    // The encrypted-arrival flag (issue #59): the completion's
+    // per-result `credential_response_encrypted` reads it.
+    credential_response.encrypted = was_encrypted;
+
     // The batch shape's credential: the first entry (this request was for
     // one configuration). See the field's doc comment.
     let credential_response = if credential_response.credential.is_none() {
@@ -748,4 +787,17 @@ fn rfc7638_thumbprint(jwk: &Value) -> String {
         kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, canonical.as_bytes())
             .unwrap_or_default();
     base64url(&digest)
+}
+
+/// The engine-held key of a [super::encryption::ResponseKey], for the
+/// legacy in-process decrypt. The client-held arm never reaches the
+/// decrypt: its responses open on the host (the caller matches the
+/// custody first), so this reads the engine arm and nothing else.
+fn engine_encryption_key(
+    key: &super::encryption::ResponseKey,
+) -> Result<&super::encryption::EphemeralResponseKey, CredentialError> {
+    match key {
+        super::encryption::ResponseKey::Engine(key) => Ok(key),
+        super::encryption::ResponseKey::Client { .. } => Err(CredentialError::EncryptedWithoutKey),
+    }
 }

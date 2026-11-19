@@ -57,6 +57,17 @@ pub async fn poll_deferred_credential(
     transaction_id: &str,
     interval_secs: Option<i64>,
     on_progress: &(dyn Fn(usize) + Sync),
+    // The running flow's id (the decrypt ask's routing parent).
+    flow_id: &str,
+    // The negotiated response encryption (issue #59): a deferred 200
+    // can arrive as a JWE to the offered key — and the key's custody
+    // decides WHO opens it: the host (the client-held pair, the
+    // `decrypt_credential_response` ask with `deferred: true`, the Go
+    // engine's #558 shape) or the engine (the legacy in-process pair).
+    encryption: Option<&super::encryption::NegotiatedResponseEncryption>,
+    // The configuration the deferred credential is for (the decrypt
+    // ask's pairing member, #558's shape).
+    configuration_id: &str,
 ) -> Result<CredentialResponse, DeferredError> {
     // The deferred credential endpoint: the metadata's
     // `deferred_credential_endpoint` (OID4VCI 1.0 §9), else the
@@ -159,10 +170,50 @@ pub async fn poll_deferred_credential(
         match response.status {
             200 => {
                 // The credential is ready.
-                let value: serde_json::Value =
-                    serde_json::from_slice(&response.body).map_err(|_| DeferredError::NotJson)?;
-                let credential: CredentialResponse =
-                    serde_json::from_value(value).map_err(|_| DeferredError::NotJson)?;
+                let was_encrypted = super::encryption::is_encrypted_response("", &response.body);
+                let mut credential: CredentialResponse = if was_encrypted {
+                    // A deferred JWE (OID4VCI 1.0 §9): opened by whoever
+                    // holds the key's private half (issue #59) — the host
+                    // (the `decrypt_credential_response` ask, `deferred:
+                    // true`, #558's shape) or the engine (the legacy
+                    // pair). No key offered: a JWE nothing can open.
+                    let Some(encryption) = encryption else {
+                        return Err(DeferredError::NotJson);
+                    };
+                    let jwe = String::from_utf8_lossy(&response.body).into_owned();
+                    if encryption.key.is_client() {
+                        let answer = host
+                            .request_decrypt_credential_response(
+                                engine_ports::DecryptCredentialResponseParams {
+                                    flow_id: flow_id.to_owned(),
+                                    credential_configuration_id: configuration_id.to_owned(),
+                                    deferred: true,
+                                    jwe,
+                                },
+                            )
+                            .await
+                            .map_err(|_| DeferredError::NotJson)?;
+                        serde_json::from_value(answer.response)
+                            .map_err(|_| DeferredError::NotJson)?
+                    } else {
+                        let key = match &encryption.key {
+                            super::encryption::ResponseKey::Engine(key) => key.as_ref(),
+                            // The caller matched the custody first.
+                            super::encryption::ResponseKey::Client { .. } => {
+                                return Err(DeferredError::NotJson)
+                            }
+                        };
+                        super::encryption::decrypt_encrypted_response(&jwe, key)
+                            .map_err(|_| DeferredError::NotJson)?
+                    }
+                } else {
+                    let value: serde_json::Value = serde_json::from_slice(&response.body)
+                        .map_err(|_| DeferredError::NotJson)?;
+                    serde_json::from_value(value).map_err(|_| DeferredError::NotJson)?
+                };
+                // The encrypted-arrival flag (issue #59): the completion's
+                // per-result `credential_response_encrypted` reads it.
+                credential.encrypted = was_encrypted;
                 return Ok(credential);
             }
             202 => {

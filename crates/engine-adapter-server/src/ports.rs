@@ -242,6 +242,56 @@ impl Host for RemoteHost {
             .map_err(|_| HostError::Cannot("the signing-key answer does not parse".to_owned()))
     }
 
+    async fn request_response_encryption_key(
+        &self,
+        params: engine_ports::ResponseEncryptionKeyParams,
+    ) -> Result<engine_ports::ResponseEncryptionKeyResult, HostError> {
+        let bridge = self.bridge()?;
+        let ctx = wmp_core::context::RequestContext::default();
+        let session = self.session(&params.flow_id);
+        // Issue #59: the host's key generation is fast (a local pair);
+        // the MATCH bound (30 s) is the Go ask-family's short one.
+        let answer = bridge
+            .request(
+                &ctx,
+                &params.flow_id,
+                &session,
+                "response_encryption_key",
+                &params,
+                crate::host_bridge::ask::MATCH,
+            )
+            .await
+            .map_err(|err| err.into_host_error())?;
+        serde_json::from_str(answer.get()).map_err(|_| {
+            HostError::Cannot("the response-encryption-key answer does not parse".to_owned())
+        })
+    }
+
+    async fn request_decrypt_credential_response(
+        &self,
+        params: engine_ports::DecryptCredentialResponseParams,
+    ) -> Result<engine_ports::DecryptCredentialResponseResult, HostError> {
+        let bridge = self.bridge()?;
+        let ctx = wmp_core::context::RequestContext::default();
+        let session = self.session(&params.flow_id);
+        // Issue #59: the decrypt is local to the host (its own key, one
+        // JWE); the MATCH bound (30 s) covers it.
+        let answer = bridge
+            .request(
+                &ctx,
+                &params.flow_id,
+                &session,
+                "decrypt_credential_response",
+                &params,
+                crate::host_bridge::ask::MATCH,
+            )
+            .await
+            .map_err(|err| err.into_host_error())?;
+        serde_json::from_str(answer.get()).map_err(|_| {
+            HostError::Cannot("the decrypt-credential-response answer does not parse".to_owned())
+        })
+    }
+
     async fn request_match(
         &self,
         params: engine_ports::MatchParams,
