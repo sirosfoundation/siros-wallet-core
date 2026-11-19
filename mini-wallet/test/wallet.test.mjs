@@ -202,3 +202,128 @@ test("the wallet stores delivered credentials with their response metadata", asy
     "the nym_auth ssc opening rides the stored record — what the zkp presenter reads back");
   assert.equal(await w2.rawCredential("stash:flow"), null, "only credential records come back raw");
 });
+
+// ── The adopt flow: the page's mini-wallet becomes a permanent wallet ────
+
+/** A mock go-wallet-backend: the passkey begin/finish, the private-data
+ *  blob store with ETags — the shapes the real one serves. */
+function mockBackend() {
+  const state = { account: null, blob: null, etag: null, asks: 0 };
+  const server = {
+    async registerPasskey(ui) {
+      const credential = await ui.create({ challenge: "the-begin-options" });
+      state.account = "user-1";
+      return { account: "user-1" };
+    },
+    storage() {
+      const read = () => (state.blob ? JSON.parse(new TextDecoder().decode(new Uint8Array(state.blob))) : {});
+      const write = (records) => {
+        state.blob = Array.from(new TextEncoder().encode(JSON.stringify(records)));
+        state.etag = `"${state.blob.length}"`;
+      };
+      return {
+        async get(key) { return read()[key] ?? null; },
+        async put(key, value) { const r = read(); r[key] = value; write(r); },
+        async del(key) { const r = read(); delete r[key]; write(r); },
+        async list(prefix) {
+          const keys = Object.keys(read());
+          return prefix === undefined ? keys : keys.filter((k) => k.startsWith(prefix));
+        },
+      };
+    },
+    trustPlugin() {
+      return { async evaluate() { return { trusted: true, decision: "Permit" }; } };
+    },
+    get backend() { return "https://backend.example"; },
+  };
+  return { state, server };
+}
+
+test("adopt moves the credential into the backend and swaps the authz", async () => {
+  const { state, server } = mockBackend();
+  const storage = new MemoryWalletStorage();
+  await storage.put(
+    "credential:1",
+    JSON.stringify({ format: "mso_mdoc", credential: "the-mdoc", credential_metadata: { the: "ssc" }, received_at_unix: 1 }),
+  );
+  await storage.put("key:device", '{"kty":"EC"}');
+  const events = [];
+  const wallet = new MiniWallet({
+    storage,
+    pdp: { evaluate: async () => ({ trusted: true }) },
+    onEvent: (e) => events.push(e),
+  });
+
+  const report = await wallet.adopt({
+    target: server,
+    ui: {
+      ask: async (a) => {
+        state.asks += 1;
+        if (a.backend !== "https://backend.example") throw new Error("the ask's backend context");
+        if (a.credentials.length !== 1) throw new Error("the ask's credential context");
+        return true;
+      },
+      create: async (options) => ({ id: "created-over-" + JSON.stringify(options.challenge) }),
+    },
+  });
+
+  assert.equal(state.account, "user-1", "the passkey registered");
+  assert.equal(report.account, "user-1");
+  assert.deepEqual(report.keys.sort(), ["credential:1", "key:device"]);
+  assert.equal(report.failed, undefined);
+  // The records live on the backend now; the local copies are gone.
+  assert.deepEqual(await storage.list(), []);
+  const backendRecords = JSON.parse(new TextDecoder().decode(new Uint8Array(state.blob)));
+  // The KV values are the records' serialized envelopes (the storage
+  // contract: opaque strings).
+  assert.equal(JSON.parse(backendRecords["credential:1"]).credential, "the-mdoc");
+  assert.equal(backendRecords["key:device"], '{"kty":"EC"}');
+  // The wallet's further reads come from the backend.
+  const creds = await wallet.credentials();
+  assert.equal(creds.length, 1);
+  assert.equal(creds[0].key, "credential:1");
+  // The authz swapped to the backend's PDP-proxy.
+  assert.ok(events.some((e) => e.type === "adopted" && e.backend === "https://backend.example"));
+  const raw = await wallet.rawCredential("credential:1");
+  assert.equal(raw.credential_metadata.the, "ssc", "the ssc opening moved with the record");
+});
+
+test("a refused ask adopts nothing", async () => {
+  const { state, server } = mockBackend();
+  const storage = new MemoryWalletStorage();
+  await storage.put("credential:1", JSON.stringify({ format: "mso_mdoc", credential: "x" }));
+  const wallet = new MiniWallet({ storage, pdp: { evaluate: async () => ({ trusted: true }) } });
+  const report = await wallet.adopt({
+    target: server,
+    ui: { ask: async () => false, create: async () => ({}) },
+  });
+  assert.equal(report, null, "the ask's veto aborts");
+  assert.equal(state.account, null, "no passkey registered");
+  assert.equal((await wallet.credentials()).length, 1, "the credential stays local");
+});
+
+test("a failed move keeps the local wallet intact", async () => {
+  const { server } = mockBackend();
+  const flaky = {
+    ...server,
+    storage() {
+      const inner = server.storage();
+      return {
+        ...inner,
+        async put(key, value) {
+          if (key === "credential:2") return; // the write "succeeds" but the read-back loses it
+          return inner.put(key, value);
+        },
+      };
+    },
+  };
+  const storage = new MemoryWalletStorage();
+  await storage.put("credential:2", JSON.stringify({ format: "mso_mdoc", credential: "lost" }));
+  const wallet = new MiniWallet({ storage, pdp: { evaluate: async () => ({ trusted: true }) } });
+  const report = await wallet.adopt({
+    target: flaky,
+    ui: { ask: async () => true, create: async () => ({}) },
+  });
+  assert.equal(report.failed, "credential:2");
+  assert.equal((await wallet.credentials()).length, 1, "the LOCAL wallet keeps everything on failure");
+});

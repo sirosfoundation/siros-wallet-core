@@ -65,6 +65,7 @@ export type MiniWalletEvent =
   | { type: "progress"; flowId: string; step: string; payload?: unknown }
   | { type: "credential-received"; flowId: string; configurationId?: string }
   | { type: "presented"; flowId: string }
+  | { type: "adopted"; account: string; backend: string }
   | { type: "flow-error"; flowId: string; code?: number; message: string };
 
 /** What the wallet hands back when the page lists its credentials. */

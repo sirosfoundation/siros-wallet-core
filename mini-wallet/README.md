@@ -99,6 +99,38 @@ target backend's business and this library never changes when the
 private-data library lands. `report.keys` names what moved; a failure
 names the key and touches nothing.
 
+## The adopt flow: a permanent wallet
+
+The arc the brief draws for a page with an embedded issuer flow: the
+mini-wallet receives a credential with **no onboarding**, the page asks
+**"add a permanent wallet?"**, the user **sets a passkey**, and the
+credential **moves into the wallet** — a go-wallet-backend (its AS, its
+per-user private-data store). From then on the wallet's authz is the
+**backend's PDP-proxy** (`/v1/evaluate`, the AuthZEN evaluation the
+wallet-frontend drives today).
+
+```ts
+const report = await wallet.adopt({
+  target: "https://sirosid-gdc-wallet-backend.fly.dev", // or an AdoptTarget
+  ui: {
+    ask: async ({ credentials, backend }) => myPage.askAddPermanentWallet(credentials, backend),
+    create: (options) => navigator.credentials.create(options), // the ceremony is the page's
+  },
+});
+// report.account — the AS user the passkey registered;
+// report.keys — what moved; a failure names the key and the LOCAL copy stays.
+```
+
+Every UI decision is the page's (the ask and the WebAuthn ceremony are
+callbacks). The move is the migration contract — copy every record,
+verify each against the backend, then wipe the local copy — so a failed
+adopt leaves the mini-wallet exactly as it was. The **private-data
+cipher is the pluggable slot for the private-data library** (the
+passkey's PRF-derived key wrapping the blob); the NullCipher stores the
+blob as the backend's opaque bytes until it lands — the same accepted
+posture as the unencrypted localStorage phase, upgraded to a
+server-side account.
+
 ## The custody
 
 The **device key** (the OID4VCI proof's ES256 P-256 key) generates on

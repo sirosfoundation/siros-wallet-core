@@ -22,6 +22,8 @@ import {
 import { asPdp } from "./trust.js";
 import type { TrustPlugin } from "./trust.js";
 import type { MiniWalletPdpOption } from "./types.js";
+import { GoWalletBackendTarget, NullCipher } from "./adopt.js";
+import type { AdoptReport, AdoptTarget, AdoptUi, PrivateDataCipher } from "./adopt.js";
 import { migrateWalletStorage } from "./migration.js";
 import {
   isOfferUri,
@@ -77,7 +79,7 @@ export interface MiniWalletOptions {
 const CREDENTIAL_PREFIX = "credential:";
 
 export class MiniWallet {
-  readonly #opts: MiniWalletOptions;
+  #opts: MiniWalletOptions;
   #storage: WalletStorage;
   #engine: EngineLike | null = null;
   #sessionId: string | null = null;
@@ -473,6 +475,47 @@ export class MiniWallet {
     const report = await migrateWalletStorage(this.#storage, target);
     if (!report.failed) this.#storage = target;
     return report;
+  }
+
+  /**
+   * Adopt a permanent wallet: the page's mini-wallet moves onto a
+   * go-wallet-backend — the ask ("add a permanent wallet?"), the
+   * passkey (the AS's WebAuthn registration, the page's ceremony), the
+   * credential MOVE (the migration contract: copy, verify, then wipe
+   * the local copy), and from then on the wallet's authz is the
+   * backend's PDP-proxy. Every UI decision is the page's callbacks.
+   *
+   * The private-data cipher is the pluggable slot for the private-data
+   * library (the passkey's PRF-derived key wrapping the blob) — the
+   * NullCipher until it lands, the same accepted posture as the
+   * unencrypted localStorage phase, upgraded to a server-side account.
+   */
+  async adopt(options: {
+    /** The backend to adopt; a GoWalletBackendTarget built from the
+     *  URL when a string is given (the gdc instance, for the demo). */
+    target: AdoptTarget | string;
+    /** The page's UI: the ask and the WebAuthn ceremony. */
+    ui: AdoptUi;
+    /** The blob's cipher — the private-data library's slot. */
+    cipher?: PrivateDataCipher;
+  }): Promise<AdoptReport | null> {
+    const target = typeof options.target === "string"
+      ? new GoWalletBackendTarget(options.target)
+      : options.target;
+    const credentials = await this.credentials();
+    // The page's ask — its answer gates everything.
+    const go = await options.ui.ask({ credentials, backend: target.backend });
+    if (!go) return null;
+    // The passkey: the AS's begin/finish around the page's ceremony.
+    const { account } = await target.registerPasskey(options.ui);
+    // The move: the migration contract onto the backend's storage.
+    const cipher = options.cipher ?? new NullCipher();
+    const report = await this.migrate(target.storage(cipher));
+    if (report.failed) return { account, keys: report.keys, failed: report.failed };
+    // The authz of the adopted configuration: the backend's PDP-proxy.
+    this.#opts = { ...this.#opts, pdp: target.trustPlugin() };
+    this.#opts.onEvent?.({ type: "adopted", account, backend: target.backend });
+    return { account, keys: report.keys };
   }
 }
 
