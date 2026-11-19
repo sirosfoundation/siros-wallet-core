@@ -136,6 +136,19 @@ pub struct IssuerMetadata {
     /// [#53]: https://github.com/sirosfoundation/siros-wallet-core/issues/53
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_response_encryption: Option<serde_json::Value>,
+    /// The issuer-level `credential_request_encryption` configuration
+    /// (OpenID4VCI 1.0 **Final §11.3**): the issuer's `jwks` key set, the
+    /// `enc_values_supported` list, and `encryption_required`. When
+    /// published, the Credential Request is sent as a JWE encrypted to the
+    /// issuer's advertised key (the `kid` in the JWE header names it, the
+    /// `enc` from the supported list) — the request-body encryption
+    /// Spherity's issuer demands alongside a response-encryption offer
+    /// ("to prevent the response-encryption key from being substituted
+    /// by an attacker", their `invalid_encryption_parameters` refusal).
+    /// Raw JSON: the reader (`request_encryption_config_for`) parses it,
+    /// so an unparsable member softens to "no config".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_request_encryption: Option<serde_json::Value>,
     /// The credential configurations, keyed by id — the 1.0 wire name
     /// `credential_configurations_supported`, the 1.1 draft's
     /// `credential_configurations`.

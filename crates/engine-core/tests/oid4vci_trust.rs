@@ -38,6 +38,7 @@ impl Pdp for FakePdp {
 fn test_metadata() -> IssuerMetadata {
     IssuerMetadata {
         credential_response_encryption: None,
+        credential_request_encryption: None,
         nonce_endpoint: None,
         deferred_credential_endpoint: None,
         credential_endpoint: String::new(),

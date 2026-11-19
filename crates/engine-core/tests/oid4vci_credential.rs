@@ -8,6 +8,21 @@ use serde_json::Value;
 struct FakeHttp {
     status: u16,
     body: Vec<u8>,
+    /// The request bodies this HTTP saw (the §11.3 pin reads the one the
+    /// credential request produced).
+    sent: std::sync::Mutex<Vec<Vec<u8>>>,
+}
+
+impl FakeHttp {
+    /// The last request body this HTTP saw.
+    fn last_sent(&self) -> Vec<u8> {
+        self.sent
+            .lock()
+            .expect("lock")
+            .last()
+            .cloned()
+            .unwrap_or_default()
+    }
 }
 
 #[async_trait::async_trait]
@@ -16,6 +31,7 @@ impl HttpClient for FakeHttp {
         assert_eq!(request.purpose, FetchPurpose::Credential);
         // docs/engine-spec.md §Fetch policy: every request carries a size limit.
         assert!(request.max_response_bytes < usize::MAX);
+        self.sent.lock().expect("lock").push(request.body.clone());
         Ok(engine_ports::HttpResponse {
             status: self.status,
             headers: Vec::new(),
@@ -130,6 +146,7 @@ impl Host for KeyHost {
 fn test_metadata() -> IssuerMetadata {
     IssuerMetadata {
         credential_response_encryption: None,
+        credential_request_encryption: None,
         nonce_endpoint: None,
         deferred_credential_endpoint: None,
         credential_endpoint: String::new(),
@@ -171,6 +188,7 @@ async fn a_batch_shaped_answer_is_the_credential() {
     let http = FakeHttp {
         status: 200,
         body: br#"{"credentials":[{"credential":"eyJhbGciOiJFUzI1NiJ9.batch.sig","format":"dc+sd-jwt"}]}"#.to_vec(),
+        sent: std::sync::Mutex::new(Vec::new()),
     };
     let response = request_credential(
         &http,
@@ -231,6 +249,7 @@ async fn an_encrypted_batch_shaped_answer_is_the_credential() {
     let http = FakeHttp {
         status: 200,
         body: jwe.into_bytes(),
+        sent: std::sync::Mutex::new(Vec::new()),
     };
     let response = request_credential(
         &http,
@@ -274,6 +293,7 @@ async fn requests_a_credential_with_the_host_signed_proof() {
     let http = FakeHttp {
         status: 200,
         body: br#"{"credential":"eyJhbGciOiJFUzI1NiJ9.payload.sig"}"#.to_vec(),
+        sent: std::sync::Mutex::new(Vec::new()),
     };
     let response = request_credential(
         &http,
@@ -295,6 +315,7 @@ async fn a_deferred_credential_answer_names_the_transaction() {
     let http = FakeHttp {
         status: 200,
         body: br#"{"transaction_id":"tx-1","interval":5}"#.to_vec(),
+        sent: std::sync::Mutex::new(Vec::new()),
     };
     let response = request_credential(
         &http,
@@ -317,6 +338,7 @@ async fn a_non_200_refuses() {
     let http = FakeHttp {
         status: 400,
         body: Vec::new(),
+        sent: std::sync::Mutex::new(Vec::new()),
     };
     assert!(matches!(
         request_credential(
@@ -423,6 +445,7 @@ async fn a_plain_answer_after_the_offer_refuses() {
     let http = FakeHttp {
         status: 200,
         body: br#"{"credential":"plain"}"#.to_vec(),
+        sent: std::sync::Mutex::new(Vec::new()),
     };
     // §7.3: the issuer MUST encrypt when a key was offered. The Go
     // engine accepts the plain answer (P0.6); the Rust core refuses.
@@ -454,6 +477,7 @@ async fn an_encrypted_answer_without_an_offer_refuses() {
     let http = FakeHttp {
         status: 200,
         body: b"header.key.iv.ciphertext.tag".to_vec(),
+        sent: std::sync::Mutex::new(Vec::new()),
     };
     assert!(matches!(
         request_credential(
@@ -1346,4 +1370,107 @@ async fn a_refusing_host_keeps_the_engine_held_pair() {
         response.credential.as_deref(),
         Some("encrypted-credential-1")
     );
+}
+
+// ─── §11.3: the Credential Request itself encrypted to the issuer's key ───
+
+/// §11.3: an issuer publishing `credential_request_encryption` gets its
+/// Credential Request as a JWE encrypted to the advertised key — Spherity's
+/// requirement ("to prevent the response-encryption key from being
+/// substituted by an attacker"; their `invalid_encryption_parameters`
+/// refusal of the plain request, the 20:13 scan's body log). The request
+/// body IS the JWE; the header names the issuer key by its `kid`; the
+/// configuration id and the proofs ride the encrypted plaintext.
+#[tokio::test]
+async fn an_issuer_publishing_request_encryption_gets_an_encrypted_request() {
+    let mut metadata = test_metadata();
+    metadata.credential_request_encryption = Some(serde_json::json!({
+        "jwks": {
+            "keys": [{
+                "kty": "EC", "crv": "P-256",
+                // The issuer's public half; the engine encrypts to it.
+                "x": "PrFW9c4Y65Xu5lpKLRCpWs09L-0Ncls6CzjsbLphBeE",
+                "y": "pwtQj6DVTT2vH87uqzLmRBhGlVVeK7Pk9iu5liBzttw",
+                "kid": "test-issuer-key", "use": "enc", "alg": "ECDH-ES"
+            }]
+        },
+        "enc_values_supported": ["A256GCM", "A128GCM"],
+        "encryption_required": false
+    }));
+    let http = FakeHttp {
+        status: 200,
+        body: br#"{"credential":"plain-credential-1"}"#.to_vec(),
+        sent: std::sync::Mutex::new(Vec::new()),
+    };
+    let response = request_credential(
+        &http,
+        &FakeHost,
+        &metadata,
+        &test_token(),
+        "UniversityDegree",
+        "flow-1",
+        None,
+        Some("nonce-1"),
+    )
+    .await
+    .expect("request");
+
+    // The sent body: a compact JWE (five dot-separated parts), never
+    // plain JSON.
+    let sent = String::from_utf8_lossy(&http.last_sent()).into_owned();
+    assert_eq!(
+        sent.split('.').count(),
+        5,
+        "the credential request is a compact JWE: {sent}"
+    );
+    assert!(
+        !sent.starts_with('{'),
+        "the request body is not plain JSON: {sent}"
+    );
+
+    // The JWE header names the issuer's key by its kid (§11.3): the
+    // header is the first base64url part; the kid rides it.
+    let header_part = sent.split('.').next().unwrap_or_default();
+    let header = base64url_decode(header_part);
+    let header_text = String::from_utf8_lossy(&header);
+    assert!(
+        header_text.contains("test-issuer-key"),
+        "the JWE header names the issuer key by kid: {header_text}"
+    );
+    assert!(
+        header_text.contains("ECDH-ES"),
+        "the key-management algorithm is ECDH-ES: {header_text}"
+    );
+
+    // And the response parses as ever (the plain answer of this fixture).
+    assert_eq!(response.credential.as_deref(), Some("plain-credential-1"));
+}
+
+/// Minimal base64url decoding (the engine's own helper is private).
+fn base64url_decode(encoded: &str) -> Vec<u8> {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut values = Vec::new();
+    for byte in encoded.bytes() {
+        if let Some(position) = ALPHABET.iter().position(|&a| a == byte) {
+            values.push(position as u8);
+        }
+    }
+    let mut out = Vec::new();
+    for chunk in values.chunks(4) {
+        let n = chunk.len();
+        let bits: u32 = chunk
+            .iter()
+            .enumerate()
+            .map(|(i, v)| u32::from(*v) << (18 - 6 * i))
+            .sum();
+        let bytes = [(bits >> 16) as u8, (bits >> 8) as u8, bits as u8];
+        out.extend_from_slice(
+            &bytes[..match n {
+                2 => 1,
+                3 => 2,
+                _ => 3,
+            }],
+        );
+    }
+    out
 }

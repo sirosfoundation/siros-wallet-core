@@ -260,7 +260,9 @@ impl Host for RemoteHost {
                 &session,
                 "response_encryption_key",
                 &params,
-                crate::host_bridge::ask::MATCH,
+                // Issue #72: the DELIVERY bound (the transport blackout
+                // plus the fresh-connection recovery window).
+                crate::host_bridge::ask::DELIVERY,
             )
             .await
             .map_err(|err| {
@@ -296,7 +298,9 @@ impl Host for RemoteHost {
                 &session,
                 "decrypt_credential_response",
                 &params,
-                crate::host_bridge::ask::MATCH,
+                // Issue #72: the DELIVERY bound (the transport blackout
+                // plus the fresh-connection recovery window).
+                crate::host_bridge::ask::DELIVERY,
             )
             .await
             .map_err(|err| {

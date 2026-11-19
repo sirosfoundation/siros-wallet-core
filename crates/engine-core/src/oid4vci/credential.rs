@@ -428,12 +428,38 @@ pub async fn request_credential(
             }
         }
 
+        // §11.3 request-body encryption: the issuer's
+        // `credential_request_encryption` key set. When published, the
+        // Credential Request IS a JWE to the issuer's key (the `kid`
+        // naming it, the `enc` from its supported list) — Spherity's
+        // issuer enforces it alongside a response-encryption offer
+        // ("to prevent the response-encryption key from being
+        // substituted by an attacker", their `invalid_encryption_parameters`
+        // refusal of the plain request).
+        let request_bytes: Vec<u8> = match metadata
+            .credential_request_encryption
+            .as_ref()
+            .and_then(|raw| {
+                serde_json::from_value::<super::encryption::RequestEncryptionConfig>(raw.clone())
+                    .ok()
+            })
+            .filter(|config| !config.jwks.is_null() && !config.enc_values.is_empty())
+        {
+            Some(config) => {
+                let jwe = super::encryption::encrypt_request_body(&config, &request_body)
+                    .map_err(|err| CredentialError::Decrypt(err.to_string()))?;
+                jwe.into_bytes()
+            }
+            // No §11.3 configuration: the plain body.
+            None => serde_json::to_vec(&request_body).map_err(|_| CredentialError::NotJson)?,
+        };
+
         let sent = http
             .send(HttpRequest {
                 method: "POST".to_owned(),
                 url: credential_endpoint.clone(),
                 headers,
-                body: serde_json::to_vec(&request_body).map_err(|_| CredentialError::NotJson)?,
+                body: request_bytes,
                 purpose: FetchPurpose::Credential,
                 max_response_bytes: MAX_CREDENTIAL_BYTES,
                 redirects: RedirectPolicy::None,

@@ -61,6 +61,16 @@ pub mod ask {
     pub const DPOP_PROOF: Duration = Duration::from_secs(20);
     /// The client attestation ask: 10 seconds (the Go attestation bound).
     pub const ATTESTATION: Duration = Duration::from_secs(10);
+    /// The transport-blackout-tolerant bound (issue #72): the phone
+    /// capture proved the 30s MATCH class CANCELS an ask whose answer was
+    /// already on the wire — the wallet answered onto a black-holed pooled
+    /// connection (the same one the parent start hung on), the SDK's
+    /// 30s request timeout cancelled it, the #417 fresh-connection retry
+    /// re-sent at ~:31.7, and the engine's ask had already cancelled at
+    /// ~:31.5 — 0.2s dead. The DELIVERY class covers the observed
+    /// blackout-plus-recovery window (the request timeout 30s + the retry
+    /// round trip) with margin; the answer lands, the ask lives.
+    pub const DELIVERY: Duration = Duration::from_secs(90);
 }
 
 /// One child flow's outcome, delivered by the client.
