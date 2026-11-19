@@ -692,6 +692,12 @@ internal interface UniffiCallbackInterfaceHostMethod9 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
 }
 internal interface UniffiCallbackInterfaceHostMethod10 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfaceHostMethod11 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfaceHostMethod12 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`step`: RustBuffer.ByValue,`detail`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfaceHttpClientMethod0 : com.sun.jna.Callback {
@@ -706,7 +712,7 @@ internal interface UniffiCallbackInterfacePdpMethod1 : com.sun.jna.Callback {
 internal interface UniffiCallbackInterfacePdpMethod2 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`request`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
 }
-@Structure.FieldOrder("requestSign", "requestMatch", "requestVp", "requestDpopProof", "requestConsent", "requestTxCode", "openAuthorization", "requestSigningKey", "requestAttestation", "requestCredentialSelection", "progress", "uniffiFree")
+@Structure.FieldOrder("requestSign", "requestMatch", "requestVp", "requestDpopProof", "requestConsent", "requestTxCode", "openAuthorization", "requestSigningKey", "requestAttestation", "requestCredentialSelection", "requestResponseEncryptionKey", "requestDecryptCredentialResponse", "progress", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceHost(
     @JvmField internal var `requestSign`: UniffiCallbackInterfaceHostMethod0? = null,
     @JvmField internal var `requestMatch`: UniffiCallbackInterfaceHostMethod1? = null,
@@ -718,7 +724,9 @@ internal open class UniffiVTableCallbackInterfaceHost(
     @JvmField internal var `requestSigningKey`: UniffiCallbackInterfaceHostMethod7? = null,
     @JvmField internal var `requestAttestation`: UniffiCallbackInterfaceHostMethod8? = null,
     @JvmField internal var `requestCredentialSelection`: UniffiCallbackInterfaceHostMethod9? = null,
-    @JvmField internal var `progress`: UniffiCallbackInterfaceHostMethod10? = null,
+    @JvmField internal var `requestResponseEncryptionKey`: UniffiCallbackInterfaceHostMethod10? = null,
+    @JvmField internal var `requestDecryptCredentialResponse`: UniffiCallbackInterfaceHostMethod11? = null,
+    @JvmField internal var `progress`: UniffiCallbackInterfaceHostMethod12? = null,
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
 ) : Structure() {
     class UniffiByValue(
@@ -732,9 +740,11 @@ internal open class UniffiVTableCallbackInterfaceHost(
         `requestSigningKey`: UniffiCallbackInterfaceHostMethod7? = null,
         `requestAttestation`: UniffiCallbackInterfaceHostMethod8? = null,
         `requestCredentialSelection`: UniffiCallbackInterfaceHostMethod9? = null,
-        `progress`: UniffiCallbackInterfaceHostMethod10? = null,
+        `requestResponseEncryptionKey`: UniffiCallbackInterfaceHostMethod10? = null,
+        `requestDecryptCredentialResponse`: UniffiCallbackInterfaceHostMethod11? = null,
+        `progress`: UniffiCallbackInterfaceHostMethod12? = null,
         `uniffiFree`: UniffiCallbackInterfaceFree? = null,
-    ): UniffiVTableCallbackInterfaceHost(`requestSign`,`requestMatch`,`requestVp`,`requestDpopProof`,`requestConsent`,`requestTxCode`,`openAuthorization`,`requestSigningKey`,`requestAttestation`,`requestCredentialSelection`,`progress`,`uniffiFree`,), Structure.ByValue
+    ): UniffiVTableCallbackInterfaceHost(`requestSign`,`requestMatch`,`requestVp`,`requestDpopProof`,`requestConsent`,`requestTxCode`,`openAuthorization`,`requestSigningKey`,`requestAttestation`,`requestCredentialSelection`,`requestResponseEncryptionKey`,`requestDecryptCredentialResponse`,`progress`,`uniffiFree`,), Structure.ByValue
 
    internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceHost) {
         `requestSign` = other.`requestSign`
@@ -747,6 +757,8 @@ internal open class UniffiVTableCallbackInterfaceHost(
         `requestSigningKey` = other.`requestSigningKey`
         `requestAttestation` = other.`requestAttestation`
         `requestCredentialSelection` = other.`requestCredentialSelection`
+        `requestResponseEncryptionKey` = other.`requestResponseEncryptionKey`
+        `requestDecryptCredentialResponse` = other.`requestDecryptCredentialResponse`
         `progress` = other.`progress`
         `uniffiFree` = other.`uniffiFree`
     }
@@ -790,6 +802,8 @@ internal open class UniffiVTableCallbackInterfacePdp(
     }
 
 }
+
+
 
 
 
@@ -1074,6 +1088,10 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_host_request_credential_selection(
     ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_host_request_response_encryption_key(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_host_request_decrypt_credential_response(
+    ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_host_progress(
     ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_httpclient_send(
@@ -1152,7 +1170,13 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_credential_selection() != 63084.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_progress() != 3981.toShort()) {
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_response_encryption_key() != 16057.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_decrypt_credential_response() != 59020.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_progress() != 34788.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_engine_adapter_sdk_checksum_method_httpclient_send() != 49403.toShort()) {
@@ -2220,14 +2244,20 @@ public object FfiConverterTypeCredentialSelectionParams: FfiConverterRustBuffer<
 
 
 /**
- * The selection answer. Mirrors
- * `engine_ports::CredentialSelectionResult`.
+ * The selection answer: the SET of configurations the user chose
+ * (#28). Mirrors `engine_ports::CredentialSelectionResult`.
  */
 data class CredentialSelectionResult (
     /**
-     * The chosen configuration's id.
+     * The chosen configuration's id (the pre-#28 single-member answer;
+     * a one-element set).
      */
-    var `credentialConfigurationId`: kotlin.String
+    var `credentialConfigurationId`: kotlin.String?, 
+    /**
+     * The chosen configurations' ids: a subset of the offer (one,
+     * several, or all), in any order — the engine applies the offer's.
+     */
+    var `credentialConfigurationIds`: List<kotlin.String>
 ) {
     
     companion object
@@ -2239,16 +2269,113 @@ data class CredentialSelectionResult (
 public object FfiConverterTypeCredentialSelectionResult: FfiConverterRustBuffer<CredentialSelectionResult> {
     override fun read(buf: ByteBuffer): CredentialSelectionResult {
         return CredentialSelectionResult(
-            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterSequenceString.read(buf),
         )
     }
 
     override fun allocationSize(value: CredentialSelectionResult) = (
-            FfiConverterString.allocationSize(value.`credentialConfigurationId`)
+            FfiConverterOptionalString.allocationSize(value.`credentialConfigurationId`) +
+            FfiConverterSequenceString.allocationSize(value.`credentialConfigurationIds`)
     )
 
     override fun write(value: CredentialSelectionResult, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`credentialConfigurationId`, buf)
+            FfiConverterSequenceString.write(value.`credentialConfigurationIds`, buf)
+    }
+}
+
+
+
+/**
+ * The credential-response decrypt ask (issue #59): the host opens the
+ * JWE with the private half of the key it generated. Mirrors
+ * `engine_ports::DecryptCredentialResponseParams`/`Result`.
+ */
+data class DecryptCredentialResponseParams (
+    /**
+     * The flow the ask belongs to.
+     */
+    var `flowId`: kotlin.String, 
+    /**
+     * The credential configuration this response is for (#558's
+     * pairing).
+     */
+    var `credentialConfigurationId`: kotlin.String, 
+    /**
+     * True when the JWE answers a Deferred Credential Request
+     * (OID4VCI 1.0 §9) — the Go engine's shape.
+     */
+    var `deferred`: kotlin.Boolean, 
+    /**
+     * The compact JWE the issuer answered.
+     */
+    var `jwe`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDecryptCredentialResponseParams: FfiConverterRustBuffer<DecryptCredentialResponseParams> {
+    override fun read(buf: ByteBuffer): DecryptCredentialResponseParams {
+        return DecryptCredentialResponseParams(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DecryptCredentialResponseParams) = (
+            FfiConverterString.allocationSize(value.`flowId`) +
+            FfiConverterString.allocationSize(value.`credentialConfigurationId`) +
+            FfiConverterBoolean.allocationSize(value.`deferred`) +
+            FfiConverterString.allocationSize(value.`jwe`)
+    )
+
+    override fun write(value: DecryptCredentialResponseParams, buf: ByteBuffer) {
+            FfiConverterString.write(value.`flowId`, buf)
             FfiConverterString.write(value.`credentialConfigurationId`, buf)
+            FfiConverterBoolean.write(value.`deferred`, buf)
+            FfiConverterString.write(value.`jwe`, buf)
+    }
+}
+
+
+
+/**
+ * The decrypt answer: the plaintext credential response, as JSON
+ * text.
+ */
+data class DecryptCredentialResponseResult (
+    /**
+     * The decrypted credential response as JSON text.
+     */
+    var `response`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDecryptCredentialResponseResult: FfiConverterRustBuffer<DecryptCredentialResponseResult> {
+    override fun read(buf: ByteBuffer): DecryptCredentialResponseResult {
+        return DecryptCredentialResponseResult(
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DecryptCredentialResponseResult) = (
+            FfiConverterString.allocationSize(value.`response`)
+    )
+
+    override fun write(value: DecryptCredentialResponseResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`response`, buf)
     }
 }
 
@@ -2930,7 +3057,14 @@ data class MatchParams (
     /**
      * The transaction data entries, raw, for the UI's summary.
      */
-    var `transactionData`: List<kotlin.String>
+    var `transactionData`: List<kotlin.String>, 
+    /**
+     * The request's client metadata as raw JSON text — the verifier's
+     * `vp_formats_supported` (the zkp_req circuit lists the wallet's
+     * planner reads) and the consent's `client_name`/`logo_uri` ride it.
+     * Absent when the request carried none.
+     */
+    var `clientMetadata`: kotlin.String?
 ) {
     
     companion object
@@ -2947,6 +3081,7 @@ public object FfiConverterTypeMatchParams: FfiConverterRustBuffer<MatchParams> {
             FfiConverterString.read(buf),
             FfiConverterTypeVerifierInfo.read(buf),
             FfiConverterSequenceString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -2955,7 +3090,8 @@ public object FfiConverterTypeMatchParams: FfiConverterRustBuffer<MatchParams> {
             FfiConverterOptionalString.allocationSize(value.`dcqlQuery`) +
             FfiConverterString.allocationSize(value.`scope`) +
             FfiConverterTypeVerifierInfo.allocationSize(value.`verifier`) +
-            FfiConverterSequenceString.allocationSize(value.`transactionData`)
+            FfiConverterSequenceString.allocationSize(value.`transactionData`) +
+            FfiConverterOptionalString.allocationSize(value.`clientMetadata`)
     )
 
     override fun write(value: MatchParams, buf: ByteBuffer) {
@@ -2964,6 +3100,7 @@ public object FfiConverterTypeMatchParams: FfiConverterRustBuffer<MatchParams> {
             FfiConverterString.write(value.`scope`, buf)
             FfiConverterTypeVerifierInfo.write(value.`verifier`, buf)
             FfiConverterSequenceString.write(value.`transactionData`, buf)
+            FfiConverterOptionalString.write(value.`clientMetadata`, buf)
     }
 }
 
@@ -3097,6 +3234,89 @@ public object FfiConverterTypeResolveResponse: FfiConverterRustBuffer<ResolveRes
 
 
 /**
+ * The response-encryption key ask (issue #59): the host generates a
+ * fresh P-256 pair for one credential request's encryption offer and
+ * answers with the PUBLIC JWK only — the private half stays on the
+ * host (the Go wallet-frontend's client-held key). Mirrors
+ * `engine_ports::ResponseEncryptionKeyParams`/`Result`.
+ */
+data class ResponseEncryptionKeyParams (
+    /**
+     * The flow the ask belongs to.
+     */
+    var `flowId`: kotlin.String, 
+    /**
+     * The credential configuration this key encrypts the response of
+     * (the #558 pairing): the client pairs the key — and the
+     * credential it decrypts — with the completion entry of the same
+     * id.
+     */
+    var `credentialConfigurationId`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeResponseEncryptionKeyParams: FfiConverterRustBuffer<ResponseEncryptionKeyParams> {
+    override fun read(buf: ByteBuffer): ResponseEncryptionKeyParams {
+        return ResponseEncryptionKeyParams(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ResponseEncryptionKeyParams) = (
+            FfiConverterString.allocationSize(value.`flowId`) +
+            FfiConverterString.allocationSize(value.`credentialConfigurationId`)
+    )
+
+    override fun write(value: ResponseEncryptionKeyParams, buf: ByteBuffer) {
+            FfiConverterString.write(value.`flowId`, buf)
+            FfiConverterString.write(value.`credentialConfigurationId`, buf)
+    }
+}
+
+
+
+/**
+ * The response-encryption key answer: the public JWK of the pair the
+ * host generated and holds.
+ */
+data class ResponseEncryptionKeyResult (
+    /**
+     * The public JWK as JSON text, public members only.
+     */
+    var `publicJwk`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeResponseEncryptionKeyResult: FfiConverterRustBuffer<ResponseEncryptionKeyResult> {
+    override fun read(buf: ByteBuffer): ResponseEncryptionKeyResult {
+        return ResponseEncryptionKeyResult(
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ResponseEncryptionKeyResult) = (
+            FfiConverterString.allocationSize(value.`publicJwk`)
+    )
+
+    override fun write(value: ResponseEncryptionKeyResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`publicJwk`, buf)
+    }
+}
+
+
+
+/**
  * The sign request. Mirrors `engine_ports::SignParams`.
  */
 data class SignParams (
@@ -3115,7 +3335,12 @@ data class SignParams (
     /**
      * The signing algorithm.
      */
-    var `algorithm`: kotlin.String
+    var `algorithm`: kotlin.String, 
+    /**
+     * The credential configuration this ask belongs to (go-wallet-backend#558's
+     * twin): absent on the asks that are not one configuration's.
+     */
+    var `credentialConfigurationId`: kotlin.String?
 ) {
     
     companion object
@@ -3131,6 +3356,7 @@ public object FfiConverterTypeSignParams: FfiConverterRustBuffer<SignParams> {
             FfiConverterByteArray.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -3138,7 +3364,8 @@ public object FfiConverterTypeSignParams: FfiConverterRustBuffer<SignParams> {
             FfiConverterString.allocationSize(value.`flowId`) +
             FfiConverterByteArray.allocationSize(value.`toSign`) +
             FfiConverterOptionalString.allocationSize(value.`keyId`) +
-            FfiConverterString.allocationSize(value.`algorithm`)
+            FfiConverterString.allocationSize(value.`algorithm`) +
+            FfiConverterOptionalString.allocationSize(value.`credentialConfigurationId`)
     )
 
     override fun write(value: SignParams, buf: ByteBuffer) {
@@ -3146,6 +3373,7 @@ public object FfiConverterTypeSignParams: FfiConverterRustBuffer<SignParams> {
             FfiConverterByteArray.write(value.`toSign`, buf)
             FfiConverterOptionalString.write(value.`keyId`, buf)
             FfiConverterString.write(value.`algorithm`, buf)
+            FfiConverterOptionalString.write(value.`credentialConfigurationId`, buf)
     }
 }
 
@@ -3232,6 +3460,12 @@ data class SigningKeyParams (
      */
     var `flowId`: kotlin.String, 
     /**
+     * The credential configuration this key is for (go-wallet-backend#558's
+     * twin): the client pairs each key with the completion entry carrying
+     * the same id. Absent when the ask is not one configuration's.
+     */
+    var `credentialConfigurationId`: kotlin.String?, 
+    /**
      * The key the engine will sign with, named when the flow knows it.
      */
     var `keyId`: kotlin.String?, 
@@ -3254,18 +3488,21 @@ public object FfiConverterTypeSigningKeyParams: FfiConverterRustBuffer<SigningKe
         return SigningKeyParams(
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
         )
     }
 
     override fun allocationSize(value: SigningKeyParams) = (
             FfiConverterString.allocationSize(value.`flowId`) +
+            FfiConverterOptionalString.allocationSize(value.`credentialConfigurationId`) +
             FfiConverterOptionalString.allocationSize(value.`keyId`) +
             FfiConverterBoolean.allocationSize(value.`fresh`)
     )
 
     override fun write(value: SigningKeyParams, buf: ByteBuffer) {
             FfiConverterString.write(value.`flowId`, buf)
+            FfiConverterOptionalString.write(value.`credentialConfigurationId`, buf)
             FfiConverterOptionalString.write(value.`keyId`, buf)
             FfiConverterBoolean.write(value.`fresh`, buf)
     }
@@ -3343,7 +3580,14 @@ data class VerifierInfo (
     /**
      * Why the decision was made (the PDP's reason).
      */
-    var `reason`: kotlin.String
+    var `reason`: kotlin.String, 
+    /**
+     * The PDP's response context as raw JSON text — go-trust's
+     * `verifier_ids` (the wallet's pseudonym sources read them to scope
+     * a nym_auth pseudonym) and the registry's `display_name` ride it
+     * verbatim. Absent when the PDP answered with no context.
+     */
+    var `trustContext`: kotlin.String?
 ) {
     
     companion object
@@ -3363,6 +3607,7 @@ public object FfiConverterTypeVerifierInfo: FfiConverterRustBuffer<VerifierInfo>
             FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -3374,7 +3619,8 @@ public object FfiConverterTypeVerifierInfo: FfiConverterRustBuffer<VerifierInfo>
             FfiConverterString.allocationSize(value.`logoUri`) +
             FfiConverterBoolean.allocationSize(value.`trusted`) +
             FfiConverterString.allocationSize(value.`framework`) +
-            FfiConverterString.allocationSize(value.`reason`)
+            FfiConverterString.allocationSize(value.`reason`) +
+            FfiConverterOptionalString.allocationSize(value.`trustContext`)
     )
 
     override fun write(value: VerifierInfo, buf: ByteBuffer) {
@@ -3386,6 +3632,7 @@ public object FfiConverterTypeVerifierInfo: FfiConverterRustBuffer<VerifierInfo>
             FfiConverterBoolean.write(value.`trusted`, buf)
             FfiConverterString.write(value.`framework`, buf)
             FfiConverterString.write(value.`reason`, buf)
+            FfiConverterOptionalString.write(value.`trustContext`, buf)
     }
 }
 
@@ -3434,7 +3681,19 @@ data class VpParams (
      * The transport's selection handle, as the match answer carried
      * it (WMP OpenID4x 3.2.3.1): passed through unchanged.
      */
-    var `selectionHandle`: kotlin.String?
+    var `selectionHandle`: kotlin.String?, 
+    /**
+     * The request as the engine verified it — the wallet's ZK policy
+     * gate and the JARM audience read it. Absent for a request the
+     * engine did not verify. Mirrors `engine_ports::VpVerifiedRequest`.
+     */
+    var `verifiedRequest`: VpVerifiedRequest?, 
+    /**
+     * The verifier's response encryption parameters (the JWK for
+     * direct_post.jwt's JARM). Absent for a plain response mode.
+     * Mirrors `engine_ports::VpResponseEncryption`.
+     */
+    var `responseEncryption`: VpResponseEncryption?
 ) {
     
     companion object
@@ -3455,6 +3714,8 @@ public object FfiConverterTypeVpParams: FfiConverterRustBuffer<VpParams> {
             FfiConverterString.read(buf),
             FfiConverterSequenceString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalTypeVpVerifiedRequest.read(buf),
+            FfiConverterOptionalTypeVpResponseEncryption.read(buf),
         )
     }
 
@@ -3467,7 +3728,9 @@ public object FfiConverterTypeVpParams: FfiConverterRustBuffer<VpParams> {
             FfiConverterString.allocationSize(value.`verifierJwkThumbprint`) +
             FfiConverterString.allocationSize(value.`verifierSessionId`) +
             FfiConverterSequenceString.allocationSize(value.`transactionData`) +
-            FfiConverterOptionalString.allocationSize(value.`selectionHandle`)
+            FfiConverterOptionalString.allocationSize(value.`selectionHandle`) +
+            FfiConverterOptionalTypeVpVerifiedRequest.allocationSize(value.`verifiedRequest`) +
+            FfiConverterOptionalTypeVpResponseEncryption.allocationSize(value.`responseEncryption`)
     )
 
     override fun write(value: VpParams, buf: ByteBuffer) {
@@ -3480,6 +3743,58 @@ public object FfiConverterTypeVpParams: FfiConverterRustBuffer<VpParams> {
             FfiConverterString.write(value.`verifierSessionId`, buf)
             FfiConverterSequenceString.write(value.`transactionData`, buf)
             FfiConverterOptionalString.write(value.`selectionHandle`, buf)
+            FfiConverterOptionalTypeVpVerifiedRequest.write(value.`verifiedRequest`, buf)
+            FfiConverterOptionalTypeVpResponseEncryption.write(value.`responseEncryption`, buf)
+    }
+}
+
+
+
+/**
+ * The verifier's response encryption parameters — the embedded mirror
+ * of `engine_ports::VpResponseEncryption`.
+ */
+data class VpResponseEncryption (
+    /**
+     * The verifier's JWK (the response-encryption key), as raw JSON
+     * text — the uniffi surface carries strings, the wallet parses.
+     */
+    var `jwk`: kotlin.String, 
+    /**
+     * The JARM key wrapping algorithm (RSA-OAEP, ECDH-ES, …).
+     */
+    var `alg`: kotlin.String, 
+    /**
+     * The content encryption algorithm (A128GCM, A256GCM, …).
+     */
+    var `enc`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeVpResponseEncryption: FfiConverterRustBuffer<VpResponseEncryption> {
+    override fun read(buf: ByteBuffer): VpResponseEncryption {
+        return VpResponseEncryption(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: VpResponseEncryption) = (
+            FfiConverterString.allocationSize(value.`jwk`) +
+            FfiConverterString.allocationSize(value.`alg`) +
+            FfiConverterString.allocationSize(value.`enc`)
+    )
+
+    override fun write(value: VpResponseEncryption, buf: ByteBuffer) {
+            FfiConverterString.write(value.`jwk`, buf)
+            FfiConverterString.write(value.`alg`, buf)
+            FfiConverterString.write(value.`enc`, buf)
     }
 }
 
@@ -3573,6 +3888,86 @@ public object FfiConverterTypeVpSelection: FfiConverterRustBuffer<VpSelection> {
             FfiConverterString.write(value.`credentialQueryId`, buf)
             FfiConverterString.write(value.`credentialId`, buf)
             FfiConverterSequenceString.write(value.`disclosedClaims`, buf)
+    }
+}
+
+
+
+/**
+ * The request as the engine VERIFIED it — the embedded mirror of
+ * `engine_ports::VpVerifiedRequest`: the wallet's ZK policy gate reads
+ * `signed` AND `signature_verification == "verified"`, and the JARM
+ * audience is the certificate-authenticated `client_id`.
+ */
+data class VpVerifiedRequest (
+    /**
+     * The client_id the request object's certificate authenticated.
+     */
+    var `clientId`: kotlin.String, 
+    /**
+     * The client_id scheme, as the engine inferred it.
+     */
+    var `clientIdScheme`: kotlin.String, 
+    /**
+     * The response mode's wire name.
+     */
+    var `responseMode`: kotlin.String, 
+    /**
+     * The response URI the engine validated.
+     */
+    var `responseUri`: kotlin.String, 
+    /**
+     * Whether the request object's signature was verified.
+     */
+    var `signed`: kotlin.Boolean, 
+    /**
+     * `verified` or `none` — the engine verifies synchronously at
+     * parse and never defers.
+     */
+    var `signatureVerification`: kotlin.String, 
+    /**
+     * The raw request JWT, when the request object was signed.
+     */
+    var `requestJwt`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeVpVerifiedRequest: FfiConverterRustBuffer<VpVerifiedRequest> {
+    override fun read(buf: ByteBuffer): VpVerifiedRequest {
+        return VpVerifiedRequest(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: VpVerifiedRequest) = (
+            FfiConverterString.allocationSize(value.`clientId`) +
+            FfiConverterString.allocationSize(value.`clientIdScheme`) +
+            FfiConverterString.allocationSize(value.`responseMode`) +
+            FfiConverterString.allocationSize(value.`responseUri`) +
+            FfiConverterBoolean.allocationSize(value.`signed`) +
+            FfiConverterString.allocationSize(value.`signatureVerification`) +
+            FfiConverterOptionalString.allocationSize(value.`requestJwt`)
+    )
+
+    override fun write(value: VpVerifiedRequest, buf: ByteBuffer) {
+            FfiConverterString.write(value.`clientId`, buf)
+            FfiConverterString.write(value.`clientIdScheme`, buf)
+            FfiConverterString.write(value.`responseMode`, buf)
+            FfiConverterString.write(value.`responseUri`, buf)
+            FfiConverterBoolean.write(value.`signed`, buf)
+            FfiConverterString.write(value.`signatureVerification`, buf)
+            FfiConverterOptionalString.write(value.`requestJwt`, buf)
     }
 }
 
@@ -4143,6 +4538,25 @@ public interface Host {
     suspend fun `requestCredentialSelection`(`params`: CredentialSelectionParams): CredentialSelectionResult
     
     /**
+     * Asks the host to generate the response-encryption key pair for
+     * one credential request's offer (issue #59): answer with the
+     * PUBLIC JWK, hold the private half for
+     * [`Host::request_decrypt_credential_response`]. The default
+     * refusal keeps pre-#59 hosts working (the legacy engine-held
+     * ephemeral key).
+     */
+    suspend fun `requestResponseEncryptionKey`(`params`: ResponseEncryptionKeyParams): ResponseEncryptionKeyResult
+    
+    /**
+     * Asks the host to open a JWE-encrypted credential response with
+     * the private half of the key its
+     * [`Host::request_response_encryption_key`] answer generated
+     * (issue #59). The default refusal keeps pre-#59 hosts working
+     * (the legacy engine-held decrypt).
+     */
+    suspend fun `requestDecryptCredentialResponse`(`params`: DecryptCredentialResponseParams): DecryptCredentialResponseResult
+    
+    /**
      * Reports progress on a flow.
      */
     fun `progress`(`flowId`: kotlin.String, `step`: kotlin.String, `detail`: kotlin.String?)
@@ -4544,7 +4958,79 @@ internal object uniffiCallbackInterfaceHost {
             )
         }
     }
-    internal object `progress`: UniffiCallbackInterfaceHostMethod10 {
+    internal object `requestResponseEncryptionKey`: UniffiCallbackInterfaceHostMethod10 {
+        override fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`requestResponseEncryptionKey`(
+                    FfiConverterTypeResponseEncryptionKeyParams.lift(`params`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: ResponseEncryptionKeyResult ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeResponseEncryptionKeyResult.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `requestDecryptCredentialResponse`: UniffiCallbackInterfaceHostMethod11 {
+        override fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`requestDecryptCredentialResponse`(
+                    FfiConverterTypeDecryptCredentialResponseParams.lift(`params`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: DecryptCredentialResponseResult ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeDecryptCredentialResponseResult.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `progress`: UniffiCallbackInterfaceHostMethod12 {
         override fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`step`: RustBuffer.ByValue,`detail`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -4576,6 +5062,8 @@ internal object uniffiCallbackInterfaceHost {
         `requestSigningKey`,
         `requestAttestation`,
         `requestCredentialSelection`,
+        `requestResponseEncryptionKey`,
+        `requestDecryptCredentialResponse`,
         `progress`,
         uniffiFree,
     )
@@ -4944,6 +5432,70 @@ public object FfiConverterOptionalTypeSignRefusal: FfiConverterRustBuffer<SignRe
         } else {
             buf.put(1)
             FfiConverterTypeSignRefusal.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeVpResponseEncryption: FfiConverterRustBuffer<VpResponseEncryption?> {
+    override fun read(buf: ByteBuffer): VpResponseEncryption? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeVpResponseEncryption.read(buf)
+    }
+
+    override fun allocationSize(value: VpResponseEncryption?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeVpResponseEncryption.allocationSize(value)
+        }
+    }
+
+    override fun write(value: VpResponseEncryption?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeVpResponseEncryption.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeVpVerifiedRequest: FfiConverterRustBuffer<VpVerifiedRequest?> {
+    override fun read(buf: ByteBuffer): VpVerifiedRequest? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeVpVerifiedRequest.read(buf)
+    }
+
+    override fun allocationSize(value: VpVerifiedRequest?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeVpVerifiedRequest.allocationSize(value)
+        }
+    }
+
+    override fun write(value: VpVerifiedRequest?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeVpVerifiedRequest.write(value, buf)
         }
     }
 }

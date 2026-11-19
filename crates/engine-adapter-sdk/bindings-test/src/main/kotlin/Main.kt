@@ -4,6 +4,8 @@ import uniffi.engine_adapter_sdk.ConsentParams
 import uniffi.engine_adapter_sdk.ConsentResult
 import uniffi.engine_adapter_sdk.CredentialSelectionParams
 import uniffi.engine_adapter_sdk.CredentialSelectionResult
+import uniffi.engine_adapter_sdk.DecryptCredentialResponseParams
+import uniffi.engine_adapter_sdk.DecryptCredentialResponseResult
 import uniffi.engine_adapter_sdk.FetchPurpose
 import uniffi.engine_adapter_sdk.HeaderPair
 import uniffi.engine_adapter_sdk.Host
@@ -12,6 +14,8 @@ import uniffi.engine_adapter_sdk.HttpRequest
 import uniffi.engine_adapter_sdk.HttpResponse
 import uniffi.engine_adapter_sdk.MatchResult
 import uniffi.engine_adapter_sdk.MatchParams
+import uniffi.engine_adapter_sdk.ResponseEncryptionKeyParams
+import uniffi.engine_adapter_sdk.ResponseEncryptionKeyResult
 import uniffi.engine_adapter_sdk.SigningKeyParams
 import uniffi.engine_adapter_sdk.SigningKeyResult
 import uniffi.engine_adapter_sdk.VpParams
