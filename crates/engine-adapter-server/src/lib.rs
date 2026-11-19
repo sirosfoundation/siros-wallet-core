@@ -35,8 +35,11 @@ pub mod handler;
 pub mod host_bridge;
 pub mod outbox;
 pub mod ports;
+pub mod shared_outbox;
 pub mod token;
 pub mod transport;
+#[cfg(feature = "valkey")]
+pub mod valkey_outbox;
 
 use std::sync::Arc;
 
