@@ -1,0 +1,53 @@
+{
+  "name": "@sirosfoundation/mini-wallet",
+  "version": "0.1.0",
+  "description": "The whole wallet a page hosts — the browser wasm engine behind a pluggable-storage, UI-delegating TS library. Credentials arrive before any onboarding; a passkey (a PRF-derived key over the new private-data storage) can come later as a storage migration. nym_auth capable.",
+  "keywords": [
+    "openid4vci",
+    "openid4vp",
+    "wasm",
+    "wallet",
+    "nym_auth",
+    "verifiable-credentials"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@sirosfoundation/siros-wallet-core": ">=0.2.25"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sirosfoundation/siros-wallet-core.git",
+    "directory": "mini-wallet"
+  },
+  "homepage": "https://github.com/sirosfoundation/siros-wallet-core/tree/main/mini-wallet#readme",
+  "bugs": {
+    "url": "https://github.com/sirosfoundation/siros-wallet-core/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "BSD-2-Clause"
+}
