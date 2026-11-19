@@ -538,6 +538,12 @@ pub async fn request_credential(
             // this answers the credential request, not a deferred one).
             // The plaintext response exists only on the host; the engine
             // parses the JSON it relays back, nothing else.
+            // Issue #72's diagnostics: the decrypt ask fires (the stall
+            // window's last visible point).
+            eprintln!(
+                "engine: decrypt ask firing for {} (client-held)",
+                configuration_id
+            );
             let answer = host
                 .request_decrypt_credential_response(
                     engine_ports::DecryptCredentialResponseParams {
