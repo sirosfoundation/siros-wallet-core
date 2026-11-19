@@ -50,8 +50,10 @@ export interface MiniWalletPdp {
 
 /** The page's fetch — the engine's HTTP. Carrying it lets the page pin
  *  proxies, CORS shims and request logging; the browser default when
- *  absent. */
-export type MiniWalletFetch = (request: unknown) => Promise<{ status: number; headers: string[]; body: string }>;
+ *  absent. The request AND the answer are the engine's port shapes:
+ *  the headers flat [name, value, …] arrays, the body BYTES (the
+ *  engine's Vec<u8>), the request's body null on bodyless requests. */
+export type MiniWalletFetch = (request: unknown) => Promise<{ status: number; headers: string[]; body: number[] }>;
 
 /** The events the wallet surfaces to the page. The library renders
  *  nothing; the page's UI listens here. */

@@ -35,9 +35,18 @@ import type {
   WalletStorage,
 } from "./types.js";
 
+/** The engine module, injected by the page — it loads the published wasm
+ *  its own way (a bundler import of the package name, or a URL import of
+ *  the artifact; a bare specifier never resolves in a plain browser).
+ *  Absent, the library falls back to a dynamic import of the package
+ *  name, which a bundler resolves at build time. */
+export interface EngineModule {
+  init(wasmUrl?: string): Promise<unknown>;
+  WasmEngine: new (config: unknown) => EngineLike;
+}
+
 /** The engine's shape — the published .d.ts's class, minimally typed so
- *  this file compiles without the peer dep installed (the import stays
- *  dynamic: the wasm loads lazily, once, on first use). */
+ *  this file compiles without the peer dep installed. */
 interface EngineLike {
   request(method: string, params: unknown): Promise<unknown>;
 }
@@ -53,6 +62,9 @@ export interface MiniWalletOptions {
   fetch?: MiniWalletFetch;
   /** The wasm URL — the bundler-resolved default when absent. */
   wasmUrl?: string;
+  /** The engine module (see EngineModule): the page loads the published
+   *  wasm its own way and hands it over. */
+  engine?: EngineModule;
   /** Every event the wallet surfaces: progress, credentials, errors. */
   onEvent?: (event: MiniWalletEvent) => void;
 }
@@ -65,9 +77,9 @@ export class MiniWallet {
   #engine: EngineLike | null = null;
   #sessionId: string | null = null;
   #deviceJwk: Record<string, unknown> | null = null;
-  /** The in-flight flows: the completion arrives through the engine's
-   *  notification sink (the flow.complete message), not the start's
-   *  answer — the pending map joins the two. */
+  /** The late frames' joins (an error after the start answered, a
+   *  completion the transport carries) — the standard flows resolve on
+   *  the start's request itself. */
   readonly #pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 
   constructor(options: MiniWalletOptions) {
@@ -84,18 +96,28 @@ export class MiniWallet {
 
   async #ensureEngine(): Promise<{ engine: EngineLike; sessionId: string }> {
     if (this.#engine && this.#sessionId) return { engine: this.#engine, sessionId: this.#sessionId };
-    // The peer dep's wasm-bindgen web build: init() then the class.
-    const mod = (await import("@sirosfoundation/siros-wallet-core")) as unknown as {
-      init(url?: string): Promise<unknown>;
-      WasmEngine: new (config: unknown) => EngineLike;
-    };
+    // The page's module when it injected one; the dynamic import (which
+    // a bundler resolves) otherwise.
+    const mod: EngineModule = this.#opts.engine
+      ?? ((await import("@sirosfoundation/siros-wallet-core")) as unknown as EngineModule);
     await mod.init(this.#opts.wasmUrl);
     const engine = new mod.WasmEngine({
       fetch: this.#opts.fetch ?? defaultFetch(),
       pdp: { evaluate: (request: unknown) => this.#opts.pdp.evaluate(request) },
       host: {
-        sign: (params: unknown) => this.#hostSign(params),
-        signingKey: () => this.#hostSigningKey(),
+        sign: (params: {
+          flow_id: string;
+          to_sign: number[];
+          credential_configuration_id?: string;
+          key_id?: string;
+          algorithm: string;
+        }) => this.#hostSign(params),
+        signingKey: (params: {
+          flow_id: string;
+          credential_configuration_id?: string;
+          key_id?: string;
+          fresh?: boolean;
+        }) => this.#hostSigningKey(params),
         consent: this.#opts.ui?.consent,
         match: this.#opts.ui?.match,
         txCode: this.#opts.ui?.txCode,
@@ -133,11 +155,16 @@ export class MiniWallet {
   }
 
   #onNotification(text: string): void {
+    // The transport envelope: {jsonrpc, method, params} — the progress
+    // frames and (for anything completing after the start's answer) the
+    // completions. The standard flows resolve ON the start's request
+    // (the engine runs them inside it); this sink carries the progress
+    // and any late frame.
     let message: { method?: string; params?: Record<string, unknown> };
     try {
       message = JSON.parse(text);
     } catch {
-      return; // a non-JSON frame — nothing to join
+      return; // a non-JSON frame — nothing to surface
     }
     const params = message.params ?? {};
     const flowId = typeof params.flow_id === "string" ? params.flow_id : undefined;
@@ -149,24 +176,30 @@ export class MiniWallet {
       this.#opts.onEvent?.({ type: "flow-error", flowId, code: error.code, message: error.message ?? "the flow failed" });
       return;
     }
-    if (message.method === "wmp.flow.complete") {
-      const pending = this.#pending.get(flowId);
-      this.#pending.delete(flowId);
-      const result = params.result as Record<string, unknown> | undefined;
-      const credentials = (result?.credentials ?? []) as Array<Record<string, unknown>>;
-      const stored: StoredCredential[] = [];
-      for (const entry of credentials) {
-        stored.push(this.#storeCredential(entry));
-      }
+    if (message.method === "wmp.flow.progress") {
       this.#opts.onEvent?.({
-        type: result?.redirect_uri !== undefined ? "presented" : "credential-received",
+        type: "progress",
         flowId,
-        configurationId: typeof credentials[0]?.credential_configuration_id === "string"
+        step: typeof (params as Record<string, unknown>).step === "string" ? (params as Record<string, unknown>).step as string : "",
+      });
+    }
+  }
+
+  /** The completion of a START's answer: the result the engine resolved
+   *  the request with — {flow_id, credentials?, redirect_uri?, …}. The
+   *  delivered credentials store here. */
+  #complete(flowId: string, result: Record<string, unknown>): unknown {
+    const credentials = (result.credentials ?? []) as Array<Record<string, unknown>>;
+    for (const entry of credentials) this.#storeCredential(entry);
+    this.#opts.onEvent?.({
+      type: credentials.length ? "credential-received" : "presented",
+      flowId,
+      configurationId:
+        typeof credentials[0]?.credential_configuration_id === "string"
           ? (credentials[0].credential_configuration_id as string)
           : undefined,
-      });
-      pending?.resolve(result ?? {});
-    }
+    });
+    return result;
   }
 
   // ── The flows ───────────────────────────────────────────────────────────
@@ -183,19 +216,17 @@ export class MiniWallet {
       typeof offer === "string" ? await this.#resolveOffer(offer) : normalizeOffer(offer, "inline");
     const { engine, sessionId } = await this.#ensureEngine();
     const flowId = `flow-${crypto.randomUUID()}`;
-    const result = this.#track(flowId, () =>
-      engine.request("wmp.flow.start", {
-        wmp: { session_id: sessionId, version: "0.1" },
-        flow_id: flowId,
-        flow_type: "oid4vci",
-        params: {
-          credential_issuer: normalized.credential_issuer,
-          credential_configuration_ids: normalized.credential_configuration_ids,
-          grants: normalized.grants,
-        },
-      }),
-    );
-    return result;
+    const answer = (await engine.request("wmp.flow.start", {
+      wmp: { session_id: sessionId, version: "0.1" },
+      flow_id: flowId,
+      flow_type: "oid4vci",
+      params: {
+        credential_issuer: normalized.credential_issuer,
+        credential_configuration_ids: normalized.credential_configuration_ids,
+        grants: normalized.grants,
+      },
+    })) as Record<string, unknown> | null;
+    return answer ? this.#complete(flowId, answer) : answer;
   }
 
   /**
@@ -207,36 +238,27 @@ export class MiniWallet {
     const { params } = unwrapAuthorizationRequest(request);
     const { engine, sessionId } = await this.#ensureEngine();
     const flowId = `flow-${crypto.randomUUID()}`;
-    return this.#track(flowId, () =>
-      engine.request("wmp.flow.start", {
-        wmp: { session_id: sessionId, version: "0.1" },
-        flow_id: flowId,
-        flow_type: "oid4vp",
-        params,
-      }),
-    );
+    const answer = (await engine.request("wmp.flow.start", {
+      wmp: { session_id: sessionId, version: "0.1" },
+      flow_id: flowId,
+      flow_type: "oid4vp",
+      params,
+    })) as Record<string, unknown> | null;
+    return answer ? this.#complete(flowId, answer) : answer;
   }
 
   async #resolveOffer(uri: string) {
     if (!isOfferUri(uri)) return normalizeOffer(JSON.parse(uri) as Record<string, unknown>, "inline");
     const unwrapped = unwrapOffer(uri);
-    const offer =
-      "offer" in unwrapped
-        ? unwrapped.offer
-        : await (await fetch(unwrapped.uri)).json();
-    return normalizeOffer(offer, unwrapped.source);
-  }
-
-  #track<T>(flowId: string, start: () => Promise<T>): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      this.#pending.set(flowId, { resolve, reject });
-      start().catch((err) => {
-        // The start itself refused (an unknown flow, bad params): the
-        // completion never comes; fail the promise here.
-        this.#pending.delete(flowId);
-        reject(err instanceof Error ? err : new Error(String(err)));
-      });
-    });
+    if ("offer" in unwrapped) return normalizeOffer(unwrapped.offer, unwrapped.source);
+    // Through the page's fetch port — the same one the engine's HTTP
+    // uses: a page that proxies its issuer (a browser wallet cannot
+    // cross-origin it) serves the offer fetch too.
+    const fetchPort = this.#opts.fetch ?? defaultFetch();
+    const answer = await fetchPort({ method: "GET", url: unwrapped.uri, headers: [] });
+    if (answer.status !== 200) throw new Error(`the offer fetch answered ${answer.status}`);
+    const text = new TextDecoder().decode(new Uint8Array(answer.body));
+    return normalizeOffer(JSON.parse(text) as Record<string, unknown>, unwrapped.source);
   }
 
   // ── The custody ─────────────────────────────────────────────────────────
@@ -306,23 +328,22 @@ export class MiniWallet {
   // ── The device key: generated once, stored (unencrypted until the
   // passkey migration — the design brief's deferred onboarding) ───────────
 
-  async #hostSigningKey(): Promise<{ jwk: Record<string, unknown> }> {
-    if (!this.#deviceJwk) {
-      const stored = await this.#storage.get("key:device");
-      this.#deviceJwk = stored
-        ? (JSON.parse(stored) as Record<string, unknown>)
-        : await this.#generateDeviceKey();
-    }
-    return { jwk: publicOf(this.#deviceJwk) };
-  }
-
-  async #hostSign(params: unknown): Promise<unknown> {
-    const key = await this.#hostSigningKey();
-    const privateJwk = this.#deviceJwk!;
-    const data = new TextEncoder().encode(JSON.stringify(params));
+  /** The engine's SignParams: {flow_id, to_sign (the raw bytes),
+   *  credential_configuration_id?, key_id?, algorithm}. The answer is
+   *  SignResult: {signature (bytes)}. The batch rule (fresh keys) lives
+   *  in #hostSigningKey; the sign ask names its configuration, so the
+   *  key lookup pairs the two. */
+  async #hostSign(params: {
+    flow_id: string;
+    to_sign: number[];
+    credential_configuration_id?: string;
+    key_id?: string;
+    algorithm: string;
+  }): Promise<{ signature: number[] }> {
+    const jwk = await this.#keyFor(params.credential_configuration_id, params.key_id);
     const cryptoKey = await crypto.subtle.importKey(
       "jwk",
-      privateJwk as JsonWebKey,
+      jwk as JsonWebKey,
       { name: "ECDSA", namedCurve: "P-256" },
       false,
       ["sign"],
@@ -330,24 +351,55 @@ export class MiniWallet {
     const signature = await crypto.subtle.sign(
       { name: "ECDSA", hash: "SHA-256" },
       cryptoKey,
-      data,
+      new Uint8Array(params.to_sign),
     );
-    // The exact answer shape the engine's host port documents; the
-    // signature base64url.
-    return { jwk: key.jwk, signature: b64url(new Uint8Array(signature)) };
+    return { signature: Array.from(new Uint8Array(signature)) };
   }
 
-  async #generateDeviceKey(): Promise<Record<string, unknown>> {
+  /** The key an ask pairs with: the configuration's fresh key when it
+   *  has one (the batch rule), the device key otherwise. */
+  async #keyFor(configurationId?: string, keyId?: string): Promise<Record<string, unknown>> {
+    if (configurationId) {
+      const stored = await this.#storage.get(`key:config:${configurationId}`);
+      if (stored) return JSON.parse(stored) as Record<string, unknown>;
+    }
+    if (!this.#deviceJwk) {
+      const stored = await this.#storage.get("key:device");
+      this.#deviceJwk = stored
+        ? (JSON.parse(stored) as Record<string, unknown>)
+        : await this.#generateKey("key:device");
+    }
+    return this.#deviceJwk;
+  }
+
+  /** The engine's SigningKeyParams: {flow_id, credential_configuration_id?,
+   *  key_id?, fresh} — the OID4VCI batch rule (SDJWT-10.1): a fresh ask
+   *  generates a new key for that configuration, so credentials in a
+   *  batch do not link. The answer is the public JWK. */
+  async #hostSigningKey(params: {
+    flow_id: string;
+    credential_configuration_id?: string;
+    key_id?: string;
+    fresh?: boolean;
+  }): Promise<{ jwk: Record<string, unknown> }> {
+    if (params.fresh && params.credential_configuration_id) {
+      const key = await this.#generateKey(`key:config:${params.credential_configuration_id}`);
+      return { jwk: publicOf(key) };
+    }
+    return { jwk: publicOf(await this.#keyFor(params.credential_configuration_id, params.key_id)) };
+  }
+
+  async #generateKey(storeKey: string): Promise<Record<string, unknown>> {
     const pair = await crypto.subtle.generateKey(
       { name: "ECDSA", namedCurve: "P-256" },
       true,
       ["sign", "verify"],
     );
-    const jwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.privateKey)) as unknown as Record<string, unknown>;
     jwk.alg = "ES256";
     jwk.use = "sig";
-    await this.#storage.put("key:device", JSON.stringify(jwk));
-    return jwk as unknown as Record<string, unknown>;
+    await this.#storage.put(storeKey, JSON.stringify(jwk));
+    return jwk;
   }
 
   // ── The deferred onboarding: the storage migration ─────────────────────
@@ -373,12 +425,6 @@ function publicOf(jwk: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-function b64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 /** The browser fetch adapted to the engine's port — the shape the
  *  published .d.ts documents (the flat [name, value, ...] headers). */
 function defaultFetch(): MiniWalletFetch {
@@ -393,17 +439,20 @@ function defaultFetch(): MiniWalletFetch {
     for (let i = 0; i + 1 < req.headers.length; i += 2) {
       headers[req.headers[i]!] = req.headers[i + 1]!;
     }
-    const response = await fetch(req.url, {
-      method: req.method,
-      headers,
-      body: req.body,
-    });
+    const init: RequestInit = { method: req.method, headers };
+    // The port sends body: null on bodyless requests — the fetch API
+    // refuses a body on GET/HEAD.
+    if (req.body != null && req.method !== "GET" && req.method !== "HEAD") init.body = req.body;
+    const response = await fetch(req.url, init);
     const flat: string[] = [];
     response.headers.forEach((value, name) => flat.push(name, value));
+    // The port's body is BYTES (the engine's Vec<u8>), not text.
+    const text = await response.text();
+    const body = Array.from(new TextEncoder().encode(text));
     return {
       status: response.status,
       headers: flat,
-      body: await response.text(),
+      body,
     };
   };
 }
