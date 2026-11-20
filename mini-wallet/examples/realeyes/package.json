@@ -1,0 +1,12 @@
+{
+  "name": "mini-wallet-realeyes-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@sirosfoundation/siros-wallet-core": "^0.2.27",
+    "jose": "^6.2.18"
+  }
+}

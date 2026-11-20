@@ -126,6 +126,25 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  mini-wallet:
+    # The library's own suite (10+ node tests: the storage contract, the
+    # migration's verify-then-delete, the offer normalization, the wallet
+    # seams). Without this job the PR's tests never ran in CI at all —
+    # the Rust jobs cover nothing under mini-wallet/.
+    name: mini-wallet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Install
+        run: cd mini-wallet && npm ci
+      - name: Build + test
+        # npm test builds first (tsc) — the typecheck is the suite's gate.
+        run: cd mini-wallet && npm test
+
   per-merge:
     name: Per-merge tier
     # siros-i18n's ignored tests: its differentials against ICU4X 2.4 over CLDR 49.0.0 (dates,
