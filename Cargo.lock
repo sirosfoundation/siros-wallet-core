@@ -1310,6 +1310,7 @@ dependencies = [
  "tower",
  "ureq",
  "wmp-core",
+ "wmp-mls",
 ]
 
 [[package]]

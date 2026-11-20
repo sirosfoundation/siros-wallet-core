@@ -11,6 +11,8 @@ description = "The standalone container host of the Rust WMP engine: HTTP+SSE tr
 
 [dependencies]
 wmp-core = { path = "../wmp-core" }
+# The MLS provider (the `mls` feature): the OpenMLS-backed cryptography.
+wmp-mls = { path = "../wmp-mls", optional = true }
 engine-core = { path = "../engine-core" }
 engine-ports = { path = "../engine-ports" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
@@ -44,6 +46,16 @@ path = "src/main.rs"
 # RESP-compatible open source store) via fred. The memory log stays the
 # default.
 valkey = ["dep:fred", "dep:dashmap"]
+# The MLS group encryption (the wmp-mls spec, RFC 9420): the OpenMLS-backed
+# provider + the handler bridge, the MlsProfile registered on the peer.
+# The 0.8 line rides wmp-mls (the 0.9 MSRV is above the workspace floor).
+mls = ["dep:wmp-mls"]
 
 [lints]
 workspace = true
+
+# The MLS surface's e2e: the `mls` feature gates the profile registration,
+# so the suite is feature-gated too (the default build skips it).
+[[test]]
+name = "mls_e2e"
+required-features = ["mls"]

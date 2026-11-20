@@ -39,6 +39,10 @@
 //! (A's Welcome reaching B) ride the engine's message passing, the
 //! KeyPackages riding the well-known publication (spec §2.3).
 
+/// The engine's MLS handler bridge.
+pub mod engine;
+
+pub use engine::EngineMlsHandler;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
