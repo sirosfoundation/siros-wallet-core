@@ -86,9 +86,15 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
   overlay.setAttribute("aria-modal", "true");
   const card = styled(document.createElement("div"), "mw-card", CARD_STYLE);
   overlay.append(card);
+  // The backdrop declines whatever ask is showing (its first button) —
+  // attached ONCE here: a reused modal must not stack a listener per ask.
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      card.querySelector<HTMLButtonElement>(".mw-row .mw-button")?.click();
+    }
+  });
   host.append(overlay);
 
-  const frameId = `mw-frame-${Math.random().toString(36).slice(2)}`;
   const style = document.createElement("style");
   style.textContent = SPINFRAMES();
   overlay.append(style); // INSIDE the overlay: removed with it
@@ -138,12 +144,6 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
         { text: "Not now" },
         { text: "Set a passkey", go: true },
       ]).then((index) => index === 1);
-      // The backdrop declines the ask (the first button's answer).
-      overlay.addEventListener("click", (event) => {
-        if (event.target === overlay) {
-          card.querySelector<HTMLButtonElement>(".mw-row .mw-button")?.click();
-        }
-      });
       // The modal STAYS after the ask: adopt's later steps (passkey,
       // moving, done, failed) render into it. Close is declined()'s and
       // the done/failed Close buttons' business, never the ask's.

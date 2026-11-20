@@ -59,7 +59,12 @@ export function reviveTaggedBinary<T>(value: T): T {
 export function stringifyWithTaggedBinary(value: unknown): string {
   return JSON.stringify(value, function replacer(this: Record<string, unknown>, key, val) {
     const at = this[key];
+    // BOTH binary shapes: the tagged helpers' Uint8Array AND the raw
+    // ArrayBuffer members navigator.credentials.create returns (rawId,
+    // attestationObject, clientDataJSON) — the ArrayBuffer alone
+    // serialized as {} and the AS could not verify the registration.
     if (at instanceof Uint8Array) return { $b64u: toBase64Url(at) };
+    if (at instanceof ArrayBuffer) return { $b64u: toBase64Url(new Uint8Array(at)) };
     return val;
   });
 }
@@ -111,7 +116,14 @@ export class NullCipher implements PrivateDataCipher {
 /** The backend the wallet adopts: the go-wallet-backend's AS, its
  *  per-user private-data store, its PDP-proxy. The endpoint shapes are
  *  the wallet-frontend's own (the existing consumer): the passkey
- *  register begin/finish, the private-data GET/POST with the ETag. */
+ *  register begin/finish, the private-data GET/POST with the ETag.
+ *
+ * The migration moves EVERYTHING the source storage lists — the device
+ * private key and the per-flow signing keys included — and under the
+ * default NullCipher they land in the backend blob as PLAINTEXT (the
+ * README's documented tradeoff: the private-data library's cipher slot
+ * is where the passkey-PRF encryption plugs in). Adopting with the
+ * NullCipher is the demo's convenience, not an encrypted deployment. */
 export interface AdoptTarget {
   /** The backend's base URL — the ask's context and the authz's base. */
   readonly backend: string;
@@ -143,6 +155,11 @@ export class GoWalletBackendTarget implements AdoptTarget {
    *  Cookie header was a forbidden-header silent no-op in browsers. */
   #credentials: RequestCredentials = "same-origin";
   #etag: string | undefined;
+  /** The write queue: the blob is read-modify-write, so two overlapping
+   *  put/del calls on ONE target must not interleave their reads (the
+   *  later read would miss the earlier write and drop its key). Every
+   *  mutating call rides this chain; reads stay parallel. */
+  #writes: Promise<unknown> = Promise.resolve();
   #accessToken: string | null = null;
 
   constructor(backend: string, tenantId = "default") {
@@ -180,7 +197,14 @@ export class GoWalletBackendTarget implements AdoptTarget {
       this.#credentials = "include";
     }
     this.#accessToken = token ?? null;
-    return { account: String(finish.uuid ?? finish.account ?? "") };
+    // A non-JSON (or account-less) finish is a FAILURE — a 200 with no
+    // account named no session; answering "" made the adopt "succeed"
+    // against a backend that never registered anything.
+    const account = finish.uuid ?? finish.account;
+    if (typeof account !== "string" || !account) {
+      throw new Error("the backend's register finish named no account");
+    }
+    return { account };
   }
 
   sessionToken(): TrustTokenProvider | undefined {
@@ -207,14 +231,18 @@ export class GoWalletBackendTarget implements AdoptTarget {
         return records[key] ?? null;
       },
       async put(key, value) {
-        const records = await target.#readRecords(cipher);
-        records[key] = value;
-        await target.#writeRecords(records, cipher);
+        return target.#serializeWrite(() => async () => {
+          const records = await target.#readRecords(cipher);
+          records[key] = value;
+          await target.#writeRecords(records, cipher);
+        });
       },
       async del(key) {
-        const records = await target.#readRecords(cipher);
-        delete records[key];
-        await target.#writeRecords(records, cipher);
+        return target.#serializeWrite(() => async () => {
+          const records = await target.#readRecords(cipher);
+          delete records[key];
+          await target.#writeRecords(records, cipher);
+        });
       },
       async list(prefix) {
         const records = await target.#readRecords(cipher);
@@ -222,6 +250,14 @@ export class GoWalletBackendTarget implements AdoptTarget {
         return prefix === undefined ? keys : keys.filter((k) => k.startsWith(prefix));
       },
     };
+  }
+
+  /** One mutating call at a time, in call order: the chain holds the
+   *  previous write's outcome (a failure must not break the chain). */
+  #serializeWrite(build: () => () => Promise<void>): Promise<void> {
+    const run = this.#writes.then(build(), build());
+    this.#writes = run.catch(() => {});
+    return run;
   }
 
   trustPlugin(): TrustPlugin {
@@ -239,7 +275,15 @@ export class GoWalletBackendTarget implements AdoptTarget {
     // is a copy: the caller mutates, and a failed write must not have
     // poisoned it.
     if (response.status === 304) return { ...this.#lastRecords };
-    if (response.status === 404) return { ...this.#lastRecords };
+    // 404 is the server saying NOTHING IS STORED (a first read, or a
+    // server-side wipe): the honest answer is empty — answering the cache
+    // would resurrect stale records the backend just dropped. The cache
+    // and the etag go with them.
+    if (response.status === 404) {
+      this.#lastRecords = {};
+      this.#etag = undefined;
+      return {};
+    }
     if (!response.ok) throw new Error(`the backend's private-data answered ${response.status}`);
     const etag = response.headers.get("ETag");
     if (etag) this.#etag = etag;

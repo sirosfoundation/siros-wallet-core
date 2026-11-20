@@ -153,8 +153,23 @@ export class MiniWallet {
 
   // ── The engine: loaded once, the session created once ──────────────────
 
+  /** Memoized SYNCHRONOUSLY: two concurrent flows (a receiveCredential
+   *  racing a present) must not each import the module, build an engine
+   *  and open a session — one promise, both callers, one orphaned-less
+   *  session. A failed creation clears the slot so a retry can run. */
+  #ready: Promise<{ engine: EngineLike; sessionId: string }> | null = null;
+
   async #ensureEngine(): Promise<{ engine: EngineLike; sessionId: string }> {
-    if (this.#engine && this.#sessionId) return { engine: this.#engine, sessionId: this.#sessionId };
+    if (!this.#ready) {
+      this.#ready = this.#createEngine().catch((err) => {
+        this.#ready = null;
+        throw err;
+      });
+    }
+    return this.#ready;
+  }
+
+  async #createEngine(): Promise<{ engine: EngineLike; sessionId: string }> {
     // The page's module when it injected one; the dynamic import (which
     // a bundler resolves) otherwise.
     const mod: EngineModule = this.#opts.engine
@@ -207,10 +222,24 @@ export class MiniWallet {
     })) as { wmp?: { session_id?: string } };
     const sessionId = created?.wmp?.session_id;
     if (!sessionId) throw new Error("the engine created no session");
+    // A fresh engine session: no prior flow can still be signing, so any
+    // per-flow key a crashed flow left is garbage. Sweep them (the
+    // settle-time deletion is the normal path; this is the belt).
+    for (const stale of await this.#storage.list("key:flow:")) {
+      await this.#storage.del(stale).catch(() => {});
+    }
     this.#engine = engine;
     this.#sessionId = sessionId;
     this.#opts.onEvent?.({ type: "session", sessionId });
     return { engine, sessionId };
+  }
+
+  /** A settled flow's fresh key is gone with it (the batch rule's keys
+   *  are per-flow; leaving them accumulates private EC JWKs in storage —
+   *  and post-migration, in the backend's blob). Best-effort: a failed
+   *  delete leaves one key for the session-start sweep. */
+  #flowCleanup(flowId: string): void {
+    this.#storage.del(`key:flow:${flowId}`).catch(() => {});
   }
 
   #onNotification(text: string): void {
@@ -236,6 +265,7 @@ export class MiniWallet {
       if (pending) {
         this.#pending.delete(flowId);
         pending.reject(new Error(error.message ?? "the flow failed"));
+        this.#flowCleanup(flowId);
         this.#opts.onEvent?.({ type: "flow-error", flowId, code: error.code, message: error.message ?? "the flow failed" });
       }
       return;
@@ -257,7 +287,8 @@ export class MiniWallet {
       this.#pending.delete(flowId);
       // The RAW result: the pending wrapper (set in #runFlow) owns the
       // single #complete — calling it here as well stored every credential
-      // twice and emitted credential-received twice.
+      // twice and emitted credential-received twice. The wrapper's finish
+      // runs the flow-key cleanup.
       pending?.resolve(result);
     }
   }
@@ -352,6 +383,7 @@ export class MiniWallet {
         if (settled) return;
         settled = true;
         this.#pending.delete(flowId);
+        this.#flowCleanup(flowId);
         resolve(value);
       };
       this.#pending.set(flowId, {
@@ -381,6 +413,7 @@ export class MiniWallet {
           if (settled) return;
           settled = true;
           this.#pending.delete(flowId);
+          this.#flowCleanup(flowId);
           reject(err instanceof Error ? err : new Error(String(err)));
         });
     });
@@ -471,7 +504,12 @@ export class MiniWallet {
   async rawCredential(key: string): Promise<Record<string, unknown> | null> {
     if (!key.startsWith(CREDENTIAL_PREFIX)) return null;
     const raw = await this.#storage.get(key);
-    return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return null; // a foreign or quota-truncated record: unreadable, not a crash
+    }
   }
 
   // ── The device key: generated once, stored (unencrypted until the
@@ -515,19 +553,33 @@ export class MiniWallet {
    *  configuration each keep their own, so neither overwrites the
    *  other's proofs), then the configuration's, then the device key. */
   async #keyFor(flowId?: string, configurationId?: string, keyId?: string): Promise<Record<string, unknown>> {
+    // Every tier's parse is guarded: a corrupt (quota-truncated) record
+    // is an ABSENT key — fall through to the next tier, never a crash out
+    // of a credential read.
     if (flowId) {
       const flow = await this.#storage.get(`key:flow:${flowId}`);
-      if (flow) return JSON.parse(flow) as Record<string, unknown>;
+      if (flow) {
+        try {
+          return JSON.parse(flow) as Record<string, unknown>;
+        } catch { /* unreadable: fall through */ }
+      }
     }
     if (configurationId) {
       const stored = await this.#storage.get(`key:config:${configurationId}`);
-      if (stored) return JSON.parse(stored) as Record<string, unknown>;
+      if (stored) {
+        try {
+          return JSON.parse(stored) as Record<string, unknown>;
+        } catch { /* unreadable: fall through */ }
+      }
     }
     if (!this.#deviceJwk) {
       const stored = await this.#storage.get("key:device");
-      this.#deviceJwk = stored
-        ? (JSON.parse(stored) as Record<string, unknown>)
-        : await this.#generateKey("key:device");
+      if (stored) {
+        try {
+          this.#deviceJwk = JSON.parse(stored) as Record<string, unknown>;
+        } catch { /* unreadable: a fresh device key */ }
+      }
+      if (!this.#deviceJwk) this.#deviceJwk = await this.#generateKey("key:device");
     }
     return this.#deviceJwk;
   }
@@ -616,6 +668,10 @@ export class MiniWallet {
     const modal: AdoptModal | null = options.modal
       ? renderAdoptModal(options.modal === true ? undefined : options.modal)
       : null;
+    // Everything from HERE on lives inside the try: the overlay is mounted,
+    // so a rejected ask — or a throwing credentials() — must close it, never
+    // leave it stuck on the page.
+    try {
     const credentials = await this.credentials();
     const ask = { credentials, backend: target.backend };
     // BOTH ask, and BOTH must consent: the page's ask is a veto even when
@@ -629,7 +685,6 @@ export class MiniWallet {
       modal?.declined();
       return null;
     }
-    try {
       modal?.passkey();
       // The passkey: the AS's begin/finish around the page's ceremony.
       const { account } = await target.registerPasskey(options.ui);

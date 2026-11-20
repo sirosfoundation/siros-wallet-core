@@ -158,17 +158,20 @@ const server = createServer(async (req, res) => {
       });
     }
     // Static: / -> the page; /lib/* -> the built library; /engine/* ->
-    // the published engine (its js + wasm).
+    // the published engine (its js + wasm). Each route guards against
+    // its OWN root: /lib and /engine resolve OUTSIDE the example's
+    // directory (../../dist, ../../node_modules), so a HERE-prefix guard
+    // 404s the harness's own assets — the guard must name the root it
+    // serves from, never a broader one.
+    const distRoot = join(HERE, "../../dist");
+    const engineRoot = join(HERE, "../../node_modules/@sirosfoundation/siros-wallet-core");
     let file = null;
-    if (url.pathname === "/") file = join(HERE, "index.html");
-    else if (url.pathname.startsWith("/lib/")) file = join(HERE, "../../dist", url.pathname.slice(5));
-    else if (url.pathname.startsWith("/engine/")) {
-      file = join(HERE, "../../node_modules/@sirosfoundation/siros-wallet-core", url.pathname.slice(8));
-    } else if (url.pathname === "/client.js") file = join(HERE, "client.js");
-    // The guard compares against HERE: the join is absolute, so a
-    // ".."-prefix check never fired — /lib/../../anything served from
-    // outside dist/.
-    if (!file || !normalize(file).startsWith(normalize(HERE))) return notFound(res);
+    let fileRoot = null;
+    if (url.pathname === "/") { file = join(HERE, "index.html"); fileRoot = HERE; }
+    else if (url.pathname.startsWith("/lib/")) { file = join(distRoot, url.pathname.slice(5)); fileRoot = distRoot; }
+    else if (url.pathname.startsWith("/engine/")) { file = join(engineRoot, url.pathname.slice(8)); fileRoot = engineRoot; }
+    else if (url.pathname === "/client.js") { file = join(HERE, "client.js"); fileRoot = HERE; }
+    if (!file || !fileRoot || !normalize(file).startsWith(normalize(fileRoot))) return notFound(res);
     try {
       const body = await readFile(file);
       res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });

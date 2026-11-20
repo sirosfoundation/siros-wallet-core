@@ -70,11 +70,22 @@ export class AuthzenTrustPlugin implements TrustPlugin {
       const token = await this.#auth();
       if (token) headers.Authorization = `Bearer ${token}`;
     }
-    const response = await fetch(this.#url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(ask),
-    });
+    // Fail CLOSED on the transport: an error envelope or a captive
+    // portal answering 200-with-junk must never be read as trust — and a
+    // hung PDP must not hang every flow. (A non-JSON body already fell
+    // through to Deny; the status and the timeout close the rest.)
+    let response: Response;
+    try {
+      response = await fetch(this.#url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(ask),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      return { trusted: false, decision: "Deny" };
+    }
+    if (!response.ok) return { trusted: false, decision: "Deny" };
     const answer = (await response.json().catch(() => ({}))) as {
       decision?: unknown;
       context?: unknown;

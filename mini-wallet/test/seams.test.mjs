@@ -156,14 +156,55 @@ test("a 304 private-data answer returns the cached records — the next put keep
   }
 });
 
+test("a 404 private-data answer is EMPTY — a wiped backend is not resurrected from the cache", async () => {
+  const cipher = new NullCipher();
+  let posted = null;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    const method = init.method ?? "GET";
+    if (u.endsWith("/user/session/private-data") && method === "GET") {
+      return new Response("not found", { status: 404 });
+    }
+    if (u.endsWith("/user/session/private-data") && method === "POST") {
+      posted = JSON.parse(String(init.body));
+      return new Response("{}", { status: 200, headers: { ETag: "e-new" } });
+    }
+    throw new Error(`unexpected fetch: ${method} ${u}`);
+  };
+  try {
+    const target = new GoWalletBackendTarget("https://backend.example");
+    const storage = target.storage(cipher);
+    await storage.put("only-key", "x");
+    const unwrapped = await cipher.unwrap(new Uint8Array(posted.privateData.data));
+    assert.deepEqual(Object.keys(unwrapped), ["only-key"],
+      "the post-wipe rewrite carries exactly what the (empty) server state plus the new key says");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 // ── The tagged-binary wire ─────────────────────────────────────────────
 
 test("the tagged-binary wire round-trips buffers inside nested structures", () => {
+  // The Uint8Array shape AND the raw ArrayBuffer members
+  // navigator.credentials.create returns (rawId, attestationObject,
+  // clientDataJSON): the ArrayBuffer alone serialized as {} and the AS
+  // could not verify the registration.
   const value = {
     name: "ceremony",
     challenge: new Uint8Array([1, 2, 3, 250]),
     list: [{ rawId: new Uint8Array([9, 8]) }, "plain"],
+    credential: {
+      rawId: new ArrayBuffer(3),
+      response: {
+        attestationObject: new ArrayBuffer(4),
+        clientDataJSON: new Uint8Array([7, 7, 7]),
+      },
+    },
   };
+  new Uint8Array(value.credential.rawId).set([11, 22, 33]);
+  new Uint8Array(value.credential.response.attestationObject).set([44, 55, 66, 77]);
   const back = reviveTaggedBinary(JSON.parse(stringifyWithTaggedBinary(value)));
   assert.equal(back.name, "ceremony");
   assert.ok(back.challenge instanceof Uint8Array);
@@ -171,6 +212,10 @@ test("the tagged-binary wire round-trips buffers inside nested structures", () =
   assert.ok(back.list[0].rawId instanceof Uint8Array);
   assert.deepEqual(Array.from(back.list[0].rawId), [9, 8]);
   assert.equal(back.list[1], "plain");
+  assert.ok(ArrayBuffer.isView(back.credential.rawId), "the raw ArrayBuffer member arrives as bytes, not {}");
+  assert.deepEqual(Array.from(back.credential.rawId), [11, 22, 33]);
+  assert.deepEqual(Array.from(back.credential.response.attestationObject), [44, 55, 66, 77]);
+  assert.deepEqual(Array.from(back.credential.response.clientDataJSON), [7, 7, 7]);
 });
 
 // ── The authzen decision mapping ────────────────────────────────────────
