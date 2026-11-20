@@ -44,7 +44,7 @@ export async function migrateWalletStorage(
       return report;
     }
   }
-  if (report.failed) return report;
+  // (A failure returned inside the loop above; nothing can be failed here.)
   for (const key of keys) await source.del(key);
   return report;
 }

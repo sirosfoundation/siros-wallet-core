@@ -17,8 +17,13 @@ import { SignJWT, importJWK } from "jose";
 
 const ISSUER = process.env.ISSUER_URL || "https://sirosid-realeyes-siros-issuer.fly.dev";
 const BACKEND = process.env.BACKEND_URL || "https://sirosid-gdc-wallet-proxy.fly.dev";
-const JWK_PATH = process.env.INTEGRATOR_JWK_FILE
-  || "/home/leifj/work/siros.org/sirosid-realeyes/fixtures/rendered/fly-realeyes/integratorJwk";
+// The integrator's JWK (the Mode A assertion's signing key). REQUIRED:
+// point it at your environment's integrator JWK file.
+const JWK_PATH = process.env.INTEGRATOR_JWK_FILE;
+if (!JWK_PATH) {
+  console.error("INTEGRATOR_JWK_FILE is not set — point it at your integrator JWK (the assertion's signing key).");
+  process.exit(1);
+}
 const PDP = process.env.PDP_URL || "https://sirosid-realeyes-pdp.fly.dev";
 const BIND = process.env.BIND || "127.0.0.1:8128";
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -72,6 +77,10 @@ async function mint() {
   return body;
 }
 
+// DEMO/DEV ONLY — never deploy this server: the /api/* routes are open
+// reflectors (the issuer and backend proxies forward whatever arrives,
+// unauthenticated) and the mint signs assertions with YOUR integrator
+// key. It exists so a browser page can reach origins that serve no CORS.
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "http://x");
@@ -122,7 +131,11 @@ const server = createServer(async (req, res) => {
       }
       const upstream = await fetch(`${ISSUER}${path}`, init);
       const text = await upstream.text();
-      console.log(`[issuer] ${req.method} ${path} -> ${upstream.status}${upstream.status >= 400 ? " answer: " + text.slice(0, 300) : ""} headers: ${JSON.stringify(req.headers)}${init.body ? " body: " + String(init.body).slice(0, 1500) : ""}`);
+      // Method, path, status — NOTHING ELSE: the request headers carry
+      // Authorization tokens and DPoP proofs, the bodies carry
+      // pre-authorized codes. A proxy that logs them leaks every
+      // credential the demo mints.
+      console.log(`[issuer] ${req.method} ${path} -> ${upstream.status}`);
       res.writeHead(upstream.status, {
         "content-type": upstream.headers.get("content-type") ?? "application/json",
       });
@@ -152,7 +165,10 @@ const server = createServer(async (req, res) => {
     else if (url.pathname.startsWith("/engine/")) {
       file = join(HERE, "../../node_modules/@sirosfoundation/siros-wallet-core", url.pathname.slice(8));
     } else if (url.pathname === "/client.js") file = join(HERE, "client.js");
-    if (!file || normalize(file).startsWith("..")) return notFound(res);
+    // The guard compares against HERE: the join is absolute, so a
+    // ".."-prefix check never fired — /lib/../../anything served from
+    // outside dist/.
+    if (!file || !normalize(file).startsWith(normalize(HERE))) return notFound(res);
     try {
       const body = await readFile(file);
       res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });

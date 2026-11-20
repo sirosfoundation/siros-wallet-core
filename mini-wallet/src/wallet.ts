@@ -19,15 +19,13 @@ import {
   LocalStorageWalletStorage,
   MemoryWalletStorage,
 } from "./storage.js";
-import { asPdp } from "./trust.js";
-import type { TrustPlugin } from "./trust.js";
+import { asPdp, AuthzenTrustPlugin } from "./trust.js";
+import type { TrustPlugin, TrustTokenProvider } from "./trust.js";
 import type { MiniWalletPdpOption } from "./types.js";
 import { GoWalletBackendTarget, NullCipher } from "./adopt.js";
 import type { AdoptReport, AdoptTarget, AdoptUi, PrivateDataCipher } from "./adopt.js";
 import { renderAdoptModal } from "./modal.js";
 import type { AdoptModal } from "./modal.js";
-import { AuthzenTrustPlugin } from "./trust.js";
-import type { TrustTokenProvider } from "./trust.js";
 import { migrateWalletStorage } from "./migration.js";
 import {
   isOfferUri,
@@ -231,10 +229,15 @@ export class MiniWallet {
     const flowId = typeof params.flow_id === "string" ? params.flow_id : undefined;
     if (!flowId) return;
     if (message.method === "wmp.flow.error") {
+      // Only a LIVE flow's error reaches the page: a late frame for a
+      // settled flow is stale news, not a new failure.
       const error = (params.error ?? {}) as { code?: number; message?: string };
-      this.#pending.get(flowId)?.reject(new Error(error.message ?? "the flow failed"));
-      this.#pending.delete(flowId);
-      this.#opts.onEvent?.({ type: "flow-error", flowId, code: error.code, message: error.message ?? "the flow failed" });
+      const pending = this.#pending.get(flowId);
+      if (pending) {
+        this.#pending.delete(flowId);
+        pending.reject(new Error(error.message ?? "the flow failed"));
+        this.#opts.onEvent?.({ type: "flow-error", flowId, code: error.code, message: error.message ?? "the flow failed" });
+      }
       return;
     }
     if (message.method === "wmp.flow.progress") {
@@ -252,7 +255,10 @@ export class MiniWallet {
       const result = ((params.result ?? params) as Record<string, unknown>);
       const pending = this.#pending.get(flowId);
       this.#pending.delete(flowId);
-      pending?.resolve(this.#complete(flowId, result));
+      // The RAW result: the pending wrapper (set in #runFlow) owns the
+      // single #complete — calling it here as well stored every credential
+      // twice and emitted credential-received twice.
+      pending?.resolve(result);
     }
   }
 
@@ -261,8 +267,12 @@ export class MiniWallet {
    *  delivered credentials store here. */
   #complete(flowId: string, result: Record<string, unknown>): unknown {
     const credentials = (result.credentials ?? []) as Array<Record<string, unknown>>;
-    for (const entry of credentials) this.#storeCredential(entry);
+    for (const entry of credentials) this.#storeCredential(entry, flowId);
     this.#opts.onEvent?.({
+      // "presented": a flow completing WITHOUT credentials — a verifier
+      // presentation, or an issuance that ended in a redirect alone
+      // (both are "nothing stored"; the flow type is not the event's
+      // business — the page distinguishes by context if it must).
       type: credentials.length ? "credential-received" : "presented",
       flowId,
       configurationId:
@@ -281,7 +291,7 @@ export class MiniWallet {
    */
   async evaluateTrust(ask: Record<string, unknown>): Promise<{ trusted: boolean; decision?: string; context?: unknown }> {
     const pdp = this.#pdpOf();
-    const plugin = "evaluate" in pdp ? (pdp as TrustPlugin) : asPdp(pdp as MiniWalletPdpOption) as unknown as TrustPlugin;
+    const plugin = ("evaluate" in pdp ? pdp : asPdp(pdp as MiniWalletPdpOption)) as TrustPlugin;
     return plugin.evaluate(ask as Parameters<TrustPlugin["evaluate"]>[0]);
   }
 
@@ -357,9 +367,13 @@ export class MiniWallet {
         .then((answer) => {
           const result = answer as Record<string, unknown> | null;
           // The synchronous completion carries the flow's result members
-          // (credentials, redirect_uri); the bare started envelope does
-          // not — the completion joins via the sink.
-          if (result && (result.credentials || result.redirect_uri !== undefined)) {
+          // (credentials, redirect_uri); the bare started envelope
+          // ({flow_id, flow_type, wmp} and nothing else) does not — its
+          // completion joins via the sink. ANY other non-null answer is a
+          // result and settles the flow: a shape carrying neither
+          // credentials nor a redirect is still an answer, never a hang.
+          const started = result && typeof result.flow_type === "string" && result.wmp !== undefined;
+          if (result && !started) {
             finish(this.#complete(flowId, result));
           }
         })
@@ -391,7 +405,7 @@ export class MiniWallet {
   /** Store one delivered credential — the value plus its format and
    *  configuration, and the response-level metadata verbatim (the
    *  nym_auth ssc opening rides it; the zkp proofs read it back). */
-  #storeCredential(entry: Record<string, unknown>): StoredCredential {
+  #storeCredential(entry: Record<string, unknown>, flowId: string): StoredCredential {
     const id = crypto.randomUUID();
     const record = {
       format: entry.format,
@@ -403,7 +417,17 @@ export class MiniWallet {
       received_at_unix: Math.floor(Date.now() / 1000),
     };
     const key = `${CREDENTIAL_PREFIX}${id}`;
-    void this.#storage.put(key, JSON.stringify(record));
+    // A rejected put is the page's storage failing: name the loss as a
+    // flow-error (the credential-received event alone would lie). The
+    // put stays async — #complete is the flow's result builder, and the
+    // event order (received, then the store's failure) is documented.
+    this.#storage.put(key, JSON.stringify(record)).catch((err) => {
+      this.#opts.onEvent?.({
+        type: "flow-error",
+        flowId,
+        message: `the credential did not store: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    });
     return {
       key,
       format: typeof record.format === "string" ? record.format : "",
@@ -465,7 +489,12 @@ export class MiniWallet {
     key_id?: string;
     algorithm: string;
   }): Promise<{ signature: number[] }> {
-    const jwk = await this.#keyFor(params.credential_configuration_id, params.key_id);
+    // This wallet signs ES256 (P-256) and nothing else: an ask naming
+    // another algorithm signs WRONG here, so it fails loudly instead.
+    if (params.algorithm && params.algorithm !== "ES256") {
+      throw new Error(`this wallet signs ES256 only; the ask names ${params.algorithm}`);
+    }
+    const jwk = await this.#keyFor(params.flow_id, params.credential_configuration_id, params.key_id);
     const cryptoKey = await crypto.subtle.importKey(
       "jwk",
       jwk as JsonWebKey,
@@ -481,9 +510,15 @@ export class MiniWallet {
     return { signature: Array.from(new Uint8Array(signature)) };
   }
 
-  /** The key an ask pairs with: the configuration's fresh key when it
-   *  has one (the batch rule), the device key otherwise. */
-  async #keyFor(configurationId?: string, keyId?: string): Promise<Record<string, unknown>> {
+  /** The key an ask pairs with: the FLOW's fresh key first (the batch
+   *  rule's keys are per-flow — two concurrent flows on one
+   *  configuration each keep their own, so neither overwrites the
+   *  other's proofs), then the configuration's, then the device key. */
+  async #keyFor(flowId?: string, configurationId?: string, keyId?: string): Promise<Record<string, unknown>> {
+    if (flowId) {
+      const flow = await this.#storage.get(`key:flow:${flowId}`);
+      if (flow) return JSON.parse(flow) as Record<string, unknown>;
+    }
     if (configurationId) {
       const stored = await this.#storage.get(`key:config:${configurationId}`);
       if (stored) return JSON.parse(stored) as Record<string, unknown>;
@@ -508,10 +543,13 @@ export class MiniWallet {
     fresh?: boolean;
   }): Promise<{ jwk: Record<string, unknown> }> {
     if (params.fresh && params.credential_configuration_id) {
-      const key = await this.#generateKey(`key:config:${params.credential_configuration_id}`);
+      // Per-FLOW: a concurrent second flow on the same configuration
+      // used to overwrite `key:config:<id>` and orphan the first flow's
+      // proofs; `key:flow:<flow_id>` cannot collide.
+      const key = await this.#generateKey(`key:flow:${params.flow_id}`);
       return { jwk: publicOf(key) };
     }
-    return { jwk: publicOf(await this.#keyFor(params.credential_configuration_id, params.key_id)) };
+    return { jwk: publicOf(await this.#keyFor(params.flow_id, params.credential_configuration_id, params.key_id)) };
   }
 
   async #generateKey(storeKey: string): Promise<Record<string, unknown>> {
@@ -580,12 +618,12 @@ export class MiniWallet {
       : null;
     const credentials = await this.credentials();
     const ask = { credentials, backend: target.backend };
-    // The page's ask gates; the modal's buttons answer when it renders.
+    // BOTH ask, and BOTH must consent: the page's ask is a veto even when
+    // a modal renders beside it (a page returning false is never overridden
+    // by the modal's buttons — the promise only settles after the modal's
+    // answer too, so a declined modal closes the ask, not a race).
     const go = modal
-      ? (await Promise.all([
-          options.ui.ask(ask),
-          modal.ask(ask),
-        ]))[1]
+      ? (await Promise.all([options.ui.ask(ask), modal.ask(ask)])).every(Boolean)
       : await options.ui.ask(ask);
     if (!go) {
       modal?.declined();

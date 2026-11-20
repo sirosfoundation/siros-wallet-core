@@ -16,6 +16,9 @@
 // unencrypted localStorage phase, upgraded to a server-side account.
 
 import type { TrustPlugin, TrustTokenProvider } from "./trust.js";
+import { AuthzenTrustPlugin } from "./trust.js";
+import { migrateWalletStorage } from "./migration.js";
+import type { WalletStorage, StoredCredential } from "./types.js";
 
 // ── The tagged-binary wire format ────────────────────────────────────────
 // The backend serializes WebAuthn's binary members (challenge, user.id,
@@ -60,10 +63,7 @@ export function stringifyWithTaggedBinary(value: unknown): string {
     return val;
   });
 }
-import { AuthzenTrustPlugin } from "./trust.js";
-import type { WalletStorage } from "./types.js";
-import type { StoredCredential } from "./types.js";
-import { migrateWalletStorage } from "./migration.js";
+
 
 /** What the page's ask callback receives — the context for "add a
  *  permanent wallet?" (what would move, where). */
@@ -77,7 +77,10 @@ export interface AdoptAsk {
 /** The page's UI for the adopt — both callbacks are the page's; the
  *  library renders nothing. */
 export interface AdoptUi {
-  /** "Add a permanent wallet?" — the page's answer. False aborts. */
+  /** "Add a permanent wallet?" — the page's answer. False aborts. When
+   *  the built-in modal renders beside it, BOTH must consent: the page's
+   *  false is a veto the modal never overrides (and the modal's declined
+   *  buttons abort even when the page said yes). */
   ask: (ask: AdoptAsk) => Promise<boolean>;
   /** The WebAuthn creation ceremony: the page runs
    *  navigator.credentials.create with the backend's options (the PRF
@@ -133,6 +136,12 @@ export class GoWalletBackendTarget implements AdoptTarget {
   readonly backend: string;
   readonly #tenantId: string;
   #sessionHeaders: Record<string, string> = {};
+  /** The records as of the last 200/POST — the 304 answer. */
+  #lastRecords: Record<string, string> = {};
+  /** The fetch credentials mode: "include" in cookie-session mode (the
+   *  browser attaches the cookie), "same-origin" otherwise. The manual
+   *  Cookie header was a forbidden-header silent no-op in browsers. */
+  #credentials: RequestCredentials = "same-origin";
   #etag: string | undefined;
   #accessToken: string | null = null;
 
@@ -163,7 +172,13 @@ export class GoWalletBackendTarget implements AdoptTarget {
     const token = typeof finish.token === "string" ? finish.token : undefined;
     const session = typeof finish.session === "string" ? finish.session : undefined;
     if (token) this.#sessionHeaders.Authorization = `Bearer ${token}`;
-    else if (session) this.#sessionHeaders.Cookie = session;
+    else if (session) {
+      // Session-cookie mode: the browser attaches the cookie itself
+      // (credentials: "include" on every backend call). `Cookie` is a
+      // forbidden header name — fetch() strips it in every browser, so
+      // the manual header left every later call unauthenticated.
+      this.#credentials = "include";
+    }
     this.#accessToken = token ?? null;
     return { account: String(finish.uuid ?? finish.account ?? "") };
   }
@@ -177,7 +192,6 @@ export class GoWalletBackendTarget implements AdoptTarget {
       const answer = await this.#post("/auth/token", { aud: "wallet-backend" }, {
         "X-Token-Mode": "token",
         "X-Tenant-ID": this.#tenantId,
-        ...(this.#sessionHeaders.Cookie ? { Cookie: this.#sessionHeaders.Cookie } : {}),
       });
       const token = typeof answer.token === "string" ? answer.token : (typeof answer.access_token === "string" ? answer.access_token : null);
       if (token) this.#accessToken = token;
@@ -217,15 +231,22 @@ export class GoWalletBackendTarget implements AdoptTarget {
   async #readRecords(cipher: PrivateDataCipher): Promise<Record<string, string>> {
     const response = await fetch(`${this.backend}/user/session/private-data`, {
       headers: { ...this.#sessionHeaders, ...(this.#etag ? { "If-None-Match": this.#etag } : {}) },
+      credentials: this.#credentials,
     });
-    if (response.status === 304) return {}; // unchanged since our last read
-    if (response.status === 404) return {}; // nothing stored yet
+    // 304 means UNCHANGED SINCE OUR LAST READ: the correct answer is the
+    // cached records, not {} — a {} here made the next put rewrite the
+    // blob with one key and silently drop every other record. The cache
+    // is a copy: the caller mutates, and a failed write must not have
+    // poisoned it.
+    if (response.status === 304) return { ...this.#lastRecords };
+    if (response.status === 404) return { ...this.#lastRecords };
     if (!response.ok) throw new Error(`the backend's private-data answered ${response.status}`);
     const etag = response.headers.get("ETag");
     if (etag) this.#etag = etag;
     const body = (await response.json()) as { privateData?: { data?: number[] } };
     const blob = body.privateData?.data;
-    return blob ? cipher.unwrap(new Uint8Array(blob)) : {};
+    this.#lastRecords = blob ? await cipher.unwrap(new Uint8Array(blob)) : {};
+    return { ...this.#lastRecords };
   }
 
   async #writeRecords(records: Record<string, string>, cipher: PrivateDataCipher): Promise<void> {
@@ -241,10 +262,12 @@ export class GoWalletBackendTarget implements AdoptTarget {
         ...(this.#etag ? { "If-Match": this.#etag } : {}),
       },
       body: JSON.stringify({ privateData: { data } }),
+      credentials: this.#credentials,
     });
     if (!response.ok) throw new Error(`the backend's private-data write answered ${response.status}`);
     const etag = response.headers.get("ETag");
     if (etag) this.#etag = etag;
+    this.#lastRecords = { ...records };
   }
 
   async #post(path: string, body: unknown, headers: Record<string, string>): Promise<Record<string, unknown>> {
@@ -256,6 +279,7 @@ export class GoWalletBackendTarget implements AdoptTarget {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body,
+      credentials: this.#credentials,
     });
     if (!response.ok) {
       // The answer's message rides the error — the diagnostics need it.

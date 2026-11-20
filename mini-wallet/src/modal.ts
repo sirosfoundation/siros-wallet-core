@@ -71,11 +71,12 @@ const BAD_STYLE = "margin:0 0 14px;color:#b3261e;font-weight:600;font-size:0.95r
 /** The spinner's keyframes: the one piece inline styles cannot carry,
  *  scoped to the modal's own element id (removed with it — document.head
  *  is touched never otherwise). */
-const SPINFRAMES = (id: string) =>
-  `@keyframes mw-rotate{to{transform:rotate(360deg)}}@keyframes ${id}{}`;
+const SPINFRAMES = () => `@keyframes mw-rotate{to{transform:rotate(360deg)}}`;
 
 /** Render the built-in adopt modal into `root` (document.body by
- *  default). Returns the AdoptModal controller `adopt` drives. */
+ *  default). Returns the AdoptModal controller `adopt` drives. The
+ *  page's own ask runs BESIDE the modal and both must consent — the
+ *  modal is the button surface, never an override of the page's veto. */
 export function renderAdoptModal(root?: HTMLElement): AdoptModal {
   const host = root ?? document.body;
   if (!host) throw new Error("the adopt modal needs a DOM");
@@ -89,7 +90,7 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
 
   const frameId = `mw-frame-${Math.random().toString(36).slice(2)}`;
   const style = document.createElement("style");
-  style.textContent = SPINFRAMES(frameId);
+  style.textContent = SPINFRAMES();
   overlay.append(style); // INSIDE the overlay: removed with it
 
   const body = (title: string, text: string): HTMLElement => {
@@ -143,7 +144,10 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
           card.querySelector<HTMLButtonElement>(".mw-row .mw-button")?.click();
         }
       });
-      return answer.finally(close);
+      // The modal STAYS after the ask: adopt's later steps (passkey,
+      // moving, done, failed) render into it. Close is declined()'s and
+      // the done/failed Close buttons' business, never the ask's.
+      return answer;
     },
     passkey(): void {
       body("Set your passkey", "Follow your browser's prompt — the passkey unlocks your wallet on every device.");
@@ -159,14 +163,14 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
       const ok = styled(document.createElement("p"), "mw-ok", OK_STYLE);
       ok.textContent = "✓ The credential lives in your wallet now.";
       p.replaceWith(ok);
-      void row([{ text: "Close", go: true }]);
+      row([{ text: "Close", go: true }]).then(close);
     },
     failed(failed: string): void {
       const p = body("The move did not complete", `The record "${failed}" failed to verify against the backend. Your page wallet is untouched — nothing was lost.`);
       const bad = styled(document.createElement("p"), "mw-bad", BAD_STYLE);
       bad.textContent = "You can try again.";
       p.replaceWith(bad);
-      void row([{ text: "Close" }]);
+      row([{ text: "Close", go: true }]).then(close);
     },
     declined(): void {
       close();

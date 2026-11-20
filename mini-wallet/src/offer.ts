@@ -29,7 +29,10 @@ export type OfferSource = "uri" | "deep-link" | "inline";
 export function unwrapOffer(offer: string): { uri: string; source: OfferSource } | { offer: Record<string, unknown>; source: OfferSource } {
   if (offer.startsWith("https://")) return { uri: offer, source: "uri" };
   if (offer.startsWith("openid-credential-offer://")) {
-    const params = new URLSearchParams(offer.split("?", 2)[1] ?? "");
+    // The query runs from the FIRST '?' to the end: split("?", 2) truncated
+    // at a second '?' — and real URIs (and QR payloads) may carry raw ones.
+    const query = offer.includes("?") ? offer.slice(offer.indexOf("?") + 1) : "";
+    const params = new URLSearchParams(query);
     const uri = params.get("credential_offer_uri");
     if (uri) return { uri, source: "deep-link" };
     const inline = params.get("credential_offer");
@@ -68,7 +71,9 @@ export function unwrapAuthorizationRequest(request: string): {
 } {
   if (request.startsWith("openid4vp://") || request.startsWith("haip://") || request.startsWith("mdoc-openid4vp://")) {
     const params: Record<string, unknown> = {};
-    for (const [key, value] of new URLSearchParams(request.split("?", 2)[1] ?? "")) params[key] = value;
+    // Same rule as unwrapOffer: the query is everything after the first '?'.
+    const query = request.includes("?") ? request.slice(request.indexOf("?") + 1) : "";
+    for (const [key, value] of new URLSearchParams(query)) params[key] = value;
     return { params, source: "deep-link" };
   }
   if (request.startsWith("https://")) {
