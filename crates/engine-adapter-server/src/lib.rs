@@ -257,8 +257,31 @@ fn build_peer(
         .unwrap_or_else(|err| {
             eprintln!("engine-server: register the mcp tool surface: {err}");
             std::process::exit(1);
-        })
-        .build();
+        });
+    // The MLS group encryption (the wmp-mls spec, RFC 9420): the
+    // OpenMLS-backed provider + the handler bridge, the MlsProfile
+    // registered the same way. The engine's own member identity: the
+    // deployment (the groups key the member that runs them).
+    #[cfg(feature = "mls")]
+    let peer = {
+        let identity = "engine";
+        let provider = match wmp_mls::OpenMlsProvider::for_identity(identity) {
+            Ok(provider) => provider,
+            Err(err) => {
+                eprintln!("engine-server: the MLS provider cannot start: {err:?}");
+                std::process::exit(1);
+            }
+        };
+        let handler = wmp_mls::EngineMlsHandler::new(provider);
+        match peer.profile(wmp_core::mls::MlsProfile::new(Arc::new(handler))) {
+            Ok(peer) => peer,
+            Err(err) => {
+                eprintln!("engine-server: register the mls profile: {err}");
+                std::process::exit(1);
+            }
+        }
+    };
+    let peer = peer.build();
     runtime.set_peer(peer.clone());
     (peer, runtime)
 }

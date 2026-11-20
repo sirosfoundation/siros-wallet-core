@@ -1,0 +1,24 @@
+[package]
+name = "wmp-mls"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "The OpenMLS-backed MlsProvider for the WMP engine (RFC 9420 group encryption)."
+
+[dependencies]
+wmp-core = { path = "../wmp-core" }
+# The 0.8 line: the 0.9 MSRV (1.91) is above the workspace floor (1.89).
+openmls = "0.8.3"
+openmls_rust_crypto = "0.5"
+openmls_basic_credential = "0.5"
+serde_json = { workspace = true }
+sha2 = "0.10"
+openmls_traits = "0.5"
+
+[lints]
+workspace = true
+
+[dev-dependencies]

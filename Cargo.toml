@@ -24,6 +24,7 @@ members = [
     "crates/siros-zkp-catalogues",
     # The WMP engine core — planned; stubs until the spike (S0) opens.
     "crates/wmp-core",
+    "crates/wmp-mls",
     "crates/engine-ports",
     "crates/engine-core",
     "crates/engine-adapter-sdk",
@@ -52,7 +53,6 @@ siros-i18n = { path = "crates/siros-i18n", default-features = false }
 siros-i18n-derive = { path = "crates/siros-i18n-derive" }
 siros-mdoc = { path = "crates/siros-mdoc" }
 siros-oid4vp = { path = "crates/siros-oid4vp" }
-siros-presentation = { path = "crates/siros-presentation", default-features = false }
 siros-sdjwt = { path = "crates/siros-sdjwt" }
 siros-syntax = { path = "crates/siros-syntax" }
 siros-transaction-data = { path = "crates/siros-transaction-data", default-features = false }
@@ -120,14 +120,6 @@ strip = "debuginfo"
 # runs in 1.00 s as built by default and in 0.21 s with this, measured back to
 # back on the same machine load.
 [profile.dev.package.p256]
-opt-level = 3
-[profile.dev.package.primeorder]
-opt-level = 3
-[profile.dev.package.elliptic-curve]
-opt-level = 3
-[profile.dev.package.crypto-bigint]
-opt-level = 3
-[profile.dev.package.ecdsa]
 opt-level = 3
 [profile.dev.package.sha2]
 opt-level = 3
