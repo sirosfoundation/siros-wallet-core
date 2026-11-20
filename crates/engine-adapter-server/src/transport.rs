@@ -29,6 +29,7 @@ use tokio_stream::StreamExt;
 
 use crate::EngineServer;
 use wmp_core::context::RequestContext;
+use wmp_core::session::SessionStore as _;
 
 /// The router of the engine's HTTP endpoints: the WMP transport routes,
 /// the authzen proxy routes, and the probes.
@@ -409,6 +410,53 @@ async fn post_invitation(
             return error_response(wmp_core::error::ERR_INTERNAL_ERROR as i64, &err.to_string())
         }
     };
+    // The `join` purpose (issue #77's group shape): the create names the
+    // group session the invitation bootstraps its consumer into. The
+    // purpose defaults to `session` (the 1:1 shape); anything else the
+    // core names is refused (`-32602`) — an unknown purpose is a client
+    // error, never a silent session invitation.
+    let body_value =
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap_or(serde_json::Value::Null);
+    let purpose = body_value
+        .get("purpose")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(wmp_core::invitation::INVITATION_PURPOSE_SESSION)
+        .to_owned();
+    match purpose.as_str() {
+        wmp_core::invitation::INVITATION_PURPOSE_SESSION
+        | wmp_core::invitation::INVITATION_PURPOSE_JOIN => {}
+        _ => {
+            return error_response(
+                wmp_core::error::ERR_INVALID_PARAMS as i64,
+                "the invitation purpose is not one the engine serves",
+            )
+        }
+    }
+    if purpose == wmp_core::invitation::INVITATION_PURPOSE_JOIN {
+        // The group the invitation joins its consumer into: a session the
+        // store must hold (the inviter's own group session), named by the
+        // caller. Unnamed or unknown: `-32602` — the invitation names a
+        // bootstrap target, never a guess.
+        let session_id = body_value
+            .get("session_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        if session_id.is_empty() {
+            return error_response(
+                wmp_core::error::ERR_INVALID_PARAMS as i64,
+                "the join invitation names no session",
+            );
+        }
+        if server.store.get(&session_id).is_none() {
+            return error_response(
+                wmp_core::error::ERR_INVALID_PARAMS as i64,
+                "the join invitation names an unknown session",
+            );
+        }
+        invitation.session_id = session_id;
+    }
+    invitation.purpose = purpose;
     if let Err(err) = key.sign(&mut invitation) {
         return error_response(wmp_core::error::ERR_INTERNAL_ERROR as i64, &err.to_string());
     }
