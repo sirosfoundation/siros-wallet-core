@@ -35,6 +35,7 @@ pub mod handler;
 pub mod host_bridge;
 pub mod invitation;
 pub mod mailbox;
+pub mod mcp_tools;
 pub mod outbox;
 pub mod ports;
 pub mod shared_outbox;
@@ -245,6 +246,17 @@ fn build_peer(
         // a start naming an expired session answers -31001 instead of
         // running against a dead record.
         .clock(handler::system_clock())
+        // #76: the MCP tool surface — `tools/list`/`tools/call` behind the
+        // negotiated `mcp` capability, on the registry's custom-method
+        // dispatch. A registration collision would be a programming error
+        // (no other profile claims the method names); refuse to start.
+        .profile(Arc::new(crate::mcp_tools::McpToolProfile::new(
+            config.mcp_tools,
+        )))
+        .unwrap_or_else(|err| {
+            eprintln!("engine-server: register the mcp tool surface: {err}");
+            std::process::exit(1);
+        })
         .build();
     runtime.set_peer(peer.clone());
     (peer, runtime)
