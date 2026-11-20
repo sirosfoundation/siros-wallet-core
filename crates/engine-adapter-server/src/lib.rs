@@ -31,6 +31,7 @@
 #![allow(clippy::disallowed_types)]
 
 pub mod config;
+pub mod groups;
 pub mod handler;
 pub mod host_bridge;
 pub mod invitation;

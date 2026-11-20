@@ -13,6 +13,7 @@ use wmp_core::handler::HandlerError;
 use wmp_core::methods::*;
 use wmp_core::resolve::new_vctm_resolve_result;
 use wmp_core::session::MemorySessionStore;
+use wmp_core::session::SessionStore as _;
 use wmp_core::sessionservice::{Clock, SessionHandler, SessionService, SessionServiceConfig};
 
 use crate::config::Config;
@@ -42,6 +43,13 @@ pub struct EngineHandler {
     /// carrying an `invitation_nonce` consumes it single-use here.
     invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
     invitation_verifier: Option<Arc<dyn wmp_core::invitation::InvitationVerifier>>,
+    /// The group registry (issue #77's `join` purpose): the sessions that
+    /// joined a group session by consuming its invitation. The mailbox's
+    /// fan-out source.
+    groups: Arc<crate::groups::GroupRegistry>,
+    /// The session store (the join validation's lookup: a `join`
+    /// invitation names a session the store must still hold).
+    session_store: Arc<MemorySessionStore>,
     /// The message mailbox (issue #77): the `wmp.message.deliver` target
     /// store, the `wmp.message.poll` source.
     mailbox: Arc<crate::mailbox::Mailbox>,
@@ -96,6 +104,8 @@ impl EngineHandler {
             // a create carrying a nonce answers -31002 (nobody issued it).
             invitations: Arc::new(wmp_core::invitation::MemoryInvitationStore::new()),
             invitation_verifier: None,
+            groups: Arc::new(crate::groups::GroupRegistry::new()),
+            session_store: store.clone(),
             mailbox: Arc::new(crate::mailbox::Mailbox::new()),
             outbox,
         })
@@ -177,16 +187,48 @@ impl Handler for EngineHandler {
         // store's consume IS the single-use, the expiry and signature the
         // same validation (`validate_invitation_nonce`, the core's rule:
         // every failure is -31002).
+        let mut joined_group = None;
         if !params.invitation_nonce.is_empty() {
             let now = system_clock()();
-            wmp_core::invitation::validate_invitation_nonce(
+            let invitation = wmp_core::invitation::validate_invitation_nonce(
                 &*self.invitations,
                 now,
                 &params.invitation_nonce,
                 self.invitation_verifier.as_deref(),
             )?;
+            // The `join` purpose (issue #77's group shape): the invitation
+            // names the group session the consume joins. Validated before
+            // the create runs (a create that joins nothing must not mint a
+            // session), registered after (the joiner's session id is the
+            // create's answer).
+            if invitation.purpose == wmp_core::invitation::INVITATION_PURPOSE_JOIN {
+                let group = invitation.session_id.clone();
+                if group.is_empty() {
+                    return Err(RpcError::new(
+                        wmp_core::error::ERR_NOT_AUTHORIZED,
+                        Some(serde_json::json!({
+                            "reason": "the join invitation names no session",
+                        })),
+                    )
+                    .into());
+                }
+                if self.session_store.get(&group).is_none() {
+                    return Err(RpcError::new(
+                        wmp_core::error::ERR_NOT_AUTHORIZED,
+                        Some(serde_json::json!({
+                            "reason": "the join invitation names an unknown session",
+                        })),
+                    )
+                    .into());
+                }
+                joined_group = Some(group);
+            }
         }
-        self.session.session_create(ctx, params)
+        let result = self.session.session_create(ctx, params)?;
+        if let Some(group) = joined_group {
+            self.groups.join(&group, &result.wmp.session_id);
+        }
+        Ok(result)
     }
 
     fn session_resume(
@@ -198,6 +240,10 @@ impl Handler for EngineHandler {
     }
 
     fn session_close(&self, ctx: &RequestContext, params: &SessionCloseParams) {
+        // The closing member's group memberships drop here (issue #77's
+        // join): a session that left the group receives none of its
+        // deliveries. The close itself is the session service's.
+        self.groups.leave(&params.wmp.session_id);
         self.session.session_close(ctx, params)
     }
 
@@ -242,7 +288,31 @@ impl Handler for EngineHandler {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or_default();
-        let entries = self.mailbox.deliver(params, &message_id, &message, now);
+        let entries = {
+            // The in-group fan-out (issue #77's join): a `to` naming a group
+            // session delivers to every joined member's box as well — the
+            // group's own id kept first (the deliverer's own view), each
+            // member in join order. The envelope the members receive is the
+            // ORIGINAL params (the `to` the sender named), never the
+            // expansion — only the delivery targets grow.
+            let mut to: Vec<String> = Vec::new();
+            for recipient in &params.to {
+                if recipient.is_empty() {
+                    continue;
+                }
+                if !to.contains(recipient) {
+                    to.push(recipient.clone());
+                }
+                for member in self.groups.members(recipient) {
+                    if !to.contains(&member) {
+                        to.push(member);
+                    }
+                }
+            }
+            let mut expanded = params.clone();
+            expanded.to = to;
+            self.mailbox.deliver(&expanded, &message_id, &message, now)
+        };
         // The outbox push per recipient: the SSE stream carries it live.
         for (session, _entry) in &entries {
             let push = serde_json::json!({
