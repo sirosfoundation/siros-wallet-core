@@ -76,8 +76,8 @@ impl EngineHandler {
                 // client that did not offer it refuses at the session,
                 // not at the first flow start. The wasm dispatcher
                 // advertises the same shape.
-                supported: flows_capability(config.max_concurrent_flows).unwrap_or_else(|err| {
-                    eprintln!("engine-server: invalid flows capability: {err}");
+                supported: supported_capabilities(config).unwrap_or_else(|err| {
+                    eprintln!("engine-server: invalid capabilities: {err}");
                     std::process::exit(1);
                 }),
                 ..SessionServiceConfig::default()
@@ -520,6 +520,26 @@ fn flows_capability(max_concurrent: i64) -> Result<wmp_core::types::Capabilities
         },
     }))
     .map_err(|err| format!("the flows capability does not serialize: {err}"))
+}
+
+/// The engine's whole supported set (core §10.3): the flows capability
+/// plus the `mcp` capability (issue #76) when the engine answers tools.
+/// The negotiation takes the supported side's params for every name both
+/// sides named, so `ENGINE_MCP_TOOLS=true` + a client's `capabilities_offered
+/// .mcp` activates the tools surface for that session alone.
+fn supported_capabilities(config: &Config) -> Result<wmp_core::types::Capabilities, String> {
+    let mut supported = flows_capability(config.max_concurrent_flows)?;
+    if config.mcp_tools {
+        let params = serde_json::to_value(crate::mcp_tools::McpToolProfile::new(true).capability())
+            .map_err(|err| format!("the mcp capability does not serialize: {err}"))?;
+        let mcp: wmp_core::types::Capabilities =
+            serde_json::from_value(serde_json::json!({ "mcp": params }))
+                .map_err(|err| format!("the mcp capability does not round-trip: {err}"))?;
+        for (name, value) in mcp.0 {
+            supported.0.insert(name, value);
+        }
+    }
+    Ok(supported)
 }
 
 // ─── The gates and the translation ───────────────────────────────────────────

@@ -82,6 +82,12 @@ pub struct Config {
     /// The invitation TTL in seconds when a create carries none
     /// (`ENGINE_INVITATION_TTL_SECS`, issue #77). Default 900.
     pub invitation_ttl_secs: i64,
+    /// Whether the engine answers MCP tools (issue #76):
+    /// `tools/list`/`tools/call` behind the `mcp` capability
+    /// (`ENGINE_MCP_TOOLS`). Default true — the capability gate (a
+    /// session that did not offer `mcp` never negotiates it) is the
+    /// deployment's control, not the env.
+    pub mcp_tools: bool,
 }
 
 impl Default for Config {
@@ -103,6 +109,7 @@ impl Default for Config {
             principal_mode: wmp_core::principal::PrincipalMode::User,
             public_url: String::new(),
             invitation_ttl_secs: 900,
+            mcp_tools: true,
         }
     }
 }
@@ -185,6 +192,13 @@ impl Config {
             if let Ok(parsed) = value.trim().parse() {
                 config.invitation_ttl_secs = parsed;
             }
+        }
+        if let Some(value) = text("ENGINE_MCP_TOOLS") {
+            // The truthy forms a compose file or a chart writes (issue #76).
+            config.mcp_tools = matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "true" | "1" | "yes" | "on"
+            );
         }
         if let Some(value) = text("ENGINE_PDP_TOKEN") {
             config.pdp_token = value;
