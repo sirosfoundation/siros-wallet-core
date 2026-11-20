@@ -179,7 +179,10 @@ fn an_add_and_a_removal_answer_the_callers_staging() {
         }),
     )
     .expect("the removal answers");
-    assert!(removed.get("epoch").is_some(), "the removal names its epoch");
+    assert!(
+        removed.get("epoch").is_some(),
+        "the removal names its epoch"
+    );
     // The update notification answers empty (no result).
     let updated = peer
         .handle_request_sync(
