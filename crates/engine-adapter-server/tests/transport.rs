@@ -958,18 +958,28 @@ async fn the_well_known_configuration_answers_the_engines_live_shape() {
         Some("https://wallet.example.com/wmp-engine/wmp/events")
     );
     assert_eq!(
-        endpoints.get("invitation").and_then(serde_json::Value::as_str),
+        endpoints
+            .get("invitation")
+            .and_then(serde_json::Value::as_str),
         Some("https://wallet.example.com/wmp-engine/wmp/invitation")
     );
     // The supported capabilities — the same set the session create
     // negotiates: the flows capability, and the mcp capability (the
     // default ENGINE_MCP_TOOLS=true).
-    let capabilities = doc["capabilities"].as_object().expect("capabilities is a map");
-    assert!(capabilities.contains_key("flows"), "the flows capability: {capabilities:?}");
-    assert!(capabilities.contains_key("mcp"), "the mcp capability: {capabilities:?}");
+    let capabilities = doc["capabilities"]
+        .as_object()
+        .expect("capabilities is a map");
+    assert!(
+        capabilities.contains_key("flows"),
+        "the flows capability: {capabilities:?}"
+    );
+    assert!(
+        capabilities.contains_key("mcp"),
+        "the mcp capability: {capabilities:?}"
+    );
     // The security modes.
-    let modes: Vec<String> = serde_json::from_value(doc["security_modes"].clone())
-        .expect("security_modes is a list");
+    let modes: Vec<String> =
+        serde_json::from_value(doc["security_modes"].clone()).expect("security_modes is a list");
     assert_eq!(modes, vec!["tls".to_owned()]);
 }
 

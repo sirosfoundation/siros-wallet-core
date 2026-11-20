@@ -597,7 +597,9 @@ fn flows_capability(max_concurrent: i64) -> Result<wmp_core::types::Capabilities
 /// The negotiation takes the supported side's params for every name both
 /// sides named, so `ENGINE_MCP_TOOLS=true` + a client's `capabilities_offered
 /// .mcp` activates the tools surface for that session alone.
-pub(crate) fn supported_capabilities(config: &Config) -> Result<wmp_core::types::Capabilities, String> {
+pub(crate) fn supported_capabilities(
+    config: &Config,
+) -> Result<wmp_core::types::Capabilities, String> {
     let mut supported = flows_capability(config.max_concurrent_flows)?;
     if config.mcp_tools {
         let params = serde_json::to_value(crate::mcp_tools::McpToolProfile::new(true).capability())
