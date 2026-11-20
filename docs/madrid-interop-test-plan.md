@@ -85,9 +85,19 @@ The event types exist (`wmp-core/src/evidence.rs`, ETSI EN 319 522 alignment: su
 
 ## Open questions for Slack (gates two prep items)
 
-- The **test trust anchor** (0.4) — which CA?
-- Our **participant ID** (0.3) — which ICD + value?
+- The **test trust anchor** — **DECIDED (2026-11-21): Option A** — the registry's own published test CA (`webuild-smp-ca.pem`, valid to 2027) signs subscriber + participant certificates. Our CSR (EC P-256, SIROS keeps the private key, the CA key stays offline with Rune per SIG-06) is posted on [kjorlaug/webuild-smp#2](https://github.com/kjorlaug/webuild-smp/pull/2#issuecomment-7052918789): subject `CN=SIROS Foundation AB (demo WMP door)`, SANs `URI:urn:oasis:names:tc:ebcore:partyid-type:iso6523:0007::5595421925` + `DNS:sirosid-gdc-wallet-proxy.fly.dev`. **Waiting on Rune's signature.**
+- **The participant ID** — **DECIDED: `0007::5595421925`** (ICD 0007, Swedish Organisationsnummer, Bolagsverket; hyphen stripped per ID-01/ID-02). Registered by [kjorlaug/webuild-smp#2](https://github.com/kjorlaug/webuild-smp/pull/2) (also asks `0007` onto `participant_schemes`).
 - The WMP transport profile id confirmation (`webuild-transport-wmp-v1`, with Rune)
+
+## What we actually do with the cert once it lands (level 0.4 → closure)
+
+1. **The public PEM rides the registry PR** — drop it in `registry/certs/siros-wmp-door.pem`, reference it by relative path from the participant record; Rune's `build.py` validates it (REG-02: parseable endpoint certificate) and embeds it in the ServiceMetadata. This is the whole registry-side step.
+2. **The private key never enters GDC.** The Fly machine's public TLS is Fly-terminated (Let's Encrypt at the edge) — the test-CA cert does not replace it. No mTLS this round (the ladder's own test-mode agreement; our sessions are bearer-token + `tls`).
+3. **The cert's real job: signing the well-known document** — the seal that signs `/.well-known/wmp-configuration` (Cleverbase's own pattern: "the WMP door … whose certificate is the seal that signs the door's well-known"). Two options:
+   - **Pre-sign in the pipeline (preferred):** `deploy.py` signs the rendered document at deploy time (the same block that generates the engine env), publishing `/.well-known/wmp-configuration.sig` + the certificate chain inline (`x5c`). The signing key is mounted from a secret for the signing step only — never a runtime env var on the machine.
+   - **Sign at startup (fallback):** the engine signs its own document at boot (a mounted read-only cert + key pair; `ENGINE_WELLKNOWN_SIGNING_KEY`). Heavier — the key material lives on the machine — only if the pipeline signing can't run.
+4. **Then level 1.2 verifies against it:** a peer fetching our ServiceMetadata validates our chain to `webuild-smp-ca.pem` (SIG-04) and checks the CRL (SIG-09) — `phoss smp-client` does both by default, and their own checklist ran exactly this on 2026-10-09.
+5. **Housekeeping while we wait:** the keypair lives in `/tmp/opencode/siros-madrid-certs/` (`siros-wmp-door.key.pem`) — move it to the fixtures store (the `make-wrpac-fixtures.sh` pattern) with the other key material before the event, and note the cert's expiry against the pilot window (`pilot_end_date: 2027-12-31`).
 
 ## Rollback
 
