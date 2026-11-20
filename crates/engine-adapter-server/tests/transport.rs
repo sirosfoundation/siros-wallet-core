@@ -913,3 +913,89 @@ async fn a_fresh_stream_replays_the_whole_retained_window() {
     let second = text.find("offer_parsed");
     assert!(first < second, "the replay is oldest first: {text}");
 }
+
+/// CS-15 §7.2: the well-known configuration document — the discovery
+/// source `discover_config` fetches. The engine serves its own live shape:
+/// the versions, the endpoints (PUBLIC when `public_url` is configured —
+/// the wallet-proxy's `/wmp-engine/` location is the deployed shape; the
+/// relative paths when not — a local dial answers them on the listen
+/// address), the supported capabilities (the same set the session create
+/// negotiates), the security modes.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_well_known_configuration_answers_the_engines_live_shape() {
+    let server = Arc::new(EngineServer::new(Config {
+        listen_addr: "127.0.0.1:0".to_owned(),
+        public_url: "https://wallet.example.com/wmp-engine".to_owned(),
+        ..Config::default()
+    }));
+    let app = engine_adapter_server::transport::router(server.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/.well-known/wmp-configuration")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("serve");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("read body");
+    let doc: serde_json::Value = serde_json::from_slice(&bytes).expect("the document is JSON");
+    // The versions the engine speaks.
+    let versions: Vec<String> = serde_json::from_value(doc["supported_versions"].clone())
+        .expect("supported_versions is a list");
+    assert_eq!(versions, vec!["0.1".to_owned()]);
+    // The endpoints, prefixed with the public URL.
+    let endpoints = doc["endpoints"].as_object().expect("endpoints is a map");
+    assert_eq!(
+        endpoints.get("wmp").and_then(serde_json::Value::as_str),
+        Some("https://wallet.example.com/wmp-engine/wmp")
+    );
+    assert_eq!(
+        endpoints.get("events").and_then(serde_json::Value::as_str),
+        Some("https://wallet.example.com/wmp-engine/wmp/events")
+    );
+    assert_eq!(
+        endpoints.get("invitation").and_then(serde_json::Value::as_str),
+        Some("https://wallet.example.com/wmp-engine/wmp/invitation")
+    );
+    // The supported capabilities — the same set the session create
+    // negotiates: the flows capability, and the mcp capability (the
+    // default ENGINE_MCP_TOOLS=true).
+    let capabilities = doc["capabilities"].as_object().expect("capabilities is a map");
+    assert!(capabilities.contains_key("flows"), "the flows capability: {capabilities:?}");
+    assert!(capabilities.contains_key("mcp"), "the mcp capability: {capabilities:?}");
+    // The security modes.
+    let modes: Vec<String> = serde_json::from_value(doc["security_modes"].clone())
+        .expect("security_modes is a list");
+    assert_eq!(modes, vec!["tls".to_owned()]);
+}
+
+/// The relative-path shape: no `public_url`, the endpoints name the
+/// engine's own routes (a local dial answers them on the listen address).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_well_known_configuration_without_a_public_url_names_relative_paths() {
+    let server = test_server();
+    let app = engine_adapter_server::transport::router(server.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/.well-known/wmp-configuration")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("serve");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("read body");
+    let doc: serde_json::Value = serde_json::from_slice(&bytes).expect("the document is JSON");
+    let endpoints = doc["endpoints"].as_object().expect("endpoints is a map");
+    assert_eq!(
+        endpoints.get("wmp").and_then(serde_json::Value::as_str),
+        Some("/wmp")
+    );
+}
