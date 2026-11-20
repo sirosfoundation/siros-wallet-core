@@ -40,6 +40,12 @@ pub fn router(server: Arc<EngineServer>) -> Router {
         // Issue #77: the invitation create — the QR/deep-link the
         // counterparty consumes out-of-band to bootstrap a session.
         .route("/wmp/invitation", post(post_invitation))
+        // CS-15 §7.2: the WMP configuration document — the discovery
+        // source `discover_config` (wmp-core's discovery) fetches. The
+        // engine's own live shape: the versions it speaks, its public
+        // endpoints, its supported capabilities (the same set the
+        // session create negotiates), its security modes.
+        .route("/.well-known/wmp-configuration", get(get_wmp_configuration))
         .route("/v1/evaluate", post(post_evaluate))
         .route("/v1/resolve", post(post_resolve))
         .route("/healthz", get(get_healthz))
@@ -323,6 +329,50 @@ async fn get_readyz(State(server): State<Arc<EngineServer>>) -> Response {
     // here, not in a client's flow.
     let _probe = wmp_core::session::SessionStore::get(&*server.store, "readyz-probe");
     (StatusCode::OK, "ready").into_response()
+}
+
+/// `GET /.well-known/wmp-configuration` (CS-15 §7.2): the discovery
+/// document — the versions the engine speaks, its endpoints, the
+/// capabilities a session can negotiate (the same supported set the
+/// session create answers from), the security modes it accepts.
+///
+/// The endpoints name the engine's PUBLIC routes: the `public_url`
+/// (`ENGINE_PUBLIC_URL`) prefix when configured (the wallet-proxy's
+/// `/wmp-engine/` location is the deployed shape), else the relative
+/// paths (a local dial answers them on the listen address itself).
+async fn get_wmp_configuration(State(server): State<Arc<EngineServer>>) -> Response {
+    let base = server.config.public_url.trim_end_matches('/').to_owned();
+    let prefixed = |path: &str| {
+        if base.is_empty() {
+            path.to_owned()
+        } else {
+            format!("{base}{path}")
+        }
+    };
+    let capabilities = crate::handler::supported_capabilities(&server.config)
+        .ok()
+        .and_then(|supported| serde_json::to_value(&supported.0).ok());
+    let config = wmp_core::discovery::WellKnownConfig {
+        supported_versions: wmp_core::version::SUPPORTED_VERSIONS.to_vec(),
+        endpoints: [
+            ("wmp".to_owned(), prefixed("/wmp")),
+            ("events".to_owned(), prefixed("/wmp/events")),
+            ("invitation".to_owned(), prefixed("/wmp/invitation")),
+        ]
+        .into_iter()
+        .collect(),
+        capabilities,
+        security_modes: vec!["tls".to_owned()],
+        ..wmp_core::discovery::WellKnownConfig::default()
+    };
+    match serde_json::to_value(&config) {
+        Ok(value) => (StatusCode::OK, axum::Json(value)).into_response(),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the configuration does not serialize",
+        )
+            .into_response(),
+    }
 }
 
 /// `POST /wmp/invitation` (issue #77): mints, signs and stores one

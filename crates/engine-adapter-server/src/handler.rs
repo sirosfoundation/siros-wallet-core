@@ -592,12 +592,18 @@ fn flows_capability(max_concurrent: i64) -> Result<wmp_core::types::Capabilities
     .map_err(|err| format!("the flows capability does not serialize: {err}"))
 }
 
-/// The engine's whole supported set (core §10.3): the flows capability
-/// plus the `mcp` capability (issue #76) when the engine answers tools.
-/// The negotiation takes the supported side's params for every name both
-/// sides named, so `ENGINE_MCP_TOOLS=true` + a client's `capabilities_offered
-/// .mcp` activates the tools surface for that session alone.
-fn supported_capabilities(config: &Config) -> Result<wmp_core::types::Capabilities, String> {
+/// The engine's whole supported set (core §10.3): the flows capability, the
+/// `mcp` capability (issue #76) when the engine answers tools, and the
+/// messaging + resolve capabilities the engine's mailbox and `wmp.resolve`
+/// answer — the same set the well-known document advertises (CS-15 §7.2,
+/// the Madrid interop discovery: the shape Cleverbase's QERDS serves, the
+/// levelset of 2026-11-20). The negotiation takes the supported side's
+/// params for every name both sides named, so `ENGINE_MCP_TOOLS=true` + a
+/// client's `capabilities_offered.mcp` activates the tools surface for
+/// that session alone.
+pub(crate) fn supported_capabilities(
+    config: &Config,
+) -> Result<wmp_core::types::Capabilities, String> {
     let mut supported = flows_capability(config.max_concurrent_flows)?;
     if config.mcp_tools {
         let params = serde_json::to_value(crate::mcp_tools::McpToolProfile::new(true).capability())
@@ -608,6 +614,19 @@ fn supported_capabilities(config: &Config) -> Result<wmp_core::types::Capabiliti
         for (name, value) in mcp.0 {
             supported.0.insert(name, value);
         }
+    }
+    // The mailbox (issue #77's deliver/ack/poll) and wmp.resolve's
+    // participant resolution: advertised so a peer's discovery picks the
+    // endpoints the engine genuinely answers.
+    let messaging = serde_json::json!({ "max_size": config.max_message_size });
+    let resolve = serde_json::json!({ "supported_types": ["participant"] });
+    let advertised: wmp_core::types::Capabilities = serde_json::from_value(serde_json::json!({
+        "messaging": messaging,
+        "resolve": resolve,
+    }))
+    .map_err(|err| format!("the messaging capability does not serialize: {err}"))?;
+    for (name, value) in advertised.0 {
+        supported.0.insert(name, value);
     }
     Ok(supported)
 }
