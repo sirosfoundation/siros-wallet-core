@@ -460,6 +460,14 @@ async fn post_invitation(
             return error_response(wmp_core::error::ERR_INTERNAL_ERROR as i64, &err.to_string())
         }
     };
+    // The relay (spec 3.1's field): WHERE to reach the sender - this
+    // engine's own WMP endpoint. Generic consumers (the inspector, another
+    // vendor's wallet) skip discovery when it is set; without it they
+    // discover via the provider's well-known, which on a path-prefixed
+    // deployment (the wallet-proxy's /wmp-engine/ location) 404s at the
+    // domain root. Found live 2026-11-22: the wmp-inspector refused every
+    // invite ("discovery failed ... HTTP 404") until this.
+    invitation.relay = format!("{}/wmp", server.config.public_url.trim_end_matches('/'));
     // The `join` purpose (issue #77's group shape): the create names the
     // group session the invitation bootstraps its consumer into. The
     // purpose defaults to `session` (the 1:1 shape); anything else the
