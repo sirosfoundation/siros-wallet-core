@@ -30,7 +30,7 @@ RUN rustup target add x86_64-unknown-linux-musl \
 # not re-download the world.
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
-RUN cargo build --release -p engine-adapter-server --target x86_64-unknown-linux-musl
+RUN cargo build --release -p engine-adapter-server --target x86_64-unknown-linux-musl --features mls
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/engine-server /usr/local/bin/engine-server

@@ -35,6 +35,10 @@ uniffi::setup_scaffolding!();
 
 pub mod client;
 pub mod engine;
+// The MLS crypto surface (the wmp-mls spec): the wallet's in-process
+// provider, feature-gated (`mls` — the OpenMLS 0.8 line).
+#[cfg(feature = "mls")]
+pub mod mls;
 pub mod ports;
 
 // ─── UniFFI-compatible types (mirror the engine-ports types) ─────────────

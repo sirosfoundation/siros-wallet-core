@@ -15,6 +15,10 @@ fn backends() -> Vec<(&'static str, std::sync::Arc<dyn SharedOutbox>)> {
     let memory: std::sync::Arc<dyn SharedOutbox> =
         std::sync::Arc::new(engine_adapter_server::outbox::Outbox::new());
     let mut out = vec![("memory", memory)];
+    // Valkey when its URL is set AND the feature is on (the gate: a build
+    // without `valkey` skips the store — the conformance pattern of
+    // external-store suites on demand).
+    #[cfg(feature = "valkey")]
     if let Ok(url) = std::env::var("VALKEY_URL") {
         match engine_adapter_server::valkey_outbox::ValkeyOutbox::new(&url) {
             Ok(outbox) => {

@@ -147,7 +147,7 @@ android: $(foreach t,$(ANDROID_TARGETS),android-$(t))
 
 android-%:
 	rustup target add $*
-	cargo ndk --target $* --platform 28 -- build -p engine-adapter-sdk --release
+	cargo ndk --target $* --platform 28 -- build -p engine-adapter-sdk --release --features mls
 
 ios: $(IOS_TARGETS) $(IOS_SIM_TARGETS)
 

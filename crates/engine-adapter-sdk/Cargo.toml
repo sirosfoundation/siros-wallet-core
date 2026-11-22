@@ -18,13 +18,25 @@ name = "uniffi-bindgen"
 path = "uniffi-bindgen.rs"
 required-features = ["bindgen"]
 
+# The FFI surface's e2e (the wmp-mls spec): the WmpMls functions the
+# Kotlin/Swift wallets drive, round-tripped. Feature-gated with the
+# surface itself.
+[[test]]
+name = "mls_ffi"
+required-features = ["mls"]
+
 [features]
 bindgen = ["uniffi/cli"]
+# The MLS crypto surface (the wmp-mls spec): the wallet's in-process
+# OpenMLS provider. The 0.8 line rides wmp-mls (0.9 raised its MSRV
+# above the workspace floor).
+mls = ["dep:wmp-mls"]
 
 [dependencies]
 engine-core = { path = "../engine-core" }
 engine-ports = { path = "../engine-ports" }
 wmp-core = { path = "../wmp-core" }
+wmp-mls = { path = "../wmp-mls", optional = true }
 rustc-hash = { workspace = true }
 serde_json = { workspace = true }
 uniffi = { version = "0.28", features = ["tokio"] }

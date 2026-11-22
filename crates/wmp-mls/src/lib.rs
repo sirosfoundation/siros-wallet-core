@@ -83,11 +83,17 @@ pub struct OpenMlsProvider {
 }
 
 impl OpenMlsProvider {
-    /// A provider for the member `identity` (the WMP identifier string —
+    /// The member's identity (its WMP identifier string).
+    pub fn identity(&self) -> &str {
+        &self.identity
+    }
+
+    /// A provider for the member `identity` (the WMP identifier string -
     /// the sender the session names).
     /// A provider for the member `identity` (the WMP identifier string -
     /// the sender the session names). Fallsible: the member's own
     /// signature keypair mints here (never a panic in library code).
+    #[allow(clippy::needless_return)]
     pub fn for_identity(identity: &str) -> Result<Self, HandlerError> {
         let crypto = OpenMlsRustCrypto::default();
         let signer = SignatureKeyPair::new(
@@ -131,7 +137,10 @@ impl OpenMlsProvider {
         }
     }
 
-    /// A group's WMP id (`grp-<serial>`), minted.
+    /// A group's WMP id (`grp-<serial>`), minted. Retained for the engine
+    /// handler's own group naming (the FFI surface keys by the MLS
+    /// GroupId — see `create_group`); unused here since the id moved.
+    #[allow(dead_code)]
     fn mint_id(&self) -> String {
         let mut next = self.next.lock().unwrap_or_else(|p| p.into_inner());
         let id = format!("grp-{:04}", *next);
@@ -194,13 +203,21 @@ impl MlsProvider for OpenMlsProvider {
     /// this engine-side create names the participants for the registry
     /// and mints the group; the add flow ([`add_member`]) is how members
     /// with real packages join.
+    ///
+    /// **The id**: the group's own MLS `GroupId` (base64url) — NOT a
+    /// provider-local mint. The GroupId rides the GroupContext (every
+    /// member's tree shares it), so the id the create answers HERE is
+    /// the same id [`process_welcome`] answers for a member joining the
+    /// same group by its Welcome — the FFI contract keys the group
+    /// operations by it across members (found by the FFI round-trip
+    /// test: a member could not decrypt under the CREATOR's id because
+    /// the join had minted a fresh, unrelated one).
     fn create_group(
         &self,
         cipher_suite: i64,
         participants: &[String],
     ) -> Result<(String, BTreeMap<String, String>), HandlerError> {
         let suite = Self::suite(cipher_suite)?;
-        let group_id = self.mint_id();
         let group = MlsGroup::builder()
             // The Welcome's GroupInfo carries the ratchet tree (the
             // extension), so the joiner needs nothing out of band - the
@@ -219,6 +236,7 @@ impl MlsProvider for OpenMlsProvider {
             ));
         }
         let _ = suite;
+        let group_id = base64url(group.group_id().as_slice());
         self.groups
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -252,7 +270,11 @@ impl MlsProvider for OpenMlsProvider {
             .into_group(&self.crypto)
             .map_err(|e| mls_error(&e.to_string()))?;
         let epoch = Self::epoch(&group);
-        let group_id = self.mint_id();
+        // The SAME id the creator's create answered (the MLS GroupId from
+        // the shared GroupContext — see create_group): the join keys the
+        // member's group by it, so the creator's id addresses the joiner's
+        // group too.
+        let group_id = base64url(group.group_id().as_slice());
         self.groups
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -315,7 +337,12 @@ impl MlsProvider for OpenMlsProvider {
         Ok(base64url(&bytes))
     }
 
-    /// Processes a commit: the epoch it advanced to.
+    /// Processes a commit: the epoch it advanced to. The commit is
+    /// **merged** — `process_message` only stages it (OpenMLS: the
+    /// `StagedCommit` waits for [`MlsGroup::merge_staged_commit`], so the
+    /// epoch does not advance until the merge — found by the FFI
+    /// round-trip test: a member processed a removal commit and its
+    /// epoch stayed put).
     fn process_commit(&self, group_id: &str, commit: &str) -> Result<i64, HandlerError> {
         let mut groups = self.groups.lock().unwrap_or_else(|p| p.into_inner());
         let Some(group) = groups.get_mut(group_id) else {
@@ -327,9 +354,14 @@ impl MlsProvider for OpenMlsProvider {
         let protocol_message = message
             .try_into_protocol_message()
             .map_err(|e| mls_error(&e.to_string()))?;
-        group
+        let processed = group
             .process_message(&self.crypto, protocol_message)
             .map_err(|e| mls_error(&e.to_string()))?;
+        if let ProcessedMessageContent::StagedCommitMessage(staged) = processed.into_content() {
+            group
+                .merge_staged_commit(&self.crypto, *staged)
+                .map_err(|e| mls_error(&e.to_string()))?;
+        }
         Ok(Self::epoch(group))
     }
 
