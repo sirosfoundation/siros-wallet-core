@@ -170,19 +170,27 @@ impl EngineServer {
         // registered answers -31005, core §10.3). The
         // credential_notification family rides the same notification
         // context store its Ports carry.
-        if let Err(err) = runtime.register(Arc::new(engine_core::oid4vci::Oid4vciFlow)) {
-            eprintln!("engine-server: register the oid4vci family: {err}");
-            std::process::exit(1);
-        }
-        if let Err(err) = runtime.register(Arc::new(engine_core::oid4vp::Oid4vpFlow)) {
-            eprintln!("engine-server: register the oid4vp family: {err}");
-            std::process::exit(1);
-        }
-        if let Err(err) = runtime.register(Arc::new(
-            engine_core::oid4vci::notification::CredentialNotificationFlow,
-        )) {
-            eprintln!("engine-server: register the credential_notification family: {err}");
-            std::process::exit(1);
+        //
+        // Relay mode (issue #77's wmp-mcp backend): NO family registers -
+        // the relay surface only (sessions, invitations, the mailbox, the
+        // SSE outbox, the well-known, MCP tools). A `wmp.flow.start`
+        // answers -31005 (nobody registered the family) instead of
+        // starting an issuance or presentation.
+        if !config.relay_mode {
+            if let Err(err) = runtime.register(Arc::new(engine_core::oid4vci::Oid4vciFlow)) {
+                eprintln!("engine-server: register the oid4vci family: {err}");
+                std::process::exit(1);
+            }
+            if let Err(err) = runtime.register(Arc::new(engine_core::oid4vp::Oid4vpFlow)) {
+                eprintln!("engine-server: register the oid4vp family: {err}");
+                std::process::exit(1);
+            }
+            if let Err(err) = runtime.register(Arc::new(
+                engine_core::oid4vci::notification::CredentialNotificationFlow,
+            )) {
+                eprintln!("engine-server: register the credential_notification family: {err}");
+                std::process::exit(1);
+            }
         }
 
         Self {
