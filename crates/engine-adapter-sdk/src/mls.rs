@@ -147,24 +147,15 @@ impl WmpMls {
     /// members join by the add flow ([`Self::add_member`]) once their
     /// KeyPackages are at hand.
     pub fn create_group(&self, cipher_suite: i64) -> Result<MlsGroupCreated, MlsException> {
-        let (group_id, _welcomes) = self
-            .provider
-            .create_group(cipher_suite, &[])
-            .map_err(mls)?;
-        Ok(MlsGroupCreated {
-            group_id,
-            epoch: 0,
-        })
+        let (group_id, _welcomes) = self.provider.create_group(cipher_suite, &[]).map_err(mls)?;
+        Ok(MlsGroupCreated { group_id, epoch: 0 })
     }
 
     /// Process a Welcome (spec §3.2): the member joins the group, the
     /// epoch it joined at. The Welcome rides the invitation or the
     /// group's message passing (out of band).
     pub fn process_welcome(&self, welcome: String) -> Result<MlsJoined, MlsException> {
-        let (group_id, epoch) = self
-            .provider
-            .process_welcome(&welcome)
-            .map_err(mls)?;
+        let (group_id, epoch) = self.provider.process_welcome(&welcome).map_err(mls)?;
         Ok(MlsJoined { group_id, epoch })
     }
 
@@ -198,7 +189,9 @@ impl WmpMls {
     /// Process a commit (a staged add/remove/update the member
     /// receives): the epoch it advanced to.
     pub fn process_commit(&self, group_id: String, commit: String) -> Result<i64, MlsException> {
-        self.provider.process_commit(&group_id, &commit).map_err(mls)
+        self.provider
+            .process_commit(&group_id, &commit)
+            .map_err(mls)
     }
 
     /// A self-update commit (spec §3.5): the post-compromise rotation,
@@ -215,21 +208,19 @@ impl WmpMls {
         group_id: String,
         plaintext: Vec<u8>,
     ) -> Result<MlsEncrypted, MlsException> {
-        let (ciphertext, epoch) = self
-            .provider
-            .encrypt(&group_id, &plaintext)
-            .map_err(mls)?;
+        let (ciphertext, epoch) = self.provider.encrypt(&group_id, &plaintext).map_err(mls)?;
         Ok(MlsEncrypted { ciphertext, epoch })
     }
 
     /// Decrypt the group's ciphertext (spec §4.1): the plaintext, the
     /// epoch. A message this member sent itself refuses (MLS ratchets —
     /// the recipient's provider answers).
-    pub fn decrypt(&self, group_id: String, ciphertext: String) -> Result<MlsDecrypted, MlsException> {
-        let (plaintext, epoch) = self
-            .provider
-            .decrypt(&group_id, &ciphertext)
-            .map_err(mls)?;
+    pub fn decrypt(
+        &self,
+        group_id: String,
+        ciphertext: String,
+    ) -> Result<MlsDecrypted, MlsException> {
+        let (plaintext, epoch) = self.provider.decrypt(&group_id, &ciphertext).map_err(mls)?;
         Ok(MlsDecrypted { plaintext, epoch })
     }
 }

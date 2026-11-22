@@ -61,9 +61,13 @@ fn a_key_package_serializes_the_wmp_wire_shape() {
 fn a_created_group_mints_and_holds() {
     let provider = OpenMlsProvider::for_identity("wallet-a").expect("the provider");
     let (group_id, welcomes) = provider.create_group(0x0001, &[]).expect("the create");
+    // The id is the group's own MLS GroupId (base64url) — NOT a
+    // provider-local mint: every member's copy of the group answers the
+    // SAME id (the shared GroupContext), so the creator's id addresses
+    // the joiner's group too. A `grp-` prefix asserted the old mint.
     assert!(
-        group_id.starts_with("grp-"),
-        "the id is minted: {}",
+        !group_id.is_empty() && !group_id.starts_with("grp-"),
+        "the id is the MLS GroupId: {}",
         group_id
     );
     assert!(
@@ -113,7 +117,10 @@ fn a_member_set_grows_and_shrinks_by_commit() {
     // B joins by processing the Welcome (their own provider holds their
     // private keys).
     let (b_group, _epoch) = b.process_welcome(&welcome).expect("B joins");
-    assert!(b_group.starts_with("grp-"), "the join mints B's group id");
+    assert_eq!(
+        b_group, group_id,
+        "the join answers the CREATOR's group id (the shared GroupId)"
+    );
 
     // A self-update (the key-rotation step, spec 3.5) — B's group processes
     // A's commit and stays decryptable after it (spec 3.4's counterpart).
