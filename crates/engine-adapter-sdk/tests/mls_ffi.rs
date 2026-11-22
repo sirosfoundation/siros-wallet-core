@@ -41,7 +41,9 @@ fn a_create_adds_a_member_who_joins_and_reads_the_epoch() {
     assert!(!staged.welcome.is_empty());
 
     // Bob joins (spec §3.2): the Welcome processes, the epoch answers.
-    let joined = bob.process_welcome(staged.welcome).expect("the welcome joins");
+    let joined = bob
+        .process_welcome(staged.welcome)
+        .expect("the welcome joins");
     assert!(joined.epoch >= 1, "the join answers the post-add epoch");
 }
 
@@ -54,7 +56,8 @@ fn two_members_round_trip_a_message() {
     let staged = alice
         .add_member(group.group_id.clone(), package.key_package)
         .expect("the add stages");
-    bob.process_welcome(staged.welcome).expect("the welcome joins");
+    bob.process_welcome(staged.welcome)
+        .expect("the welcome joins");
 
     // The message (spec §4.1): Alice encrypts to the epoch key, Bob
     // decrypts. MLS ratchets: Alice's own provider refuses her own
@@ -86,7 +89,9 @@ fn a_removal_excludes_the_member() {
     let staged = alice
         .add_member(group.group_id.clone(), package.key_package)
         .expect("the add stages");
-    let joined = bob.process_welcome(staged.welcome).expect("the welcome joins");
+    let joined = bob
+        .process_welcome(staged.welcome)
+        .expect("the welcome joins");
 
     // The removal (spec §3.4): the commit cryptographically excludes Bob;
     // the group advanced an epoch (his provider needs the commit to keep
