@@ -88,6 +88,13 @@ pub struct Config {
     /// session that did not offer `mcp` never negotiates it) is the
     /// deployment's control, not the env.
     pub mcp_tools: bool,
+    /// The relay-only deployment (issue #77's wmp-mcp backend): no
+    /// issuance flows register — the flow families' `wmp.flow.start`
+    /// answers `-31005` (capability not supported, core §10.3: nobody
+    /// registered the family). The relay surface stays whole: sessions,
+    /// invitations, the mailbox, the SSE outbox, the well-known, MCP
+    /// tools. `ENGINE_RELAY_MODE`.
+    pub relay_mode: bool,
 }
 
 impl Default for Config {
@@ -110,6 +117,7 @@ impl Default for Config {
             public_url: String::new(),
             invitation_ttl_secs: 900,
             mcp_tools: true,
+            relay_mode: false,
         }
     }
 }
@@ -192,6 +200,12 @@ impl Config {
             if let Ok(parsed) = value.trim().parse() {
                 config.invitation_ttl_secs = parsed;
             }
+        }
+        if let Some(value) = text("ENGINE_RELAY_MODE") {
+            config.relay_mode = matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "true" | "1" | "yes" | "on"
+            );
         }
         if let Some(value) = text("ENGINE_MCP_TOOLS") {
             // The truthy forms a compose file or a chart writes (issue #76).
