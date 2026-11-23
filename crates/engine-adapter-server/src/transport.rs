@@ -513,6 +513,24 @@ async fn post_invitation(
             );
         }
         invitation.session_id = session_id;
+        // The group's display name (the front's `group_name`, wmp-mcp's
+        // two-random-words label or the operator's rename): rides the
+        // invitation's `label` — INSIDE the signing payload (set before
+        // `key.sign` below), so a consumer renders the name without
+        // trusting an unsigned field. Optional: an absent or empty name
+        // leaves the label unset and the consumer falls back to the
+        // group's session id.
+        let group_name = body_value
+            .get("group_name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .chars()
+            .take(40)
+            .collect::<String>();
+        if !group_name.is_empty() {
+            invitation.label = group_name;
+        }
     }
     invitation.purpose = purpose;
     if let Err(err) = key.sign(&mut invitation) {
