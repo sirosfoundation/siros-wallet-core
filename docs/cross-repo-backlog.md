@@ -11,6 +11,28 @@ re-rank freely; the tiers are proposals.
 
 ---
 
+## The wmp-mcp requirements (2026-11-23, from the Madrid live testing)
+
+From the wmp-mcp session (the `sirosid-gdc-wmp-mcp.fly.dev` sidecar —
+engine-server **v0.3.5** image, relay mode, strict AS). Both are
+**next-train items, after the v0.4.0 MLS gate**
+(`docs/release-validation-v0.24.0.md`); **nothing lands before Madrid
+(Nov 24–25)**.
+
+| Requirement | Live evidence | The contract to decide |
+|---|---|---|
+| **Engine state must survive restarts** (R-PERSIST). The engine-server's in-memory state is the single point of loss: sessions, groups, memberships, mailboxes all vanish on restart. Persist them (SQLite or a boot snapshot) so a restart does not kill groups or group membership; the wmp-mcp front already reconnects per visitor, so the engine-side durability is the only gap. | A routine restart (a fly secrets change) at 22:20:52Z wiped every group and membership; a wallet mid-join hit the rebooting engine and hung to the device-side timeout; after restart, the group `ses-d6ff0773de8e600248a3b177c3d443e6` and all its memberships were gone. | Storage choice (SQLite vs snapshot file vs a `SessionStore` impl in front of the existing port), the write path (per-mutation vs periodic), and the boot replay. The `SessionStore` port the core already defines is the natural seam — the server adapter's in-memory store becomes a durable one. |
+| **A superfluous invite needs a distinct error** (R-ALREADY-MEMBER). A wallet already in a group scanning a fresh invite for that same group must answer in bounded time — never a stall to the device timeout. Caveat: tonight's stall was the restart racing the scan (not this bug), and the join path today creates a SECOND session for the same principal+group cleanly (`ses-a7420be1bee1d66f379af506dc0a17af`, 0.37s, via `POST /api/invite-consume`) — so this is a requirement, not a reproduced bug. | The re-join probe above: `session.create` + SSE open for the same principal+group succeeds with no dedup and no error. | Idempotent join (the answer returns the existing membership — the friendlier UX for a re-scan) or an explicit refusal — either way a **named error code the Kotlin/Swift SDKs map to a one-second user-facing message**. File the code in `wmp-core`'s error registry alongside the existing ranges so both SDKs share the number. |
+
+Repro material: the local engine binary
+(`siros-wallet-core/target/debug/engine-server`), the relay-mode env
+(`wmp-mcp/Dockerfile.sidecar`), the join path
+(`wmp-mcp`'s `/api/invite-consume`), the handover + deploy postmortem
+(`wmp-mcp/docs/wmp-mcp-handover.md`), and the fly app
+`sirosid-gdc-wmp-mcp` for the live logs.
+
+---
+
 ## Where we stand (2026-11-17)
 
 | Piece | State |
