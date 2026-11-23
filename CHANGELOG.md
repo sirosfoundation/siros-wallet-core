@@ -76,6 +76,19 @@ All notable changes to this workspace. The format follows
 - `engine-adapter-sdk` links UniFFI and tokio in every build; the
   `tokio-runtime` feature and the default features leave.
 
+## [0.3.6] — 2026-11-24
+
+### Added
+- **The group's name rides the signed invitation** ([#94](https://github.com/sirosfoundation/siros-wallet-core/pull/94)):
+  `POST /wmp/invitation` accepts `group_name` (the front's label — wmp-mcp's two-random-words
+  name or the operator's rename) and embeds it into the invitation's `label`, **inside the ES256
+  signing payload** (set before `key.sign()`), so consumers render the name without trusting an
+  unsigned field. 40-char cap; absent/empty leaves it unset and consumers fall back to the group's
+  session id. The e2e (`group_e2e`) asserts the label on the minted join invitation.
+
+*The engine image (`ghcr.io/sirosfoundation/engine-server:v0.3.6`) carries this + the full MLS
+feature line since v0.3.5 (the FFI surface, the GroupId contract, the commit merge).*
+
 ## [0.1.2] — 2026-11-06
 
 The first release whose run completed: the 0.1.0 and 0.1.1 tags' runs
