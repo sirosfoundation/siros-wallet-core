@@ -116,7 +116,11 @@ async fn the_join_invitation_group_and_in_group_delivery_end_to_end() {
     // ── The join invitation naming it ─────────────────────────────────
     let (status, created) = post_invitation(
         &app,
-        serde_json::json!({ "purpose": "join", "session_id": session_a_id }),
+        serde_json::json!({
+            "purpose": "join",
+            "session_id": session_a_id,
+            "group_name": "matrix-a"
+        }),
     )
     .await;
     assert_eq!(
@@ -133,6 +137,14 @@ async fn the_join_invitation_group_and_in_group_delivery_end_to_end() {
         created["invitation"]["session_id"].as_str(),
         Some(session_a_id.as_str()),
         "the invitation names the group session: {created}"
+    );
+    // The group's display name rides the invitation's `label` — inside
+    // the signing payload (the front's `group_name`, wmp-mcp's
+    // two-random-words label or the operator's rename).
+    assert_eq!(
+        created["invitation"]["label"].as_str(),
+        Some("matrix-a"),
+        "the invitation carries the group's name in its label: {created}"
     );
     let nonce = created["invitation"]["nonce"]
         .as_str()
