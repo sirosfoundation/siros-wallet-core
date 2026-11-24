@@ -66,7 +66,13 @@ bindings-swift: target/debug/$(SDK_LIB)
 		--language swift --out-dir bindings/swift
 
 target/debug/$(SDK_LIB):
-	cargo build -p $(SDK_CRATE)
+	# --features mls: the bindgen reads THIS library file (the --features on
+	# the bindgen binary's cargo run governs only the binary, not the bytes
+	# already in the .so it reads). A library built bare answers no MLS
+	# surface, so the released bindings.zip shipped without WmpMls against
+	# MLS-built binaries (found on the v0.3.7 release: the XCFramework
+	# carried the openmls members, the bindings carried nothing).
+	cargo build -p $(SDK_CRATE) --features mls
 
 check-bindings: bindings
 	@found=0; \
