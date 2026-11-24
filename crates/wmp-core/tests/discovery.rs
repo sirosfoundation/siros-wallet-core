@@ -192,6 +192,7 @@ fn a_document_for_another_base_is_refused() {
         ("another host's", Some("https://evil.example/tenant1")),
         ("another port's", Some("https://example.com:8443/tenant1")),
         ("path case", Some("https://example.com/TENANT1")),
+        ("trailing slash", Some("https://example.com/tenant1/")),
     ] {
         let got = discover_config_for_identifier(|_| Ok(doc("wss://x/wmp", base)), tenant);
         assert!(
@@ -201,12 +202,17 @@ fn a_document_for_another_base_is_refused() {
     }
 
     // A whole host may leave the base out, but not name another.
-    for base in [
-        None,
-        Some("https://example.com"),
-        Some("https://example.com/"),
-    ] {
+    for base in [None, Some("https://example.com")] {
         discover_config(|_| Ok(doc("wss://x/wmp", base)), "example.com").expect("host");
+    }
+    for base in ["https://example.com/", "https://example.com/tenant1"] {
+        assert!(
+            matches!(
+                discover_config(|_| Ok(doc("wss://x/wmp", Some(base))), "example.com"),
+                Err(DiscoveryError::BaseMismatch { .. })
+            ),
+            "{base}"
+        );
     }
     assert!(matches!(
         discover_config(

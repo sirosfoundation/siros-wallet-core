@@ -308,6 +308,9 @@ impl DiscoveryBase {
         let declared = match config.discovery_base.as_deref() {
             None | Some("") if self.tenant_path.is_empty() => return Ok(()),
             None | Some("") => return Err(mismatch()),
+            // The declared base is compared as written: a trailing `/` is
+            // not the base, only an identifier's path is trimmed.
+            Some(declared) if declared.ends_with('/') => return Err(mismatch()),
             Some(declared) => declared,
         };
         // The scheme compares case-insensitively, like the host.
