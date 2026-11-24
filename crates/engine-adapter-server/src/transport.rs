@@ -46,6 +46,7 @@ pub fn router(server: Arc<EngineServer>) -> Router {
         // endpoints, its supported capabilities (the same set the
         // session create negotiates), its security modes.
         .route("/.well-known/wmp-configuration", get(get_wmp_configuration))
+        .route("/wmp/jwks", get(get_invitation_jwks))
         .route("/v1/evaluate", post(post_evaluate))
         .route("/v1/resolve", post(post_resolve))
         .route("/healthz", get(get_healthz))
@@ -358,11 +359,13 @@ async fn get_wmp_configuration(State(server): State<Arc<EngineServer>>) -> Respo
             ("wmp".to_owned(), prefixed("/wmp")),
             ("events".to_owned(), prefixed("/wmp/events")),
             ("invitation".to_owned(), prefixed("/wmp/invitation")),
+            ("jwks".to_owned(), prefixed("/wmp/jwks")),
         ]
         .into_iter()
         .collect(),
         capabilities,
         security_modes: vec!["tls".to_owned()],
+        invitation_jwks: server.invitation_jwks(),
         ..wmp_core::discovery::WellKnownConfig::default()
     };
     match serde_json::to_value(&config) {
@@ -370,6 +373,26 @@ async fn get_wmp_configuration(State(server): State<Arc<EngineServer>>) -> Respo
         Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             "the configuration does not serialize",
+        )
+            .into_response(),
+    }
+}
+
+/// `GET /wmp/jwks`: the invitation signing keys as a JWKS (RFC 7517).
+///
+/// The invitation JWS's `kid` (the public JWK's thumbprint) resolves
+/// here — the cross-provider verification path (wmp-core §12.2: the
+/// kid MUST be resolvable; found live in the Cleverbase interop: the
+/// key existed and signed, but nothing served it, so an external
+/// parser could not verify a minted invitation). Also embedded in the
+/// well-known document (`invitation_jwks`), for verifiers that fetch
+/// one document.
+async fn get_invitation_jwks(State(server): State<Arc<EngineServer>>) -> Response {
+    match server.invitation_jwks() {
+        Some(jwks) => (StatusCode::OK, axum::Json(jwks)).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            "the invitation endpoint is not configured",
         )
             .into_response(),
     }

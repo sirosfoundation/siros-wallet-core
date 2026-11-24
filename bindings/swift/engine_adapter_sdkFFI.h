@@ -313,7 +313,19 @@ typedef void (*UniffiCallbackInterfaceHostMethod9)(uint64_t, RustBuffer, UniffiF
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD10
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD10
-typedef void (*UniffiCallbackInterfaceHostMethod10)(uint64_t, RustBuffer, RustBuffer, RustBuffer, void* _Nonnull, 
+typedef void (*UniffiCallbackInterfaceHostMethod10)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD11
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD11
+typedef void (*UniffiCallbackInterfaceHostMethod11)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD12
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD12
+typedef void (*UniffiCallbackInterfaceHostMethod12)(uint64_t, RustBuffer, RustBuffer, RustBuffer, void* _Nonnull, 
         RustCallStatus *_Nonnull uniffiCallStatus
     );
 
@@ -355,7 +367,9 @@ typedef struct UniffiVTableCallbackInterfaceHost {
     UniffiCallbackInterfaceHostMethod7 _Nonnull requestSigningKey;
     UniffiCallbackInterfaceHostMethod8 _Nonnull requestAttestation;
     UniffiCallbackInterfaceHostMethod9 _Nonnull requestCredentialSelection;
-    UniffiCallbackInterfaceHostMethod10 _Nonnull progress;
+    UniffiCallbackInterfaceHostMethod10 _Nonnull requestResponseEncryptionKey;
+    UniffiCallbackInterfaceHostMethod11 _Nonnull requestDecryptCredentialResponse;
+    UniffiCallbackInterfaceHostMethod12 _Nonnull progress;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceHost;
 
@@ -406,6 +420,71 @@ RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpengine_send(void*_Nonnull ptr,
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPENGINE_TAKE_NOTIFICATIONS
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPENGINE_TAKE_NOTIFICATIONS
 RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpengine_take_notifications(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_CLONE_WMPMLS
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_CLONE_WMPMLS
+void*_Nonnull uniffi_engine_adapter_sdk_fn_clone_wmpmls(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_FREE_WMPMLS
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_FREE_WMPMLS
+void uniffi_engine_adapter_sdk_fn_free_wmpmls(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_CONSTRUCTOR_WMPMLS_NEW
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_CONSTRUCTOR_WMPMLS_NEW
+void*_Nonnull uniffi_engine_adapter_sdk_fn_constructor_wmpmls_new(RustBuffer identity, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_ADD_MEMBER
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_ADD_MEMBER
+RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpmls_add_member(void*_Nonnull ptr, RustBuffer group_id, RustBuffer key_package, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_CREATE_GROUP
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_CREATE_GROUP
+RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpmls_create_group(void*_Nonnull ptr, int64_t cipher_suite, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_DECRYPT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_DECRYPT
+RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpmls_decrypt(void*_Nonnull ptr, RustBuffer group_id, RustBuffer ciphertext, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_ENCRYPT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_ENCRYPT
+RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpmls_encrypt(void*_Nonnull ptr, RustBuffer group_id, RustBuffer plaintext, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_GENERATE_KEY_PACKAGE
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_GENERATE_KEY_PACKAGE
+RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpmls_generate_key_package(void*_Nonnull ptr, int64_t cipher_suite, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_IDENTITY
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_IDENTITY
+RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpmls_identity(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_PROCESS_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_PROCESS_COMMIT
+int64_t uniffi_engine_adapter_sdk_fn_method_wmpmls_process_commit(void*_Nonnull ptr, RustBuffer group_id, RustBuffer commit, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_PROCESS_WELCOME
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_PROCESS_WELCOME
+RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpmls_process_welcome(void*_Nonnull ptr, RustBuffer welcome, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_REMOVE_MEMBER
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_REMOVE_MEMBER
+RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpmls_remove_member(void*_Nonnull ptr, RustBuffer group_id, RustBuffer participant, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_SELF_UPDATE
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPMLS_SELF_UPDATE
+RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpmls_self_update(void*_Nonnull ptr, RustBuffer group_id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_INIT_CALLBACK_VTABLE_HOST
@@ -761,6 +840,72 @@ uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpengine_take_notifications(
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_ADD_MEMBER
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_ADD_MEMBER
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpmls_add_member(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_CREATE_GROUP
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_CREATE_GROUP
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpmls_create_group(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_DECRYPT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_DECRYPT
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpmls_decrypt(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_ENCRYPT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_ENCRYPT
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpmls_encrypt(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_GENERATE_KEY_PACKAGE
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_GENERATE_KEY_PACKAGE
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpmls_generate_key_package(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_IDENTITY
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_IDENTITY
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpmls_identity(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_PROCESS_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_PROCESS_COMMIT
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpmls_process_commit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_PROCESS_WELCOME
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_PROCESS_WELCOME
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpmls_process_welcome(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_REMOVE_MEMBER
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_REMOVE_MEMBER
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpmls_remove_member(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_SELF_UPDATE
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPMLS_SELF_UPDATE
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpmls_self_update(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_CONSTRUCTOR_WMPMLS_NEW
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_CONSTRUCTOR_WMPMLS_NEW
+uint16_t uniffi_engine_adapter_sdk_checksum_constructor_wmpmls_new(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_SIGN
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_SIGN
 uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_sign(void
@@ -818,6 +963,18 @@ uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_attestation(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_CREDENTIAL_SELECTION
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_CREDENTIAL_SELECTION
 uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_credential_selection(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_RESPONSE_ENCRYPTION_KEY
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_RESPONSE_ENCRYPTION_KEY
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_response_encryption_key(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_DECRYPT_CREDENTIAL_RESPONSE
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_DECRYPT_CREDENTIAL_RESPONSE
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_decrypt_credential_response(void
     
 );
 #endif

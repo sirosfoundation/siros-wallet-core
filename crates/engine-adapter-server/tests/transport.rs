@@ -983,6 +983,135 @@ async fn the_well_known_configuration_answers_the_engines_live_shape() {
     assert_eq!(modes, vec!["tls".to_owned()]);
 }
 
+/// The invitation JWKS serving (the kid-resolution path, wmp-core §12.2):
+/// the well-known carries `invitation_jwks`, the `/wmp/jwks` route answers
+/// the same set, and the `kid` matches the JWS `kid` on a minted invitation
+/// — an external verifier resolves the thumbprint and verifies the ES256
+/// signature (found live in the Cleverbase interop: the key signed but
+/// nothing published it).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_invitation_jwks_serves_and_matches_the_minted_kid() {
+    let server = Arc::new(EngineServer::new(Config {
+        listen_addr: "127.0.0.1:0".to_owned(),
+        public_url: "https://wallet.example.com".to_owned(),
+        ..Config::default()
+    }));
+    let app = engine_adapter_server::transport::router(server.clone());
+
+    // The route answers the JWKS.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/wmp/jwks")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("serve");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("read body");
+    let jwks: serde_json::Value = serde_json::from_slice(&bytes).expect("the JWKS is JSON");
+    let keys = jwks["keys"].as_array().expect("keys is a list");
+    assert_eq!(keys.len(), 1, "one invitation key: {jwks:?}");
+    let kid = keys[0]["kid"].as_str().expect("the kid").to_owned();
+    assert_eq!(keys[0]["use"], "sig");
+    assert_eq!(keys[0]["alg"], "ES256");
+
+    // The well-known embeds the same JWKS.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/.well-known/wmp-configuration")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("serve");
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("read body");
+    let doc: serde_json::Value = serde_json::from_slice(&bytes).expect("the document is JSON");
+    assert_eq!(
+        doc["invitation_jwks"], jwks,
+        "the well-known carries the same JWKS"
+    );
+
+    // A minted invitation's JWS kid resolves to the same thumbprint: the
+    // mint needs a session to name (join purpose), so create one first.
+    let create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "1",
+        "method": "wmp.session.create",
+        "params": { "wmp": { "version": "0.1" }, "security": { "mode": "tls" } }
+    });
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/wmp")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer e2e-inviter")
+                .body(Body::from(create.to_string()))
+                .expect("build request"),
+        )
+        .await
+        .expect("serve");
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("read body");
+    let answer: serde_json::Value = serde_json::from_slice(&bytes).expect("the create answer");
+    let session_id = answer["result"]["wmp"]["session_id"]
+        .as_str()
+        .expect("the session id")
+        .to_owned();
+    assert!(!session_id.is_empty());
+
+    let mint = serde_json::json!({
+        "purpose": "join",
+        "session_id": session_id,
+        "group_name": "jwks-proof",
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/wmp/invitation")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer e2e-inviter")
+                .body(Body::from(mint.to_string()))
+                .expect("build request"),
+        )
+        .await
+        .expect("serve");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("read body");
+    let minted: serde_json::Value = serde_json::from_slice(&bytes).expect("the mint answer");
+
+    // The JWS's protected header (the first segment of the signature)
+    // carries the kid — and it names the JWKS's kid.
+    let signature = minted["invitation"]["signature"]
+        .as_str()
+        .expect("the signature");
+    let header_b64 = signature.split('.').next().expect("the header segment");
+    let header_json =
+        wmp_core::invitation::decode_base64url(header_b64).expect("the header decodes");
+    let header: serde_json::Value =
+        serde_json::from_slice(&header_json).expect("the header is JSON");
+    assert_eq!(
+        header["kid"].as_str(),
+        Some(kid.as_str()),
+        "the minted invitation's JWS kid matches the served JWKS kid"
+    );
+    assert_eq!(header["alg"], "ES256");
+}
+
 /// The relative-path shape: no `public_url`, the endpoints name the
 /// engine's own routes (a local dial answers them on the listen address).
 #[tokio::test(flavor = "multi_thread")]
