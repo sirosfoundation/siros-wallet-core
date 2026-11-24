@@ -456,10 +456,11 @@ impl FileInvitationStore {
         let p = std::path::PathBuf::from(path);
         let nonces: FxHashMap<String, Invitation> = match std::fs::read(&p) {
             Ok(bytes) if !bytes.is_empty() => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-                {
-                    eprintln!("wmp-core: the invitation store at {} is corrupt ({e}), starting empty", p.display());
-                    FxHashMap::default()
-                }
+                eprintln!(
+                    "wmp-core: the invitation store at {} is corrupt ({e}), starting empty",
+                    p.display()
+                );
+                FxHashMap::default()
             }),
             _ => FxHashMap::default(),
         };

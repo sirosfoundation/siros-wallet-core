@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::Request;
 use engine_adapter_server::config::Config;
 use engine_adapter_server::transport::router;
 use tower::ServiceExt;

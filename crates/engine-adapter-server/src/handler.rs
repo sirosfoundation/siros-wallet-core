@@ -12,8 +12,6 @@ use wmp_core::handler::Handler;
 use wmp_core::handler::HandlerError;
 use wmp_core::methods::*;
 use wmp_core::resolve::new_vctm_resolve_result;
-use wmp_core::session::MemorySessionStore;
-use wmp_core::session::SessionStore as _;
 use wmp_core::sessionservice::{Clock, SessionHandler, SessionService, SessionServiceConfig};
 
 use crate::config::Config;
@@ -110,7 +108,7 @@ impl EngineHandler {
             invitation_verifier: None,
             groups: Arc::new(crate::groups::GroupRegistry::new()),
             session_store: store.clone(),
-            principal_mode: config.principal_mode.clone(),
+            principal_mode: config.principal_mode,
             mailbox: Arc::new(crate::mailbox::Mailbox::new()),
             outbox,
         })
@@ -203,10 +201,13 @@ impl Handler for EngineHandler {
             && !ctx.principal.as_ref().is_some_and(|p| p.is_authenticated())
         {
             invitation_ctx = RequestContext {
-                principal: Some(wmp_core::principal::Principal::new(
-                    format!("inv:{}", &params.invitation_nonce),
-                    String::new(),
-                )),
+                principal: Some(
+                    wmp_core::principal::Principal::new(
+                        format!("inv:{}", params.invitation_nonce),
+                        String::new(),
+                    )
+                    .in_mode(self.principal_mode),
+                ),
                 ..ctx.clone()
             };
             &invitation_ctx
