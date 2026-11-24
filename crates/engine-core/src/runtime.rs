@@ -370,6 +370,13 @@ impl FlowRuntime {
         ctx: &RequestContext,
         params: &FlowActionParams,
     ) -> Result<FlowActionResult, HandlerError> {
+        // #105: an authorization answer may arrive on a flow that did
+        // not start the grant — the openid4vp login flow the consent
+        // opened, while the stash (the code verifier, the state) lives
+        // with the issuance flow that did. The answer's state
+        // correlates it to the owner; route the action there first.
+        let routed = self.route_to_authorization_owner(ctx, params).await;
+        let params = routed.as_ref();
         let flow_ctx = self.context_of(ctx, &params.flow_id);
         let handler = self.handler_of_flow(ctx, &params.flow_id).await.ok_or_else(|| {
             HandlerError::Rpc(RpcError::new(
@@ -467,6 +474,60 @@ impl FlowRuntime {
     /// handler is found by the flow type the request carries; a
     /// flow-instance-to-handler map (what wmp-core's registry does) arrives
     /// with the flow families.
+    /// #105: the authorization answer's state names the flow that
+    /// stashed the grant — route the action to that owner when the
+    /// answer arrives on another flow (the openid4vp login the consent
+    /// opened). Everything else passes through untouched: the target
+    /// family answers exactly as it did before.
+    async fn route_to_authorization_owner<'p>(
+        &self,
+        ctx: &RequestContext,
+        params: &'p FlowActionParams,
+    ) -> std::borrow::Cow<'p, FlowActionParams> {
+        use std::borrow::Cow;
+        // The translated engine name (the adapter translates the
+        // client's `authorize` before this) and the raw client name
+        // for any caller that bypasses the adapter.
+        if !matches!(
+            params.action.as_str(),
+            "authorization_complete" | "authorize"
+        ) {
+            return Cow::Borrowed(params);
+        }
+        // The state, read exactly as the resume reads the answer's
+        // params — an answer without one has nothing to correlate.
+        let Some(state) = params
+            .params
+            .as_deref()
+            .map(|raw| raw.get())
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+            .and_then(|v| v.get("state").and_then(|s| s.as_str()).map(str::to_owned))
+        else {
+            return Cow::Borrowed(params);
+        };
+        let Some(entry) = self
+            .ports
+            .kv
+            .get(&crate::oid4vci::authorization_state_key(&state))
+            .await
+        else {
+            return Cow::Borrowed(params);
+        };
+        let owner = String::from_utf8_lossy(&entry.value).trim().to_owned();
+        if owner.is_empty() || owner == params.flow_id {
+            return Cow::Borrowed(params);
+        }
+        // The owner must resolve — an index outliving its flow (the
+        // grant completed, errored or was cancelled elsewhere) is not a
+        // route; the action keeps its own target and its own answer.
+        if self.handler_of_flow(ctx, &owner).await.is_none() {
+            return Cow::Borrowed(params);
+        }
+        let mut routed = params.clone();
+        routed.flow_id = owner;
+        Cow::Owned(routed)
+    }
+
     async fn handler_of_flow(
         &self,
         _ctx: &RequestContext,

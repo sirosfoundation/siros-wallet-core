@@ -694,6 +694,14 @@ fn stash_key(flow_id: &str) -> String {
     format!("oid4vci:auth-code:{flow_id}")
 }
 
+/// The state→flow index of a stashed authorization-code grant (#105):
+/// the runtime's correlation of an answer that arrives on another flow
+/// than the one that started the grant. Written beside the stash, with
+/// the same TTL.
+pub(crate) fn authorization_state_key(state: &str) -> String {
+    format!("oid4vci:auth-code-state:{state}")
+}
+
 impl AuthorizationStash {
     /// The stash's selected set: the plural member (#28), else the
     /// legacy single member as the one-element set (a stash an older
@@ -904,6 +912,26 @@ async fn start_authorization_code(
             &stash_key(flow_id),
             engine_ports::KeyValueEntry {
                 value: serde_json::to_vec(&stash).unwrap_or_default(),
+                ttl_secs: Some(600),
+            },
+        )
+        .await;
+
+    // The state→flow index (#105): the redirect's answer may arrive on
+    // ANOTHER flow than this one — the openid4vp login flow the AS's
+    // consent opened in the browser. The Go engine ran the login and
+    // the issuance as ONE flow, so its resumeWithAuthCode always landed
+    // on the stash's owner; the finer flow families here split them,
+    // and the client legitimately answers the flow that opened the
+    // consent. The state — the CSRF token minted for THIS handoff —
+    // correlates the answer back to the owner: the runtime consults
+    // the index before routing an authorization_complete and re-points
+    // the action at the flow the state names. Same TTL as the stash.
+    ctx.kv()
+        .put(
+            &authorization_state_key(&stash.state),
+            engine_ports::KeyValueEntry {
+                value: flow_id.as_bytes().to_vec(),
                 ttl_secs: Some(600),
             },
         )

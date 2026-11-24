@@ -452,6 +452,35 @@ mod auth_code_flow_tests {
         assert!(http.credential_requests.lock().expect("lock").is_empty());
     }
 
+    #[tokio::test]
+    async fn the_handoff_indexes_the_state_to_the_owning_flow() {
+        let http = Arc::new(ScriptedHttp {
+            credential_requests: Mutex::new(Vec::new()),
+            token_auth_methods: Vec::new(),
+            iss_advertised: None,
+        });
+        let host = Arc::new(FakeHost {
+            authorization_urls: Mutex::new(Vec::new()),
+            sign_key_ids: Mutex::new(Vec::new()),
+        });
+        let ctx = test_context(http.clone() as Arc<dyn HttpClient>, host);
+        let flow = Oid4vciFlow;
+        flow.start_flow(&ctx, &start_params()).await.expect("start");
+
+        // #105: the answer may arrive on ANOTHER flow than the one
+        // that stashed the grant — the openid4vp login the consent
+        // opened. The state correlates it back: the handoff indexes
+        // the state to the owning flow, beside the stash itself.
+        let state = stash_valid_state().await;
+        let entry = ctx
+            .ports
+            .kv
+            .get(&format!("oid4vci:auth-code-state:{state}"))
+            .await
+            .expect("the state index");
+        assert_eq!(entry.value, b"flow-1".to_vec());
+    }
+
     // ── The RFC 9207 `iss` gate (go-wallet-backend#551's rule, the FAPI2
     // remove-authorization-response-iss conformance case) — the zero-token
     // contract: a response whose iss is missing (when required), wrong, or
