@@ -76,6 +76,28 @@ All notable changes to this workspace. The format follows
 - `engine-adapter-sdk` links UniFFI and tokio in every build; the
   `tokio-runtime` feature and the default features leave.
 
+## [0.3.8] — 2026-11-24
+
+### Added
+- **The invitation signing key publishes** ([#101](https://github.com/sirosfoundation/siros-wallet-core/pull/101)):
+  `GET /wmp/jwks` serves the JWKS (RFC 7517 — each JWK carrying its `kid`, the thumbprint the invitation
+  JWS's `kid` names), and the well-known document embeds the same set as `invitation_jwks` and names the
+  `jwks` endpoint. The kid-resolution path wmp-core §12.2 REQUIRES — an external verifier resolving a minted
+  invitation's JWS `kid` had no path before (found live at the Cleverbase interop: the key signed, nothing
+  published it). The key stays ephemeral per-boot, self-signed (the operational trust plane; the test CA is
+  the mTLS/SMP layer).
+- **Multi-tenant well-known discovery** ([#99](https://github.com/sirosfoundation/siros-wallet-core/pull/99)):
+  the `DiscoveryBase` (host + tenant path), the `discovery_base` document field and its validation, the
+  `BaseMismatch` refusal — wmp PR #41's client half.
+
+### Fixed
+- **The bindgen's LIBRARY builds with mls** ([#98](https://github.com/sirosfoundation/siros-wallet-core/pull/98)):
+  the `--features mls` rode the bindgen binary's cargo run, not the library file it reads — the released
+  bindings.zip shipped without the MLS surface (and the v0.3.7 XCFramework's **headers** came from the same
+  MLS-less bindgen: binary with the symbols, headers without the declarations — the Swift iOS compile
+  error's true cause). One release, one surface: **AAR ✓ binary ✓ XCFramework binary ✓ XCFramework headers ✓
+  bindings ✓**.
+
 ## [0.3.7] — 2026-11-24
 
 ### Fixed
