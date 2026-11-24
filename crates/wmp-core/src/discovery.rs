@@ -49,6 +49,16 @@ pub struct WellKnownConfig {
     /// The recipient's delivery preferences.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recipient_metadata: Option<RecipientMetadata>,
+    /// The invitation signing keys, as a JWKS (RFC 7517: `{"keys":[…]}`
+    /// — each JWK carrying its `kid`). The invitation JWS's `kid` (the
+    /// public JWK thumbprint) resolves HERE: a verifier parsing a minted
+    /// invitation fetches the well-known, matches the `kid`, and verifies
+    /// the ES256 signature (wmp-core §12.2: the kid MUST be resolvable;
+    /// found live in the Cleverbase interop — the key existed, `kid` was
+    /// set, but nothing served it, so cross-provider verification had no
+    /// path).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invitation_jwks: Option<serde_json::Value>,
 }
 
 /// Advertises ERDS (Electronic Registered Delivery Service) capabilities.

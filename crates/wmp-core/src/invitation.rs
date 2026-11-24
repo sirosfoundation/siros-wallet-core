@@ -222,7 +222,7 @@ fn query_param(query: &str, name: &str) -> String {
 }
 
 /// Unpadded base64url decoding.
-fn decode_base64url(encoded: &str) -> Result<Vec<u8>, InvitationError> {
+pub fn decode_base64url(encoded: &str) -> Result<Vec<u8>, InvitationError> {
     fn value(b: u8) -> Option<u8> {
         match b {
             b'A'..=b'Z' => Some(b - b'A'),

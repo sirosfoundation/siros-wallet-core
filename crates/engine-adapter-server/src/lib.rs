@@ -82,6 +82,27 @@ pub struct EngineServer {
 }
 
 impl EngineServer {
+    /// The invitation signing keys as a JWKS (RFC 7517): `{"keys":[…]}`
+    /// with each JWK carrying its `kid` (the thumbprint the invitation
+    /// JWS's `kid` names). `None` when the invitation endpoint is not
+    /// configured (no key, nothing to serve).
+    ///
+    /// Served at `GET /wmp/jwks` and embedded in the well-known
+    /// (`invitation_jwks`) — the kid-resolution path the invitation
+    /// verification requires (wmp-core §12.2; found live in the
+    /// Cleverbase interop: the key signed but nothing published it).
+    pub fn invitation_jwks(&self) -> Option<serde_json::Value> {
+        let key = self.invitation_key.as_ref()?;
+        let mut jwk: serde_json::Value = serde_json::from_str(&key.public_jwk_json()).ok()?;
+        // The kid: the thumbprint — the value the invitation JWS's `kid`
+        // carries, the match key for a verifier walking this JWKS.
+        if let serde_json::Value::Object(map) = &mut jwk {
+            map.insert("kid".to_owned(), serde_json::json!(key.kid()));
+            map.insert("use".to_owned(), serde_json::json!("sig"));
+        }
+        Some(serde_json::json!({ "keys": [jwk] }))
+    }
+
     /// Builds the server from `config`: the token validator, the flow
     /// runtime, the session-backed handler over both, and the peer.
     ///
