@@ -76,6 +76,16 @@ All notable changes to this workspace. The format follows
 - `engine-adapter-sdk` links UniFFI and tokio in every build; the
   `tokio-runtime` feature and the default features leave.
 
+## [0.3.7] — 2026-11-24
+
+### Fixed
+- **The artifacts are feature-symmetric** ([#96](https://github.com/sirosfoundation/siros-wallet-core/pull/96)): the
+  `android-%` recipe built with `--features mls` while the iOS targets and both bindgen recipes built without — the
+  v0.3.6 release shipped an AAR with 24 `wmpmls` symbols and an XCFramework with **zero** (measured), and its
+  `bindings.zip` carried no MLS surface. The iOS targets and both bindgens now carry `mls`: one release, one surface
+  across AAR / XCFramework / bindings. This is the release the Swift SDK's MLS line needs (the vendored MLS bindings
+  link against the XCFramework's iOS slices at last).
+
 ## [0.3.6] — 2026-11-24
 
 ### Added
