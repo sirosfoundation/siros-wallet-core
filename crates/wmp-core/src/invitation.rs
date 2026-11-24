@@ -366,7 +366,8 @@ pub fn validate_invitation_nonce(
 
 /// Minimal RFC 3339 (`YYYY-MM-DDTHH:MM:SS(.fff)?Z`) to unix seconds, for
 /// expiry comparisons; `None` for anything the format does not cover.
-fn rfc3339_to_unix(text: &str) -> Option<i64> {
+/// RFC 3339 to unix seconds (the TTL arithmetic's helper).
+pub fn rfc3339_to_unix(text: &str) -> Option<i64> {
     let bytes = text.as_bytes();
     // The separators of the canonical form, by position.
     const SHAPE: &[(usize, u8)] = &[(4, b'-'), (7, b'-'), (10, b'T'), (13, b':'), (16, b':')];

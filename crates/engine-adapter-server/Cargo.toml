@@ -34,7 +34,7 @@ dashmap = { version = "6", optional = true }
 # The Valkey client (issue #65): "an async client for Redis and Valkey" -
 # RESP-compatible either way; Valkey is the open source store this
 # deployment targets. Feature-gated behind `valkey`.
-fred = { version = "10", default-features = false, features = ["enable-rustls", "i-pubsub", "i-lists", "i-hashes", "i-keys"], optional = true }
+fred = { version = "10", default-features = false, features = ["enable-rustls", "i-pubsub", "i-lists", "i-hashes", "i-keys", "i-sets"], optional = true }
 
 [[bin]]
 name = "engine-server"
