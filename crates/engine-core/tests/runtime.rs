@@ -395,3 +395,175 @@ async fn an_in_flight_flow_resolves_its_family_for_the_action() {
         .await
         .is_err());
 }
+
+// ── #105: the authorization answer's state routes the action to the
+// flow that stashed the grant, whatever flow the client answered.
+
+/// A family that refuses every action, exactly as the oid4vp family
+/// does: the vehicle flow the consent's browser opened, which the
+/// client legitimately answers with the redirect's code.
+struct RefusingFlow;
+
+#[async_trait::async_trait]
+impl FlowHandler for RefusingFlow {
+    fn flow_types(&self) -> Vec<String> {
+        vec!["refusing".to_owned()]
+    }
+
+    async fn start_flow(
+        &self,
+        _ctx: &FlowContext,
+        params: &FlowStartParams,
+    ) -> Result<FlowStartResult, HandlerError> {
+        Ok(FlowStartResult {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: params.flow_id.clone(),
+            flow_type: params.flow_type.clone(),
+        })
+    }
+
+    async fn handle_action(
+        &self,
+        _ctx: &FlowContext,
+        _params: &FlowActionParams,
+    ) -> Result<FlowActionResult, HandlerError> {
+        Err(wmp_core::error::RpcError::code(wmp_core::error::ERR_METHOD_NOT_FOUND).into())
+    }
+
+    async fn handle_progress(&self, _ctx: &FlowContext, _params: &FlowProgressParams) {}
+    async fn handle_complete(&self, _ctx: &FlowContext, _params: &FlowCompleteParams) {}
+    async fn handle_error(&self, _ctx: &FlowContext, _params: &FlowErrorParams) {}
+    async fn handle_cancel(
+        &self,
+        _ctx: &FlowContext,
+        _params: &FlowCancelParams,
+    ) -> Result<bool, HandlerError> {
+        Ok(true)
+    }
+}
+
+fn raw_action_params(value: serde_json::Value) -> Option<Box<serde_json::value::RawValue>> {
+    serde_json::value::to_raw_value(&value).ok()
+}
+
+#[tokio::test]
+async fn an_authorization_answer_routes_to_the_flow_the_state_names() {
+    let runtime = test_runtime();
+    runtime.register(Arc::new(EchoFlow)).expect("register");
+    runtime.register(Arc::new(RefusingFlow)).expect("register");
+
+    let ctx = RequestContext {
+        principal: Some(wmp_core::principal::Principal::new("runtime-test", "")),
+        ..RequestContext::default()
+    };
+    // The owner: the issuance flow that stashed the grant.
+    runtime
+        .start_flow(
+            &ctx,
+            &FlowStartParams {
+                wmp: wmp_core::types::Metadata::default(),
+                flow_type: "echo".to_owned(),
+                flow_id: "owner-1".to_owned(),
+                params: None,
+                timeout: None,
+            },
+        )
+        .await
+        .expect("start the owner");
+    // The vehicle: the openid4vp login the consent opened — its own
+    // family would refuse the action outright.
+    runtime
+        .start_flow(
+            &ctx,
+            &FlowStartParams {
+                wmp: wmp_core::types::Metadata::default(),
+                flow_type: "refusing".to_owned(),
+                flow_id: "login-1".to_owned(),
+                params: None,
+                timeout: None,
+            },
+        )
+        .await
+        .expect("start the vehicle");
+
+    // The stash's state index → the owner (#105's correlation).
+    runtime
+        .ports()
+        .kv
+        .put(
+            "oid4vci:auth-code-state:the-stashed-state",
+            engine_ports::KeyValueEntry {
+                value: b"owner-1".to_vec(),
+                ttl_secs: Some(600),
+            },
+        )
+        .await;
+
+    // The client answers the LOGIN flow; the state names the owner.
+    let result = runtime
+        .handle_action(
+            &ctx,
+            &FlowActionParams {
+                wmp: wmp_core::types::Metadata::default(),
+                flow_id: "login-1".to_owned(),
+                action: "authorization_complete".to_owned(),
+                params: raw_action_params(serde_json::json!({
+                    "code": "the-code",
+                    "state": "the-stashed-state",
+                })),
+            },
+        )
+        .await
+        .expect("the action routes to the owner");
+
+    // The owner's family answered: the echo carries the flow it saw.
+    assert_eq!(result.flow_id, "owner-1");
+    assert_eq!(result.action, "authorization_complete");
+}
+
+#[tokio::test]
+async fn an_answer_whose_state_names_no_stash_stays_on_its_own_flow() {
+    let runtime = test_runtime();
+    runtime.register(Arc::new(EchoFlow)).expect("register");
+    runtime.register(Arc::new(RefusingFlow)).expect("register");
+
+    let ctx = RequestContext {
+        principal: Some(wmp_core::principal::Principal::new("runtime-test", "")),
+        ..RequestContext::default()
+    };
+    runtime
+        .start_flow(
+            &ctx,
+            &FlowStartParams {
+                wmp: wmp_core::types::Metadata::default(),
+                flow_type: "refusing".to_owned(),
+                flow_id: "login-2".to_owned(),
+                params: None,
+                timeout: None,
+            },
+        )
+        .await
+        .expect("start");
+
+    // No stash carries this state: the action stays on the login flow
+    // and its own family answers — the -32601, unchanged behaviour.
+    let err = runtime
+        .handle_action(
+            &ctx,
+            &FlowActionParams {
+                wmp: wmp_core::types::Metadata::default(),
+                flow_id: "login-2".to_owned(),
+                action: "authorization_complete".to_owned(),
+                params: raw_action_params(serde_json::json!({
+                    "code": "the-code",
+                    "state": "a-state-no-stash-carries",
+                })),
+            },
+        )
+        .await
+        .expect_err("the refusing family answers");
+    assert!(
+        matches!(err, HandlerError::Rpc(ref e) if e.code == wmp_core::error::ERR_METHOD_NOT_FOUND),
+        "the family's own refusal, not a route: {err:?}"
+    );
+}
