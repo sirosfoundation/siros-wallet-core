@@ -44,6 +44,8 @@ pub mod token;
 pub mod transport;
 #[cfg(feature = "valkey")]
 pub mod valkey_outbox;
+#[cfg(feature = "valkey")]
+pub mod valkey_stores;
 
 use std::sync::Arc;
 
