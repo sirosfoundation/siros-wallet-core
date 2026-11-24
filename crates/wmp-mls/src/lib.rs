@@ -223,6 +223,23 @@ impl MlsProvider for OpenMlsProvider {
             // extension), so the joiner needs nothing out of band - the
             // book's own async handshaking rule.
             .use_ratchet_tree_extension(true)
+            // The group creator's capabilities MUST advertise the
+            // accepted credential types (wmp-mls spec 2.3: the group
+            // create names them; RFC 9420 valn0104: every member's
+            // leaf must support every other member's credential type).
+            // Found live at the Cleverbase interop: our creator's leaf
+            // advertised basic-only, so adding a peer whose KeyPackage
+            // carries an X.509 credential failed with "Credentials are
+            // not acceptable" - the provider's own group create refused
+            // the very members the spec's accepted_credential_types
+            // ([x509, basic]) promise to accept.
+            .with_capabilities(Capabilities::new(
+                None,
+                None,
+                None,
+                None,
+                Some(&[CredentialType::Basic, CredentialType::X509]),
+            ))
             .build(&self.crypto, &self.signer, self.credential())
             .map_err(|e| mls_error(&e.to_string()))?;
         // The participants the create names join by the add flow once
@@ -400,6 +417,26 @@ impl MlsProvider for OpenMlsProvider {
     }
 
     /// Decrypts the group's ciphertext (spec §4): the plaintext, the
+    /// Exports the group's GroupInfo (spec 3.1's create param): the
+    /// serialized MlsMessageOut, base64url, with the ratchet tree —
+    /// the joiner's out-of-band bootstrap when the Welcome's own
+    /// GroupInfo cannot serve.
+    fn export_group_info(&self, group_id: &str) -> Result<String, HandlerError> {
+        use openmls_traits::OpenMlsProvider as _;
+        let groups = self.groups.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(group) = groups.get(group_id) else {
+            return Err(no_group(group_id));
+        };
+        let info = group
+            .export_group_info(self.crypto.crypto(), &self.signer, true)
+            .map_err(|e| mls_error(&e.to_string()))?;
+        let bytes = info
+            .tls_serialize_detached()
+            .map_err(|e| mls_error(&e.to_string()))?;
+        Ok(base64url(&bytes))
+    }
+
+    /// Decrypts base64url ciphertext from the group, returning the plaintext and the
     /// epoch. A message this member sent itself refuses (MLS ratchets —
     /// own ciphertexts do not decrypt; the recipient's provider answers).
     fn decrypt(&self, group_id: &str, ciphertext: &str) -> Result<(Vec<u8>, i64), HandlerError> {
