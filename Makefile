@@ -51,13 +51,17 @@ bindings: bindings-kotlin bindings-swift
 
 bindings-kotlin: target/debug/$(SDK_LIB)
 	@mkdir -p bindings/kotlin
-	cargo run -p $(SDK_CRATE) --features bindgen --bin uniffi-bindgen -- \
+	# --features bindgen,mls: the released bindings must carry the SAME
+	# surface as the released binaries (the AAR/XCFramework build with
+	# mls); a bindings.zip without the MLS surface cannot serve SDKs that
+	# vendor MLS bindings against the same release's binaries.
+	cargo run -p $(SDK_CRATE) --features bindgen,mls --bin uniffi-bindgen -- \
 		generate --library target/debug/$(SDK_LIB) \
 		--language kotlin --out-dir bindings/kotlin
 
 bindings-swift: target/debug/$(SDK_LIB)
 	@mkdir -p bindings/swift
-	cargo run -p $(SDK_CRATE) --features bindgen --bin uniffi-bindgen -- \
+	cargo run -p $(SDK_CRATE) --features bindgen,mls --bin uniffi-bindgen -- \
 		generate --library target/debug/$(SDK_LIB) \
 		--language swift --out-dir bindings/swift
 
@@ -153,7 +157,13 @@ ios: $(IOS_TARGETS) $(IOS_SIM_TARGETS)
 
 $(IOS_TARGETS) $(IOS_SIM_TARGETS):
 	rustup target add $@
-	cargo build -p engine-adapter-sdk --target $@ --release
+	# --features mls: the AAR (android-%) builds with it; the XCFramework
+	# built without, so the released XCFramework carried NO MLS symbols
+	# while the same release's AAR did (found from the Swift Level-2
+	# chase: the iOS .a answered 0 wmpmls symbols, the Android .so 24 -
+	# the vendored MLS bindings could never link). The artifacts must be
+	# feature-symmetric: one release, one surface.
+	cargo build -p engine-adapter-sdk --target $@ --release --features mls
 
 xcframework: ios bindings-swift
 	@rm -rf target/xcframework
