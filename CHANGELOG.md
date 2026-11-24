@@ -3,6 +3,23 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [0.4.1] — 2026-11-25
+
+### Added
+- **The invitation bootstrap auth** (wmp-invitation §5.2, #112): when a `wmp.session.create` carries a valid
+  `invitation_nonce` and the caller is unauthenticated, the engine stamps a synthetic principal — the invitation IS
+  the identity for the join. The engine stays in strict mode; the bootstrap is the only relaxation.
+- **The file-backed session and invitation stores** (#109, #112): `ENGINE_PERSISTENCE_PATH` wires `FileSessionStore`
+  and `FileInvitationStore` — sessions and invitations survive restarts. Empty path = the memory stores (the default).
+- **`EngineServer::with_stores()`** (#112): the pluggable injection point — deployments bring their own
+  `SessionStore` + `InvitationStore` (the Android SDK's Room, the iOS SDK's Core Data, a Go backend's database).
+- **The X.509 MLS credential** (#112): `OpenMlsProvider::for_identity_with_certificate()` carries the subscriber
+  certificate chain — the MLS credential is X.509 for certificate-backed schemes (wmp-mls §2.3), the BasicCredential
+  otherwise. Found live at the Cleverbase interop: Echo's MLS refused to decrypt our first message because our
+  member carried a BasicCredential while the scheme called for X.509.
+
 ## [0.4.0] — 2026-11-24
 
 ### Fixed
