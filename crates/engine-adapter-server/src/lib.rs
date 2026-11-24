@@ -49,7 +49,6 @@ use std::sync::Arc;
 
 use crate::outbox::Outbox;
 use wmp_core::peer::Peer;
-use wmp_core::session::MemorySessionStore;
 
 /// The running engine server: everything the routes need.
 pub struct EngineServer {
@@ -108,21 +107,25 @@ impl EngineServer {
     ///
     /// The flow families register on `runtime` after construction; a flow
     /// type nobody registered answers `-31005` (core §10.3).
+    /// Builds the server from `config`, choosing the store by
+    /// `persistence_path` (the standalone engine's convenience: memory by
+    /// default, file-backed when a path is named).
     pub fn new(config: config::Config) -> Self {
-        // The session store (#109): the file-backed store when the
-        // persistence path names a directory, the memory store otherwise
-        // (the default). The file store survives restarts — the engine's
-        // groups and sessions reload on boot.
-        let store: Arc<dyn wmp_core::session::SessionStore> = if !config.persistence_path.is_empty()
-        {
-            let dir = std::path::PathBuf::from(&config.persistence_path);
-            let _ = std::fs::create_dir_all(&dir);
-            Arc::new(wmp_core::session::FileSessionStore::open(
-                dir.join("sessions.json").to_str().unwrap_or_default(),
-            ))
-        } else {
-            Arc::new(MemorySessionStore::new())
-        };
+        let (store, invitations) = stores_from_config(&config);
+        Self::with_stores(config, store, invitations)
+    }
+
+    /// Builds the server over caller-provided stores — the pluggable
+    /// injection point for deployments that bring their own persistence
+    /// (the Android SDK's Room-backed store, the iOS SDK's Core Data, the
+    /// Go backend's database). The [`SessionStore`] and
+    /// [`InvitationStore`] traits are the boundary; this constructor
+    /// accepts any implementation.
+    pub fn with_stores(
+        config: config::Config,
+        store: Arc<dyn wmp_core::session::SessionStore>,
+        invitations: Arc<dyn wmp_core::invitation::InvitationStore>,
+    ) -> Self {
         // The per-token revocation list (engine-parity.md §8 G2): the
         // tenant-bound deployment's cheap per-token revocation, consulted
         // on every bearer validation. Exposed for the deployment's
@@ -169,19 +172,8 @@ impl EngineServer {
         let peer_config = config.clone();
         let _peer_validator = validator.clone();
         let peer_outbox = outbox.clone();
-        // The invitation service (issue #77): the store always (file-backed
-        // when the persistence path names a directory — #109), the key
-        // when the provider's public URL is configured.
-        let invitations: Arc<dyn wmp_core::invitation::InvitationStore> =
-            if !config.persistence_path.is_empty() {
-                let dir = std::path::PathBuf::from(&config.persistence_path);
-                let _ = std::fs::create_dir_all(&dir);
-                Arc::new(wmp_core::invitation::FileInvitationStore::open(
-                    dir.join("invitations.json").to_str().unwrap_or_default(),
-                ))
-            } else {
-                Arc::new(wmp_core::invitation::MemoryInvitationStore::new())
-            };
+        // The invitation service (issue #77): the caller-provided store,
+        // the key when the provider's public URL is configured.
         let invitation_key = (!config.public_url.is_empty())
             .then(|| {
                 crate::invitation::InvitationKey::generate()
@@ -256,6 +248,36 @@ impl EngineServer {
     /// short-TTL tokens.
     pub fn revoke_jti(&self, jti: &str) {
         self.revocation.revoke(jti);
+    }
+}
+
+/// The store choice for the standalone engine (`EngineServer::new`):
+/// the file-backed stores when `ENGINE_PERSISTENCE_PATH` names a
+/// directory, the memory stores otherwise (the default). A deployment
+/// bringing its own persistence calls [`EngineServer::with_stores`]
+/// directly and never runs this.
+fn stores_from_config(
+    config: &config::Config,
+) -> (
+    Arc<dyn wmp_core::session::SessionStore>,
+    Arc<dyn wmp_core::invitation::InvitationStore>,
+) {
+    if config.persistence_path.is_empty() {
+        (
+            Arc::new(wmp_core::session::MemorySessionStore::new()),
+            Arc::new(wmp_core::invitation::MemoryInvitationStore::new()),
+        )
+    } else {
+        let dir = std::path::PathBuf::from(&config.persistence_path);
+        let _ = std::fs::create_dir_all(&dir);
+        (
+            Arc::new(wmp_core::session::FileSessionStore::open(
+                dir.join("sessions.json").to_str().unwrap_or_default(),
+            )),
+            Arc::new(wmp_core::invitation::FileInvitationStore::open(
+                dir.join("invitations.json").to_str().unwrap_or_default(),
+            )),
+        )
     }
 }
 
