@@ -303,6 +303,10 @@ pub trait MlsProvider: Send + Sync {
     /// the epoch.
     fn encrypt(&self, group_id: &str, plaintext: &[u8]) -> Result<(String, i64), HandlerError>;
 
+    /// Exports the group's GroupInfo (spec 3.1's create param):
+    /// the serialized MlsMessageOut, base64url, with the ratchet tree.
+    fn export_group_info(&self, group_id: &str) -> Result<String, HandlerError>;
+
     /// Decrypts base64url ciphertext from the group.
     fn decrypt(&self, group_id: &str, ciphertext: &str) -> Result<(Vec<u8>, i64), HandlerError>;
 }
@@ -649,6 +653,10 @@ impl MlsProvider for NoopMlsProvider {
         // caller's concern).
         let _ = plaintext;
         Ok((String::new(), 0))
+    }
+
+    fn export_group_info(&self, _group_id: &str) -> Result<String, HandlerError> {
+        Ok(String::new())
     }
 
     fn decrypt(&self, _group_id: &str, ciphertext: &str) -> Result<(Vec<u8>, i64), HandlerError> {
