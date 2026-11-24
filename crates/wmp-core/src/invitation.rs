@@ -437,3 +437,90 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
+
+// ─── The file-backed store (#109) ───────────────────────────────────────────
+
+/// A file-backed [`InvitationStore`] (#109): the nonces persist across
+/// restarts as a single JSON file, loaded on construction, atomically
+/// rewritten on every mutation. Wired by the same
+/// `ENGINE_PERSISTENCE_PATH` as the session store; the memory store stays
+/// the default (an empty path).
+pub struct FileInvitationStore {
+    path: std::path::PathBuf,
+    nonces: Mutex<FxHashMap<String, Invitation>>,
+}
+
+impl FileInvitationStore {
+    /// Loads the nonces from `path` (an absent file = the empty store).
+    pub fn open(path: &str) -> Self {
+        let p = std::path::PathBuf::from(path);
+        let nonces: FxHashMap<String, Invitation> = match std::fs::read(&p) {
+            Ok(bytes) if !bytes.is_empty() => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+                eprintln!(
+                    "wmp-core: the invitation store at {} is corrupt ({e}), starting empty",
+                    p.display()
+                );
+                FxHashMap::default()
+            }),
+            _ => FxHashMap::default(),
+        };
+        Self {
+            path: p,
+            nonces: Mutex::new(nonces),
+        }
+    }
+
+    /// Atomically writes the nonces (tmp + rename).
+    fn flush(&self, nonces: &FxHashMap<String, Invitation>) -> Result<(), InvitationError> {
+        let bytes = serde_json::to_vec(nonces)
+            .map_err(|_| InvitationError::Nonce("serialize".to_owned()))?;
+        let tmp = self.path.with_extension("tmp");
+        std::fs::write(&tmp, bytes)
+            .and_then(|_| std::fs::rename(&tmp, &self.path))
+            .map_err(|e| InvitationError::Nonce(format!("write: {e}")))
+    }
+}
+
+impl InvitationStore for FileInvitationStore {
+    fn put(&self, nonce: &str, inv: &Invitation) -> Result<(), InvitationError> {
+        let Ok(mut nonces) = self.nonces.lock() else {
+            return Err(InvitationError::Nonce("store unavailable".to_owned()));
+        };
+        if nonces.contains_key(nonce) {
+            return Err(InvitationError::Nonce(format!(
+                "nonce {nonce:?} already exists"
+            )));
+        }
+        nonces.insert(nonce.to_owned(), inv.clone());
+        self.flush(&nonces)?;
+        Ok(())
+    }
+
+    fn consume(&self, now: i64, nonce: &str) -> Option<Invitation> {
+        let mut nonces = self.nonces.lock().ok()?;
+        let inv = nonces.remove(nonce)?;
+        let _ = self.flush(&nonces);
+        if inv.is_expired(now) {
+            return None;
+        }
+        Some(inv)
+    }
+
+    fn cleanup(&self, now: i64) -> Result<usize, InvitationError> {
+        let mut nonces = self
+            .nonces
+            .lock()
+            .map_err(|_| InvitationError::Nonce("store unavailable".to_owned()))?;
+        let expired: Vec<String> = nonces
+            .iter()
+            .filter(|(_, inv)| inv.is_expired(now))
+            .map(|(nonce, _)| nonce.clone())
+            .collect();
+        let count = expired.len();
+        for nonce in &expired {
+            nonces.remove(nonce);
+        }
+        self.flush(&nonces)?;
+        Ok(count)
+    }
+}

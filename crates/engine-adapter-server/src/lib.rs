@@ -49,14 +49,13 @@ use std::sync::Arc;
 
 use crate::outbox::Outbox;
 use wmp_core::peer::Peer;
-use wmp_core::session::MemorySessionStore;
 
 /// The running engine server: everything the routes need.
 pub struct EngineServer {
     /// The WMP peer the POST handler dispatches through.
     pub peer: Arc<Peer>,
     /// The session store the engine and the health probe share.
-    pub store: Arc<MemorySessionStore>,
+    pub store: Arc<dyn wmp_core::session::SessionStore>,
     /// The token validator both transport paths authenticate through.
     pub validator: Arc<token::TokenValidator>,
     /// The flow runtime the handler delegates flow methods to — where the
@@ -72,7 +71,7 @@ pub struct EngineServer {
     pub revocation: Arc<token::JtiBlacklist>,
     /// The invitation store (issue #77): the issued nonces, consumed
     /// single-use at the `wmp.session.create` that answers them.
-    pub invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+    pub invitations: Arc<dyn wmp_core::invitation::InvitationStore>,
     /// The engine's invitation key (issue #77): the provider-delegate
     /// ES256 pair the create endpoint signs with and the consume path
     /// verifies. None when `public_url` is unset (the endpoint refuses).
@@ -108,8 +107,25 @@ impl EngineServer {
     ///
     /// The flow families register on `runtime` after construction; a flow
     /// type nobody registered answers `-31005` (core §10.3).
+    /// Builds the server from `config`, choosing the store by
+    /// `persistence_path` (the standalone engine's convenience: memory by
+    /// default, file-backed when a path is named).
     pub fn new(config: config::Config) -> Self {
-        let store = Arc::new(MemorySessionStore::new());
+        let (store, invitations) = stores_from_config(&config);
+        Self::with_stores(config, store, invitations)
+    }
+
+    /// Builds the server over caller-provided stores — the pluggable
+    /// injection point for deployments that bring their own persistence
+    /// (the Android SDK's Room-backed store, the iOS SDK's Core Data, the
+    /// Go backend's database). The [`SessionStore`] and
+    /// [`InvitationStore`] traits are the boundary; this constructor
+    /// accepts any implementation.
+    pub fn with_stores(
+        config: config::Config,
+        store: Arc<dyn wmp_core::session::SessionStore>,
+        invitations: Arc<dyn wmp_core::invitation::InvitationStore>,
+    ) -> Self {
         // The per-token revocation list (engine-parity.md §8 G2): the
         // tenant-bound deployment's cheap per-token revocation, consulted
         // on every bearer validation. Exposed for the deployment's
@@ -156,9 +172,8 @@ impl EngineServer {
         let peer_config = config.clone();
         let _peer_validator = validator.clone();
         let peer_outbox = outbox.clone();
-        // The invitation service (issue #77): the store always, the key
-        // when the provider's public URL is configured.
-        let invitations = Arc::new(wmp_core::invitation::MemoryInvitationStore::new());
+        // The invitation service (issue #77): the caller-provided store,
+        // the key when the provider's public URL is configured.
         let invitation_key = (!config.public_url.is_empty())
             .then(|| {
                 crate::invitation::InvitationKey::generate()
@@ -236,13 +251,43 @@ impl EngineServer {
     }
 }
 
+/// The store choice for the standalone engine (`EngineServer::new`):
+/// the file-backed stores when `ENGINE_PERSISTENCE_PATH` names a
+/// directory, the memory stores otherwise (the default). A deployment
+/// bringing its own persistence calls [`EngineServer::with_stores`]
+/// directly and never runs this.
+fn stores_from_config(
+    config: &config::Config,
+) -> (
+    Arc<dyn wmp_core::session::SessionStore>,
+    Arc<dyn wmp_core::invitation::InvitationStore>,
+) {
+    if config.persistence_path.is_empty() {
+        (
+            Arc::new(wmp_core::session::MemorySessionStore::new()),
+            Arc::new(wmp_core::invitation::MemoryInvitationStore::new()),
+        )
+    } else {
+        let dir = std::path::PathBuf::from(&config.persistence_path);
+        let _ = std::fs::create_dir_all(&dir);
+        (
+            Arc::new(wmp_core::session::FileSessionStore::open(
+                dir.join("sessions.json").to_str().unwrap_or_default(),
+            )),
+            Arc::new(wmp_core::invitation::FileInvitationStore::open(
+                dir.join("invitations.json").to_str().unwrap_or_default(),
+            )),
+        )
+    }
+}
+
 fn build_peer(
     config: &config::Config,
-    store: &Arc<MemorySessionStore>,
+    store: &Arc<dyn wmp_core::session::SessionStore>,
     ports: Arc<engine_core::Ports>,
     outbox: Arc<Outbox>,
     flows: Arc<crate::host_bridge::FlowSessions>,
-    invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+    invitations: Arc<dyn wmp_core::invitation::InvitationStore>,
     invitation_key: Option<&Arc<crate::invitation::InvitationKey>>,
 ) -> (Arc<Peer>, Arc<engine_core::runtime::FlowRuntime>) {
     // The peer needs a handler; the handler needs the runtime; the runtime

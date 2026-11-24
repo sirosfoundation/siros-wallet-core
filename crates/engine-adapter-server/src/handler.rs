@@ -12,8 +12,6 @@ use wmp_core::handler::Handler;
 use wmp_core::handler::HandlerError;
 use wmp_core::methods::*;
 use wmp_core::resolve::new_vctm_resolve_result;
-use wmp_core::session::MemorySessionStore;
-use wmp_core::session::SessionStore as _;
 use wmp_core::sessionservice::{Clock, SessionHandler, SessionService, SessionServiceConfig};
 
 use crate::config::Config;
@@ -41,7 +39,7 @@ pub struct EngineHandler {
     gate: Arc<dyn crate::token::TokenGate>,
     /// The invitation store + verifier (issue #77): a `wmp.session.create`
     /// carrying an `invitation_nonce` consumes it single-use here.
-    invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+    invitations: Arc<dyn wmp_core::invitation::InvitationStore>,
     invitation_verifier: Option<Arc<dyn wmp_core::invitation::InvitationVerifier>>,
     /// The group registry (issue #77's `join` purpose): the sessions that
     /// joined a group session by consuming its invitation. The mailbox's
@@ -49,7 +47,11 @@ pub struct EngineHandler {
     groups: Arc<crate::groups::GroupRegistry>,
     /// The session store (the join validation's lookup: a `join`
     /// invitation names a session the store must still hold).
-    session_store: Arc<MemorySessionStore>,
+    session_store: Arc<dyn wmp_core::session::SessionStore>,
+    /// The deployment's principal mode (engine-parity.md §8): the
+    /// invitation-bypass stamps its principal in this mode so the
+    /// session's ownership matches the deployment's.
+    principal_mode: wmp_core::principal::PrincipalMode,
     /// The message mailbox (issue #77): the `wmp.message.deliver` target
     /// store, the `wmp.message.poll` source.
     mailbox: Arc<crate::mailbox::Mailbox>,
@@ -66,7 +68,7 @@ impl EngineHandler {
     /// (go-wmp's replayer contract — one log, one truth).
     pub fn new(
         config: &Config,
-        store: &Arc<MemorySessionStore>,
+        store: &Arc<dyn wmp_core::session::SessionStore>,
         runtime: Arc<engine_core::runtime::FlowRuntime>,
         outbox: Arc<Outbox>,
         flows: Arc<crate::host_bridge::FlowSessions>,
@@ -106,6 +108,7 @@ impl EngineHandler {
             invitation_verifier: None,
             groups: Arc::new(crate::groups::GroupRegistry::new()),
             session_store: store.clone(),
+            principal_mode: config.principal_mode,
             mailbox: Arc::new(crate::mailbox::Mailbox::new()),
             outbox,
         })
@@ -117,11 +120,11 @@ impl EngineHandler {
     #[must_use]
     pub fn new_with_invitations(
         config: &Config,
-        store: &Arc<MemorySessionStore>,
+        store: &Arc<dyn wmp_core::session::SessionStore>,
         outbox: &Arc<Outbox>,
         flows: &Arc<crate::host_bridge::FlowSessions>,
         runtime: &Arc<engine_core::runtime::FlowRuntime>,
-        invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+        invitations: Arc<dyn wmp_core::invitation::InvitationStore>,
         invitation_key: Option<&Arc<crate::invitation::InvitationKey>>,
     ) -> Arc<Self> {
         let mut handler = Self::new(
@@ -183,6 +186,34 @@ impl Handler for EngineHandler {
         ctx: &RequestContext,
         params: &SessionCreateParams,
     ) -> Result<SessionCreateResult, HandlerError> {
+        // The invitation bootstrap (wmp-invitation §5.2): "the nonce
+        // validation replaces or supplements normal authentication."
+        // When an invitation_nonce is present and the transport's
+        // principal is unauthenticated (the wallet from a foreign
+        // domain, no pre-existing trust), the handler stamps a
+        // synthetic principal — the invitation IS the identity for
+        // this join. Without a nonce, or when the caller IS
+        // authenticated (a wallet that discovered our AS), the
+        // transport's principal is the identity and the normal
+        // auth check applies unchanged.
+        let invitation_ctx;
+        let ctx = if !params.invitation_nonce.is_empty()
+            && !ctx.principal.as_ref().is_some_and(|p| p.is_authenticated())
+        {
+            invitation_ctx = RequestContext {
+                principal: Some(
+                    wmp_core::principal::Principal::new(
+                        format!("inv:{}", params.invitation_nonce),
+                        String::new(),
+                    )
+                    .in_mode(self.principal_mode),
+                ),
+                ..ctx.clone()
+            };
+            &invitation_ctx
+        } else {
+            ctx
+        };
         // Issue #77: an `invitation_nonce` consumes single-use here — the
         // store's consume IS the single-use, the expiry and signature the
         // same validation (`validate_invitation_nonce`, the core's rule:

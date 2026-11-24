@@ -29,7 +29,6 @@ use tokio_stream::StreamExt;
 
 use crate::EngineServer;
 use wmp_core::context::RequestContext;
-use wmp_core::session::SessionStore as _;
 
 /// The router of the engine's HTTP endpoints: the WMP transport routes,
 /// the authzen proxy routes, and the probes.
@@ -422,7 +421,7 @@ async fn post_invitation(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    use wmp_core::invitation::{new_invitation, InvitationStore};
+    use wmp_core::invitation::new_invitation;
 
     // The principal: the bearer token the AS validated (the sender).
     let principal = bearer_principal(&headers, &server.validator, server.config.principal_mode);

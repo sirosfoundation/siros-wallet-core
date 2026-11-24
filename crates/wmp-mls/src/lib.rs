@@ -78,6 +78,12 @@ pub struct OpenMlsProvider {
     signer: SignatureKeyPair,
     /// The member's WMP identifier string (the basic credential identity).
     identity: String,
+    /// The member's X.509 certificate chain (DER, leaf first) when the
+    /// identity authenticates by certificate (the `mtls`/`x5c` schemes):
+    /// the MLS credential is X.509 (wmp-mls §2.3: "each participant uses
+    /// the MLS credential type appropriate for their scheme"). Absent = the
+    /// basic credential (the `did`/`opaque` schemes).
+    certificate_chain: Vec<Vec<u8>>,
     groups: Mutex<BTreeMap<String, MlsGroup>>,
     next: Mutex<u64>,
 }
@@ -95,6 +101,21 @@ impl OpenMlsProvider {
     /// signature keypair mints here (never a panic in library code).
     #[allow(clippy::needless_return)]
     pub fn for_identity(identity: &str) -> Result<Self, HandlerError> {
+        Self::for_identity_with_certificate(identity, None)
+    }
+
+    /// A provider whose MLS credential is the X.509 certificate chain
+    /// (wmp-mls §2.3: "each participant uses the MLS credential type
+    /// appropriate for their scheme" — the `mtls`/`x5c` schemes carry the
+    /// subscriber certificate, not a bare identity string). The chain is
+    /// DER, leaf first; the MLS credential carries it so the group's peers
+    /// find the member by certificate (found live at the Cleverbase
+    /// interop: Echo's MLS refused to decrypt our messages because our
+    /// member carried a BasicCredential while the scheme called for X.509).
+    pub fn for_identity_with_certificate(
+        identity: &str,
+        certificate_chain_der: Option<Vec<Vec<u8>>>,
+    ) -> Result<Self, HandlerError> {
         let crypto = OpenMlsRustCrypto::default();
         let signer = SignatureKeyPair::new(
             Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519.signature_algorithm(),
@@ -104,6 +125,7 @@ impl OpenMlsProvider {
             crypto,
             signer,
             identity: identity.to_owned(),
+            certificate_chain: certificate_chain_der.unwrap_or_default(),
             groups: Mutex::new(BTreeMap::new()),
             next: Mutex::new(1),
         })
@@ -128,11 +150,31 @@ impl OpenMlsProvider {
         }
     }
 
-    /// The member's own basic credential bundle.
+    /// The member's own credential bundle: the X.509 certificate chain
+    /// when the identity authenticates by certificate (wmp-mls §2.3:
+    /// "each participant uses the MLS credential type appropriate for
+    /// their scheme" — the mtls/x5c schemes carry the chain, and the
+    /// group's peers find the member by it), the basic credential
+    /// otherwise (the did/opaque schemes' bare identity string).
     fn credential(&self) -> CredentialWithKey {
-        let credential = BasicCredential::new(self.identity.as_bytes().to_vec());
+        let credential = if !self.certificate_chain.is_empty() {
+            // The X.509 credential content: the TLS-encoded certificate
+            // chain (each cert: uint16 length + DER bytes), which
+            // VLBytes wraps with the outer length during serialization.
+            let mut content = Vec::new();
+            for cert in &self.certificate_chain {
+                content.extend_from_slice(&(cert.len() as u16).to_be_bytes());
+                content.extend_from_slice(cert);
+            }
+            openmls::credentials::Credential::new(
+                openmls::credentials::CredentialType::X509,
+                content,
+            )
+        } else {
+            BasicCredential::new(self.identity.as_bytes().to_vec()).into()
+        };
         CredentialWithKey {
-            credential: credential.into(),
+            credential,
             signature_key: self.signer.public().to_vec().into(),
         }
     }
