@@ -3,6 +3,12 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] — 2026-11-24
+
+### Fixed
+- **The group's advertised credentials + the GroupInfo export** ([#107](https://github.com/sirosfoundation/siros-wallet-core/pull/107), found live at the Cleverbase interop):
+  the provider's `create_group` never advertised the accepted credential types (wmp-mls spec §2.3's MUST; RFC 9420 valn0104) — adding a peer whose KeyPackage carries an X.509 credential refused with "Credentials are not acceptable". The builder now advertises both `x509` and `basic`. `MlsProvider` gained `export_group_info` (spec §3.1's create param — the peer's validator demanded it live).
+
 ## Unreleased
 
 ### Added
