@@ -76,6 +76,18 @@ All notable changes to this workspace. The format follows
 - `engine-adapter-sdk` links UniFFI and tokio in every build; the
   `tokio-runtime` feature and the default features leave.
 
+## [0.3.9] — 2026-11-24
+
+### Fixed
+- **An authorization answer routes to the flow its state names** ([#106](https://github.com/sirosfoundation/siros-wallet-core/pull/106), closes
+  [#105](https://github.com/sirosfoundation/siros-wallet-core/issues/105)): the EBW-OID issuance with PID authentication died at the credential
+  step (`flow.action failed: Method not found`) — the apigw's openid4vp login is its own flow here, and the oid4vp family refuses every action
+  with -32601, while the Go engine ran the login and the issuance as one flow so its `resumeWithAuthCode` always landed on the stash's owner.
+  The handoff now writes a `state → flow` index beside the stash (same 600s TTL), and the runtime routes an `authorization_complete` whose
+  state names a live owner to that owner — the CSRF check, the token exchange and the whole issuance tail run where the stash lives, the Go
+  topology restored for the resume. Found live at the Cleverbase interop (the Pixel, twice reproduced); an answer whose state names no stash
+  keeps its own family's answer, the oid4vp -32601 included.
+
 ## [0.3.8] — 2026-11-24
 
 ### Added
