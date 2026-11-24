@@ -56,7 +56,7 @@ pub struct EngineServer {
     /// The WMP peer the POST handler dispatches through.
     pub peer: Arc<Peer>,
     /// The session store the engine and the health probe share.
-    pub store: Arc<MemorySessionStore>,
+    pub store: Arc<dyn wmp_core::session::SessionStore>,
     /// The token validator both transport paths authenticate through.
     pub validator: Arc<token::TokenValidator>,
     /// The flow runtime the handler delegates flow methods to — where the
@@ -72,7 +72,7 @@ pub struct EngineServer {
     pub revocation: Arc<token::JtiBlacklist>,
     /// The invitation store (issue #77): the issued nonces, consumed
     /// single-use at the `wmp.session.create` that answers them.
-    pub invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+    pub invitations: Arc<dyn wmp_core::invitation::InvitationStore>,
     /// The engine's invitation key (issue #77): the provider-delegate
     /// ES256 pair the create endpoint signs with and the consume path
     /// verifies. None when `public_url` is unset (the endpoint refuses).
@@ -109,7 +109,20 @@ impl EngineServer {
     /// The flow families register on `runtime` after construction; a flow
     /// type nobody registered answers `-31005` (core §10.3).
     pub fn new(config: config::Config) -> Self {
-        let store = Arc::new(MemorySessionStore::new());
+        // The session store (#109): the file-backed store when the
+        // persistence path names a directory, the memory store otherwise
+        // (the default). The file store survives restarts — the engine's
+        // groups and sessions reload on boot.
+        let store: Arc<dyn wmp_core::session::SessionStore> = if !config.persistence_path.is_empty()
+        {
+            let dir = std::path::PathBuf::from(&config.persistence_path);
+            let _ = std::fs::create_dir_all(&dir);
+            Arc::new(wmp_core::session::FileSessionStore::open(
+                dir.join("sessions.json").to_str().unwrap_or_default(),
+            ))
+        } else {
+            Arc::new(MemorySessionStore::new())
+        };
         // The per-token revocation list (engine-parity.md §8 G2): the
         // tenant-bound deployment's cheap per-token revocation, consulted
         // on every bearer validation. Exposed for the deployment's
@@ -156,9 +169,19 @@ impl EngineServer {
         let peer_config = config.clone();
         let _peer_validator = validator.clone();
         let peer_outbox = outbox.clone();
-        // The invitation service (issue #77): the store always, the key
+        // The invitation service (issue #77): the store always (file-backed
+        // when the persistence path names a directory — #109), the key
         // when the provider's public URL is configured.
-        let invitations = Arc::new(wmp_core::invitation::MemoryInvitationStore::new());
+        let invitations: Arc<dyn wmp_core::invitation::InvitationStore> =
+            if !config.persistence_path.is_empty() {
+                let dir = std::path::PathBuf::from(&config.persistence_path);
+                let _ = std::fs::create_dir_all(&dir);
+                Arc::new(wmp_core::invitation::FileInvitationStore::open(
+                    dir.join("invitations.json").to_str().unwrap_or_default(),
+                ))
+            } else {
+                Arc::new(wmp_core::invitation::MemoryInvitationStore::new())
+            };
         let invitation_key = (!config.public_url.is_empty())
             .then(|| {
                 crate::invitation::InvitationKey::generate()
@@ -238,11 +261,11 @@ impl EngineServer {
 
 fn build_peer(
     config: &config::Config,
-    store: &Arc<MemorySessionStore>,
+    store: &Arc<dyn wmp_core::session::SessionStore>,
     ports: Arc<engine_core::Ports>,
     outbox: Arc<Outbox>,
     flows: Arc<crate::host_bridge::FlowSessions>,
-    invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+    invitations: Arc<dyn wmp_core::invitation::InvitationStore>,
     invitation_key: Option<&Arc<crate::invitation::InvitationKey>>,
 ) -> (Arc<Peer>, Arc<engine_core::runtime::FlowRuntime>) {
     // The peer needs a handler; the handler needs the runtime; the runtime

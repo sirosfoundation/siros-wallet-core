@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::RwLock;
 
 use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
 
 use crate::token::tokens_equal;
 use crate::types::{Capabilities, SecurityMode};
@@ -39,7 +40,7 @@ pub enum StoreError {
 /// Timestamps are unix seconds. go-wmp reads the wall clock through
 /// `time.Now`; this crate takes the current time as an argument, so expiry
 /// is decided by the caller's clock and tests are deterministic.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Session {
     /// The session identifier.
     pub id: String,
@@ -314,5 +315,148 @@ impl SessionStore for MemorySessionStore {
             .filter(|sess| sess.is_expired(now))
             .cloned()
             .collect())
+    }
+}
+
+// ─── The file-backed store (#109) ───────────────────────────────────────────
+
+/// A file-backed [`SessionStore`] (#109): the sessions persist across
+/// restarts as a single JSON file, loaded on construction, atomically
+/// rewritten (tmp + rename) on every mutation. The engine's
+/// `ENGINE_PERSISTENCE_PATH` wires it; the memory store stays the default
+/// (an empty path).
+///
+/// The in-memory map still serves reads — the file is only read once, at
+/// construction — so lookups stay in-process fast.
+pub struct FileSessionStore {
+    path: std::path::PathBuf,
+    sessions: RwLock<FxHashMap<String, Session>>,
+}
+
+impl FileSessionStore {
+    /// Loads the sessions from `path` (an absent file = the empty store),
+    /// panicking on a read or parse error: a corrupt persistence file is a
+    /// deployment error the operator must see, not silently skip.
+    pub fn open(path: &str) -> Self {
+        let p = std::path::PathBuf::from(path);
+        let sessions: FxHashMap<String, Session> = match std::fs::read(&p) {
+            Ok(bytes) if !bytes.is_empty() => serde_json::from_slice(&bytes)
+                .unwrap_or_else(|e| panic!("the session store at {} is corrupt: {e}", p.display())),
+            _ => FxHashMap::default(),
+        };
+        Self {
+            path: p,
+            sessions: RwLock::new(sessions),
+        }
+    }
+
+    /// Atomically writes the sessions (tmp + rename).
+    fn flush(&self, sessions: &FxHashMap<String, Session>) -> Result<(), StoreError> {
+        let bytes = serde_json::to_vec(sessions).map_err(|_| StoreError::Unsupported)?;
+        let tmp = self.path.with_extension("tmp");
+        std::fs::write(&tmp, bytes)
+            .and_then(|_| std::fs::rename(&tmp, &self.path))
+            .map_err(|_| StoreError::Unsupported)
+    }
+
+    /// Runs `body` with the write lock, then flushes.
+    fn mutate(&self, body: impl FnOnce(&mut FxHashMap<String, Session>)) -> Result<(), StoreError> {
+        let mut sessions = self.sessions.write().map_err(|_| StoreError::Unsupported)?;
+        body(&mut sessions);
+        self.flush(&sessions)
+    }
+}
+
+impl SessionStore for FileSessionStore {
+    fn create(&self, session: Session) -> Result<(), StoreError> {
+        self.mutate(|map| {
+            map.insert(session.id.clone(), session);
+        })
+    }
+
+    fn get(&self, id: &str) -> Option<Session> {
+        self.sessions.read().ok()?.get(id).cloned()
+    }
+
+    fn update(&self, session: Session) -> Result<(), StoreError> {
+        self.mutate(|map| {
+            map.insert(session.id.clone(), session);
+        })
+    }
+
+    fn delete(&self, id: &str) -> Result<(), StoreError> {
+        self.mutate(|map| {
+            map.remove(id);
+        })
+    }
+
+    fn get_by_metadata(
+        &self,
+        now: i64,
+        key: &str,
+        value: &str,
+    ) -> Result<Vec<Session>, StoreError> {
+        let sessions = self.sessions.read().map_err(|_| StoreError::Unsupported)?;
+        Ok(sessions
+            .values()
+            .filter(|sess| {
+                !sess.is_expired(now) && sess.metadata.get(key).is_some_and(|v| v == value)
+            })
+            .cloned()
+            .collect())
+    }
+
+    fn list(&self, now: i64) -> Result<Vec<Session>, StoreError> {
+        let sessions = self.sessions.read().map_err(|_| StoreError::Unsupported)?;
+        Ok(sessions
+            .values()
+            .filter(|sess| !sess.is_expired(now))
+            .cloned()
+            .collect())
+    }
+
+    fn cleanup(&self, now: i64) -> Result<usize, StoreError> {
+        let expired: Vec<String> = {
+            let sessions = self.sessions.read().map_err(|_| StoreError::Unsupported)?;
+            sessions
+                .iter()
+                .filter(|(_, sess)| sess.is_expired(now))
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        let count = expired.len();
+        if count > 0 {
+            self.mutate(|map| {
+                for id in &expired {
+                    map.remove(id);
+                }
+            })?;
+        }
+        Ok(count)
+    }
+
+    fn rotate_resumption_token(
+        &self,
+        now: i64,
+        id: &str,
+        old_token: &str,
+        new_token: &str,
+        expires_at: Option<i64>,
+    ) -> Result<Session, StoreError> {
+        if new_token.is_empty() || tokens_equal(new_token, old_token) {
+            return Err(StoreError::InvalidNewToken);
+        }
+        let mut sessions = self.sessions.write().map_err(|_| StoreError::Unsupported)?;
+        let session = sessions.get_mut(id).ok_or(StoreError::Unsupported)?;
+        if !tokens_equal(&session.resumption_token, old_token) {
+            return Err(StoreError::InvalidNewToken);
+        }
+        session.resumption_token = new_token.to_owned();
+        session.resumption_token_expires_at = expires_at;
+        let snapshot = session.clone();
+        drop(sessions);
+        let guard = self.sessions.read().map_err(|_| StoreError::Unsupported)?;
+        self.flush(&guard)?;
+        Ok(snapshot)
     }
 }

@@ -82,6 +82,11 @@ pub struct Config {
     /// The invitation TTL in seconds when a create carries none
     /// (`ENGINE_INVITATION_TTL_SECS`, issue #77). Default 900.
     pub invitation_ttl_secs: i64,
+    /// The persistence path (`ENGINE_PERSISTENCE_PATH`): when non-empty,
+    /// the session and invitation stores persist as JSON files under this
+    /// directory (`sessions.json` and `invitations.json`), surviving
+    /// restarts (#109). Empty (the default) keeps the in-memory stores.
+    pub persistence_path: String,
     /// Whether the engine answers MCP tools (issue #76):
     /// `tools/list`/`tools/call` behind the `mcp` capability
     /// (`ENGINE_MCP_TOOLS`). Default true — the capability gate (a
@@ -116,6 +121,7 @@ impl Default for Config {
             principal_mode: wmp_core::principal::PrincipalMode::User,
             public_url: String::new(),
             invitation_ttl_secs: 900,
+            persistence_path: String::new(),
             mcp_tools: true,
             relay_mode: false,
         }
@@ -200,6 +206,9 @@ impl Config {
             if let Ok(parsed) = value.trim().parse() {
                 config.invitation_ttl_secs = parsed;
             }
+        }
+        if let Some(value) = text("ENGINE_PERSISTENCE_PATH") {
+            config.persistence_path = value;
         }
         if let Some(value) = text("ENGINE_RELAY_MODE") {
             config.relay_mode = matches!(

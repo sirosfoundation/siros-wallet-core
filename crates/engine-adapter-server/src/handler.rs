@@ -70,7 +70,7 @@ impl EngineHandler {
     /// (go-wmp's replayer contract — one log, one truth).
     pub fn new(
         config: &Config,
-        store: &Arc<MemorySessionStore>,
+        store: &Arc<dyn wmp_core::session::SessionStore>,
         runtime: Arc<engine_core::runtime::FlowRuntime>,
         outbox: Arc<Outbox>,
         flows: Arc<crate::host_bridge::FlowSessions>,
@@ -122,11 +122,11 @@ impl EngineHandler {
     #[must_use]
     pub fn new_with_invitations(
         config: &Config,
-        store: &Arc<MemorySessionStore>,
+        store: &Arc<dyn wmp_core::session::SessionStore>,
         outbox: &Arc<Outbox>,
         flows: &Arc<crate::host_bridge::FlowSessions>,
         runtime: &Arc<engine_core::runtime::FlowRuntime>,
-        invitations: Arc<wmp_core::invitation::MemoryInvitationStore>,
+        invitations: Arc<dyn wmp_core::invitation::InvitationStore>,
         invitation_key: Option<&Arc<crate::invitation::InvitationKey>>,
     ) -> Arc<Self> {
         let mut handler = Self::new(
