@@ -163,7 +163,19 @@ impl OpenMlsProvider {
             // VLBytes wraps with the outer length during serialization.
             let mut content = Vec::new();
             for cert in &self.certificate_chain {
-                content.extend_from_slice(&(cert.len() as u16).to_be_bytes());
+                // The certificate length rides the MLS varint encoding
+                // (RFC 9420 §5.3: 0xxxxxxx for 0-127, 01xxxxxx xxxxxxxx
+                // for 128-16383), NOT a uint16 — the uint16 form writes
+                // `03 36` for 822 bytes where the protocol expects `43 36`.
+                // Found live at the interop: Echo's ts-mls stopped with
+                // "Data length exceeds buffer" on the uint16 form.
+                let len = cert.len().min(16383);
+                if len < 128 {
+                    content.push(len as u8);
+                } else {
+                    content.push(0x40 | ((len >> 8) & 0x3F) as u8);
+                    content.push((len & 0xFF) as u8);
+                }
                 content.extend_from_slice(cert);
             }
             openmls::credentials::Credential::new(
