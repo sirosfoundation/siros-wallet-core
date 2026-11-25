@@ -3,6 +3,14 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.2] — 2026-11-25
+
+### Fixed
+- **The certificate length in the X.509 credential uses the MLS varint encoding** ([Jochen's analysis from the interop]):
+  the certificate data used a uint16 length prefix (`03 36` for 822 bytes) where RFC 9420 §5.3 expects the MLS varint
+  (`43 36`). Echo's ts-mls stopped with "Data length exceeds buffer" on the uint16 form — the basic-credential runs
+  joined fine, so it was specific to the X.509 path.
+
 ## [Unreleased]
 
 ## [0.4.1] — 2026-11-25
