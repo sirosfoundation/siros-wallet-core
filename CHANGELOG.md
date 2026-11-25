@@ -20,6 +20,13 @@ All notable changes to this workspace. The format follows
   verifies the proof and stamps the principal from the certificate's subject. Deployments terminating TLS without
   forwarding the client certificate accept DPoP-authenticated requests.
 
+## [0.4.4] — 2026-11-25
+
+### Fixed
+- **DPoP `sid` on session.create** (wmp PR #46): the proof payload omits `sid` for `session.create` messages and
+  requires an exact session-id match on every other request. `for_session_create` builds the omitted-sid payload;
+  the transport enforces the same rule and identifies `wmp.session.create` from the JSON-RPC body.
+
 ## [Unreleased]
 
 ## [0.4.1] — 2026-11-25
