@@ -11,6 +11,15 @@ All notable changes to this workspace. The format follows
   (`43 36`). Echo's ts-mls stopped with "Data length exceeds buffer" on the uint16 form — the basic-credential runs
   joined fine, so it was specific to the X.509 path.
 
+## [0.4.3] — 2026-11-25
+
+### Added
+- **The DPoP per-request proof** (wmp-core §4.4.8): the DPoP model (RFC 9449) for HTTPS sessions that cannot carry
+  the client's credential at TLS. The proof is a compact JWS with `x5c`/`kid` in the header, payload
+  `{htm, htu, iat, jti, sid}` (the session binding), sent as `Authorization: DPoP <proof-jws>`. The transport
+  verifies the proof and stamps the principal from the certificate's subject. Deployments terminating TLS without
+  forwarding the client certificate accept DPoP-authenticated requests.
+
 ## [Unreleased]
 
 ## [0.4.1] — 2026-11-25
