@@ -45,6 +45,7 @@ pub mod mls;
 pub mod peer;
 pub mod principal;
 pub mod profile;
+pub mod proof;
 pub mod registry;
 pub mod resolve;
 pub mod session;
