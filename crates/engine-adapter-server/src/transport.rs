@@ -97,7 +97,12 @@ async fn post_wmp(
     // validated. The adapter validates the token against the AS's JWKS
     // (the config's `as_external_url`) and extracts the subject; a missing
     // or invalid token is anonymous.
-    let principal = bearer_principal(&headers, &server.validator, server.config.principal_mode);
+    let principal = bearer_principal(
+        &headers,
+        &server.validator,
+        server.config.principal_mode,
+        rpc_method(&body).as_deref() == Some("wmp.session.create"),
+    );
 
     // The WMP session the request names, for context enrichment.
     let session_id = header_session_id(&headers);
@@ -153,7 +158,12 @@ async fn get_wmp_ws(
     // The principal from the upgrade request's bearer token, as §3.4
     // allows ("authentication MAY be performed at the HTTP level before
     // the upgrade"). Without one the engine's session methods refuse.
-    let principal = bearer_principal(&headers, &server.validator, server.config.principal_mode);
+    let principal = bearer_principal(
+        &headers,
+        &server.validator,
+        server.config.principal_mode,
+        false,
+    );
     let ctx = RequestContext {
         principal,
         ..RequestContext::default()
@@ -424,7 +434,12 @@ async fn post_invitation(
     use wmp_core::invitation::new_invitation;
 
     // The principal: the bearer token the AS validated (the sender).
-    let principal = bearer_principal(&headers, &server.validator, server.config.principal_mode);
+    let principal = bearer_principal(
+        &headers,
+        &server.validator,
+        server.config.principal_mode,
+        false,
+    );
     let Some(principal) = principal.filter(|p| p.is_authenticated()) else {
         return error_response(
             wmp_core::error::ERR_NOT_AUTHORIZED as i64,
@@ -600,6 +615,7 @@ fn bearer_principal(
     headers: &HeaderMap,
     validator: &crate::token::TokenValidator,
     mode: wmp_core::principal::PrincipalMode,
+    is_session_create: bool,
 ) -> Option<wmp_core::principal::Principal> {
     let auth_value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     // The DPoP per-request proof (wmp-core 4.4.8): when the scheme is
@@ -609,7 +625,12 @@ fn bearer_principal(
     // certificate chain in the x5c header establishes the identity.
     if let Some(parsed) = wmp_core::proof::ParsedAuth::parse(auth_value) {
         if matches!(parsed.scheme, wmp_core::proof::AuthScheme::Dpop) {
-            return dpop_principal(parsed.credential, mode);
+            return dpop_principal(
+                parsed.credential,
+                mode,
+                header_session_id(headers).as_deref(),
+                is_session_create,
+            );
         }
     }
     let raw_token = headers
@@ -646,6 +667,8 @@ fn bearer_principal(
 fn dpop_principal(
     proof_jws: &str,
     mode: wmp_core::principal::PrincipalMode,
+    session_id: Option<&str>,
+    is_session_create: bool,
 ) -> Option<wmp_core::principal::Principal> {
     // The three-segment compact JWS: header.payload.signature.
     let segments: Vec<&str> = proof_jws.split('.').collect();
@@ -661,10 +684,11 @@ fn dpop_principal(
     let sig_bytes = base64url_decode(sig_b64)?;
 
     let header: wmp_core::proof::ProofHeader = serde_json::from_slice(&header_json).ok()?;
-    let _payload: wmp_core::proof::ProofPayload = serde_json::from_slice(&payload_json).ok()?;
+    let payload: wmp_core::proof::ProofPayload = serde_json::from_slice(&payload_json).ok()?;
 
-    // The algorithm must be ES256.
-    if header.alg != "ES256" {
+    // The algorithm must be ES256, and the session binding (PR #46) must
+    // match: omitted only on session.create, mandatory and exact otherwise.
+    if header.alg != "ES256" || !payload.session_binding_matches(session_id, is_session_create) {
         return None;
     }
 
@@ -762,6 +786,14 @@ impl CertInfo {
     fn subject_uri(&self) -> Option<String> {
         Some(self.subject_uri.clone())
     }
+}
+
+/// The JSON-RPC method of a request body (used to distinguish
+/// `wmp.session.create` — the one request whose DPoP proof may omit `sid`,
+/// PR #46).
+fn rpc_method(body: &[u8]) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_slice(body).ok()?;
+    parsed.get("method")?.as_str().map(str::to_owned)
 }
 
 /// The `Wmp-Session-Id` header (wmp-transport.md §4.5).

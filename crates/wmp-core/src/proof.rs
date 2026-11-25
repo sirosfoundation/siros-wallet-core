@@ -16,8 +16,10 @@ pub struct ProofPayload {
     pub iat: i64,
     /// A unique proof identifier for replay detection (`jti`).
     pub jti: String,
-    /// The WMP session id the proof binds to (`sid`).
-    pub sid: String,
+    /// The WMP session id the proof binds to (`sid`). Omitted for
+    /// authentication on `session.create` messages, mandatory otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sid: Option<String>,
 }
 
 impl ProofPayload {
@@ -28,13 +30,43 @@ impl ProofPayload {
             htu: uri.to_owned(),
             iat,
             jti: jti.to_owned(),
-            sid: sid.to_owned(),
+            sid: Some(sid.to_owned()),
+        }
+    }
+
+    /// Builds the `session.create` proof payload: no session id exists yet,
+    /// so `sid` is omitted (PR #46). Mandatory on every other request.
+    pub fn for_session_create(method: &str, uri: &str, iat: i64, jti: &str) -> Self {
+        Self {
+            htm: method.to_owned(),
+            htu: uri.to_owned(),
+            iat,
+            jti: jti.to_owned(),
+            sid: None,
         }
     }
 
     /// JCS-canonicalized JSON bytes (the JWS payload, per §5.4).
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, ProofError> {
         serde_json::to_vec(self).map_err(|_| ProofError::MalformedJws)
+    }
+
+    /// Whether the proof's session binding is valid for this request.
+    /// `session.create` carries no session id (PR #46), so `sid` is optional
+    /// there; every other request MUST carry it and it MUST match the
+    /// session the request names.
+    pub fn session_binding_matches(
+        &self,
+        session_id: Option<&str>,
+        is_session_create: bool,
+    ) -> bool {
+        if is_session_create {
+            return true;
+        }
+        match (&self.sid, session_id) {
+            (Some(expected), Some(actual)) => expected == actual,
+            _ => false,
+        }
     }
 }
 
