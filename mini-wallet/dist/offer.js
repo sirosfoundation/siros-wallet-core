@@ -13,7 +13,10 @@ export function unwrapOffer(offer) {
     if (offer.startsWith("https://"))
         return { uri: offer, source: "uri" };
     if (offer.startsWith("openid-credential-offer://")) {
-        const params = new URLSearchParams(offer.split("?", 2)[1] ?? "");
+        // The query runs from the FIRST '?' to the end: split("?", 2) truncated
+        // at a second '?' — and real URIs (and QR payloads) may carry raw ones.
+        const query = offer.includes("?") ? offer.slice(offer.indexOf("?") + 1) : "";
+        const params = new URLSearchParams(query);
         const uri = params.get("credential_offer_uri");
         if (uri)
             return { uri, source: "deep-link" };
@@ -50,7 +53,9 @@ export function normalizeOffer(offer, source) {
 export function unwrapAuthorizationRequest(request) {
     if (request.startsWith("openid4vp://") || request.startsWith("haip://") || request.startsWith("mdoc-openid4vp://")) {
         const params = {};
-        for (const [key, value] of new URLSearchParams(request.split("?", 2)[1] ?? ""))
+        // Same rule as unwrapOffer: the query is everything after the first '?'.
+        const query = request.includes("?") ? request.slice(request.indexOf("?") + 1) : "";
+        for (const [key, value] of new URLSearchParams(query))
             params[key] = value;
         return { params, source: "deep-link" };
     }

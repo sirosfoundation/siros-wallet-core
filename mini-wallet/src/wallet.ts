@@ -23,6 +23,8 @@ import { asPdp, AuthzenTrustPlugin } from "./trust.js";
 import type { TrustPlugin, TrustTokenProvider } from "./trust.js";
 import type { MiniWalletPdpOption } from "./types.js";
 import { GoWalletBackendTarget, NullCipher } from "./adopt.js";
+import { ZkpPresenterPort, fromEngineJson } from "./presenter.js";
+import type { PresenterOptions } from "./presenter.js";
 import type { AdoptReport, AdoptTarget, AdoptUi, PrivateDataCipher } from "./adopt.js";
 import { renderAdoptModal } from "./modal.js";
 import type { AdoptModal } from "./modal.js";
@@ -101,6 +103,12 @@ export interface MiniWalletOptions {
   /** The engine module (see EngineModule): the page loads the published
    *  wasm its own way and hands it over. */
   engine?: EngineModule;
+  /** The zkp presenter: the browser presenter wasm + the circuits
+   *  artifact the page serves. When set, the wallet answers the
+   *  engine's `vp` ask itself (the page's `ui.consent` still gates
+   *  every presentation; a page's own `ui.vp` replaces this seam) and
+   *  defaults the `match` ask when the page provides none. */
+  presenter?: PresenterOptions;
   /** Every event the wallet surfaces: progress, credentials, errors. */
   onEvent?: (event: MiniWalletEvent) => void;
 }
@@ -119,6 +127,8 @@ export class MiniWallet {
   readonly #pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 
   #trustToken: TrustTokenProvider | undefined;
+  /** The zkp presenter seam, when the option configured one. */
+  #presenter: ZkpPresenterPort | null = null;
 
   constructor(options: MiniWalletOptions) {
     if (!options.pdp && !options.backend) {
@@ -131,6 +141,16 @@ export class MiniWallet {
       (typeof localStorage !== "undefined"
         ? new LocalStorageWalletStorage()
         : new MemoryWalletStorage());
+    // The zkp seam: the wasm presenter + the wallet's own custody (the
+    // device key signs dataToSign between the presenter's steps; the key
+    // never crosses the wasm boundary).
+    this.#presenter = options.presenter
+      ? new ZkpPresenterPort(options.presenter, {
+          sign: (bytes) => this.#signWithDeviceKey(bytes),
+          rawCredential: (key) => this.rawCredential(key),
+          credentials: async () => (await this.credentials()).map((c) => ({ key: c.key })),
+        })
+      : null;
   }
 
   /** The wallet's trust layer: the backend's PDP-proxy when configured
@@ -193,9 +213,20 @@ export class MiniWallet {
           fresh?: boolean;
         }) => this.#hostSigningKey(params),
         consent: this.#opts.ui?.consent,
-        match: this.#opts.ui?.match,
+        // The match: the seam captures every ask (the presenter's
+        // inputs); the page's own match — when present — answers it,
+        // the seam's default otherwise.
+        match: this.#presenter
+          ? (params: unknown) => this.#hostMatch(params as { flow_id: string })
+          : this.#opts.ui?.match,
         txCode: this.#opts.ui?.txCode,
-        vp: this.#opts.ui?.vp,
+        // The vp: the page's own construction when it provides one; the
+        // presenter seam otherwise (the consent ask already gated the
+        // presentation — the vp ask is construction, not consent).
+        vp: this.#opts.ui?.vp
+          ?? (this.#presenter
+            ? (params: unknown) => this.#hostVp(params as { flow_id: string })
+            : undefined),
         openAuthorization: this.#opts.ui?.openAuthorization,
         attestation: this.#opts.ui?.attestation,
       },
@@ -296,7 +327,13 @@ export class MiniWallet {
   /** The completion of a START's answer: the result the engine resolved
    *  the request with — {flow_id, credentials?, redirect_uri?, …}. The
    *  delivered credentials store here. */
-  #complete(flowId: string, result: Record<string, unknown>): unknown {
+  #complete(flowId: string, rawResult: Record<string, unknown>): unknown {
+    // The engine's return values serialize raw-JSON members as nested JS
+    // Maps (the same serde default the host asks carry): the completion's
+    // `credential_metadata` is a Map, and a Map stringifies as {} — the
+    // ssc opening (the zkp proofs' seed) died HERE at storage before the
+    // deep conversion. Convert ONCE, at the boundary.
+    const result = fromEngineJson(rawResult) as Record<string, unknown>;
     const credentials = (result.credentials ?? []) as Array<Record<string, unknown>>;
     for (const entry of credentials) this.#storeCredential(entry, flowId);
     this.#opts.onEvent?.({
@@ -414,7 +451,12 @@ export class MiniWallet {
           settled = true;
           this.#pending.delete(flowId);
           this.#flowCleanup(flowId);
-          reject(err instanceof Error ? err : new Error(String(err)));
+          // DEBUG(one run): the engine's rejections are wasm-bindgen
+          // objects with no string form — surface the raw shape.
+          const detail = err && typeof err === "object"
+            ? (() => { try { return JSON.stringify(err); } catch { return `keys:[${Object.getOwnPropertyNames(err).join(",")}]`; } })()
+            : String(err);
+          reject(err instanceof Error ? err : new Error(`the flow rejected: ${detail.slice(0, 600)}`));
         });
     });
   }
@@ -602,6 +644,42 @@ export class MiniWallet {
       return { jwk: publicOf(key) };
     }
     return { jwk: publicOf(await this.#keyFor(params.flow_id, params.credential_configuration_id, params.key_id)) };
+  }
+
+  /** The match ask through the seam: the capture always runs (the
+   *  presenter's inputs); the page's match answers when present, the
+   *  seam's default (the first stored credential per query) otherwise. */
+  async #hostMatch(params: { flow_id: string }): Promise<unknown> {
+    const captured = await this.#presenter?.match(params.flow_id, params as never);
+    if (this.#opts.ui?.match) return await this.#opts.ui.match(params);
+    return captured ?? { selections: [] };
+  }
+
+  /** The vp ask through the seam: the presenter's answer, in the
+   *  engine's VpResult shape ({vp_token} or {refusal:{code}}). */
+  async #hostVp(params: { flow_id: string }): Promise<unknown> {
+    const port = this.#presenter;
+    if (!port) throw new Error("the presenter seam is not configured");
+    return port.vp(params.flow_id, params as never);
+  }
+
+  /** The device key's ES256 over raw bytes — the zkp presenter's
+   *  dataToSign (the same custody #hostSign serves the engine's asks). */
+  async #signWithDeviceKey(bytes: Uint8Array): Promise<Uint8Array> {
+    const jwk = await this.#keyFor();
+    const cryptoKey = await crypto.subtle.importKey(
+      "jwk",
+      jwk as JsonWebKey,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      cryptoKey,
+      bytes as unknown as ArrayBuffer,
+    );
+    return new Uint8Array(signature);
   }
 
   async #generateKey(storeKey: string): Promise<Record<string, unknown>> {

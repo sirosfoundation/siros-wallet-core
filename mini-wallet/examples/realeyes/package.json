@@ -6,7 +6,7 @@
     "start": "node server.mjs"
   },
   "dependencies": {
-    "@sirosfoundation/siros-wallet-core": "^0.2.27",
+    "@sirosfoundation/siros-wallet-core": "^0.5.0",
     "jose": "^6.2.18"
   }
 }
