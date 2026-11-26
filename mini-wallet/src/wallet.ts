@@ -449,6 +449,7 @@ export class MiniWallet {
       // answers (a hung engine, a dead worker) rejects the flow instead
       // of hanging it forever. The user-paced asks run INSIDE the
       // request, so the default is generous; 0 disables the bound.
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const bound = this.#opts.requestTimeoutMs !== 0
         ? Promise.race([
             start(),
@@ -460,7 +461,6 @@ export class MiniWallet {
             }),
           ])
         : start();
-      let timer: ReturnType<typeof setTimeout> | undefined;
       bound
         .then((answer) => {
           const result = answer as Record<string, unknown> | null;
