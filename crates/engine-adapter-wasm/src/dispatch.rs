@@ -73,7 +73,13 @@ impl Dispatcher {
             // #48: the flow-start capability gate's session-expiry check —
             // a start naming an expired session answers -31001 instead of
             // running against a dead record.
-            .clock(clock.clone());
+            .clock(clock.clone())
+            // The Longfellow zkp proofs are ~620KB; the JWE-wrapped
+            // presentation is ~1.1MB. The default 1MB peer message cap
+            // refuses the JARM's own response at the last inch — found
+            // live: the proof builds, the token assembles, the flow
+            // reaches submitting_response, and the peer drops it.
+            .max_message_size(4 * 1024 * 1024);
         if let Some(transport) = outgoing {
             peer_builder = peer_builder.transport(transport);
         }
