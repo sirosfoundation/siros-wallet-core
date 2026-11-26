@@ -207,15 +207,60 @@ impl ZkpPresenter {
         Ok(JsProofJob(job))
     }
 
-    /// The assembled `ZkpPresentation` (CBOR) — the `vp_token`'s value,
-    /// from the prover's output. Feed the entries to `vpTokenJson` for the
-    /// JSON Response Modes' token shape.
+    /// The assembled presentation (CBOR) — the `vp_token`'s value, from
+    /// the prover's output. The nym_auth rulebook v0.4's
+    /// `ZkpPresentation` (nym_auth_rulebook.md, the Presentation
+    /// section's CDDL): `system_id`, `proof` as the proof system's raw
+    /// bytes, `issuer_key_set`, `? proof_time`, `results` — the shape
+    /// the deployed verifier's parser and the native SDK presenters
+    /// speak (found live in the realeyes demo: the draft-0.1 envelope
+    /// this crate used to emit carries `proof_backend`, an unknown
+    /// member the verifier refuses). The prover still produces the
+    /// draft-0.1 `ProofEnvelope` internally; this boundary promotes its
+    /// `inputs` to the rulebook's top level. The rest of the draft-0.1
+    /// lineage on this side (the typed `ZkpPresentation`,
+    /// `vp_token_json`, the catalogues' verifier-side parser) is the
+    /// zkp owners' alignment follow-up. Note: `vpTokenJson` decodes the
+    /// draft-0.1 shape — a host driving THIS assemble builds the
+    /// `vp_token` JSON itself (the mini-wallet seam does).
     #[wasm_bindgen(js_name = assemble)]
     pub fn assemble(&self, output: &JsProofOutput) -> Result<Vec<u8>, JsValue> {
-        self.prepared
+        use siros_codec::cbor::Value as Cbor;
+        use siros_zkp_req::presentation::ProofEnvelope;
+
+        let presentation = self
+            .prepared
             .assemble(&output.0)
-            .map(|presentation| presentation.encode())
-            .map_err(|e| host(e.code()))
+            .map_err(|e| host(e.code()))?;
+        // Decode the envelope to promote the verifier's top-level members.
+        let envelope =
+            ProofEnvelope::decode(&presentation.proof).map_err(|_| host("envelope_decode"))?;
+        let mut members: Vec<(Cbor, Cbor)> = vec![
+            (
+                Cbor::text("system_id"),
+                Cbor::text(presentation.system_id.as_str()),
+            ),
+            // The raw zk_proof (the JsProofOutput's accessor), not the
+            // envelope's wrapper.
+            (
+                Cbor::text("proof"),
+                Cbor::Bytes(output.0.zk_proof.as_bytes().to_vec()),
+            ),
+        ];
+        for (name, value) in &envelope.inputs {
+            match name.as_str() {
+                "issuer_key_set" => members.push((Cbor::text("issuer_key_set"), value.clone())),
+                "proof_time" => members.push((Cbor::text("proof_time"), value.clone())),
+                _ => {}
+            }
+        }
+        let results: Vec<(Cbor, Cbor)> = presentation
+            .results
+            .iter()
+            .map(|(key, value)| (Cbor::text(key.as_str()), value.clone()))
+            .collect();
+        members.push((Cbor::text("results"), Cbor::Map(results)));
+        Ok(Cbor::Map(members).encode())
     }
 }
 
