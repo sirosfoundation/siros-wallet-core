@@ -396,10 +396,21 @@ export class ZkpPresenterPort {
       const job = prepared.job(new Uint8Array(signature));
       const output = loaded.provers.prove(job);
       const presentation = prepared.assemble(output);
-      const vpToken = loaded.module.vpTokenJson([{
-        query_id: selection.credential_query_id,
-        presentations: [Array.from(presentation)],
-      }]);
+      // The vp_token for the JSON response mode, built directly: the
+      // assembled bytes (the rulebook v0.4's flat ZkpPresentation —
+      // system_id, proof, issuer_key_set, proof_time, results) as a
+      // base64url string per query id. The wasm's vpTokenJson still
+      // validates the draft-0.1 shape (with proof_backend) and refuses
+      // the rulebook's flat bytes; when the typed surface aligns to
+      // v0.4, this can go back to vpTokenJson.
+      const b64u = (bytes: Uint8Array): string => {
+        let binary = "";
+        for (const b of bytes) binary += String.fromCharCode(b);
+        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      };
+      const vpToken = JSON.stringify({
+        [selection.credential_query_id]: [b64u(presentation)],
+      });
       this.#context.delete(flowId);
       return { vp_token: vpToken };
     } catch (thrown) {
