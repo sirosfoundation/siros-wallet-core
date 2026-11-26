@@ -3,6 +3,21 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] — 2026-11-26
+
+### Added
+
+- **`export_group_info` on the `WmpMls` FFI surface (#118, issue #108)**: the wallet-driven group create can now mint spec §3.1's `group_info` param — the pass-through follows the surface's own pattern, and the regenerated Kotlin/Swift bindings carry `exportGroupInfo`.
+- **The Valkey-backed session and invitation stores (#113, issue #109)**: `ValkeySessionStore` (JSON values, the session's own expiry as the TTL, `SCAN` not `KEYS`) and `ValkeyInvitationStore` (single-use via `GETDEL`), behind the `valkey` feature, wired by `EngineServer::with_stores()`.
+
+### Fixed
+
+- **The wasm host asks cross as plain objects (#121)**: every JS crossing in `engine-adapter-wasm` serializes maps as plain objects (`serialize_maps_as_objects`), never `Map` — a JS host reading `params.dcql_query.credentials` saw `undefined` and `JSON.stringify(Map)` answered `{}` (found live in the realeyes demo: every raw-JSON member of the match ask read as empty).
+- **The engine advertises and accepts the security modes it serves (#116, issue #110)**: `tls` always, `mls` iff the build carries the MLS handler — one list (`handler::security_modes`), the well-known and the session create both reading it, so a wallet that offers an advertised mode never meets a `-31002`.
+- **The tools gate answers the session's own semantics (#117, issue #104)**: a `tools/*` call naming a lost session answers `-31000` (not the misleading `-31005` that bricked wallets until a hard restart), an expired record answers `-31001`.
+- **The mini-wallet host-UX contract (#120)**: the library ships no renderer — `modal.ts` moved to the example, `AdoptModal` is the contract in `types.ts`; the store put is awaited, the flow-start answer is bounded, the fresh-key ask is get-or-create per flow, `dispose()` exists.
+- **The zkp presenter seam (#119)**: `mini-wallet` answers the engine's `vp` ask over the browser proving wasm — the Handover CBOR pinned against the catalogues' vectors, the verifier id strictly the engine-verified `client_id`.
+
 ## [0.5.0] — 2026-11-26
 
 ### Changed
