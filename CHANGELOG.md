@@ -3,6 +3,13 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.1] — 2026-11-26
+
+### Fixed
+
+- **The wasm peer's message cap fits the JARM (#122)**: the Longfellow zkp proofs are ~620KB, the JWE-wrapped presentation ~1.1MB — the wmp-core default 1MB peer cap refused the JARM at the last inch (the flow reached `submitting_response` and the peer dropped it). The wasm engine's peer is an in-process boundary; the dispatcher raises the cap to 4MB.
+- **The wasm presenter's assemble writes the rulebook's `ZkpPresentation` (#122)**: the nym_auth rulebook v0.4's shape (flat — `system_id`, the raw `proof` bytes, `issuer_key_set`, `? proof_time`, `results`; no `proof_backend`, no envelope) is what the deployed verifier's parser and the native SDK presenters speak. The draft-0.1 envelope the assemble used to emit carried `proof_backend` — the unknown member the verifier refused (the demo's `presentation_unknown_member`). The prover still produces the envelope internally; the boundary promotes its `inputs` to the rulebook's top level. Live-proven: the verifier accepted the assembled presentation.
+
 ## [0.6.0] — 2026-11-26
 
 ### Added
