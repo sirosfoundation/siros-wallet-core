@@ -34,8 +34,20 @@ impl ZkpFormats {
             Some(_) => return Err(RequestRule::FormatsMissing(MemberFault::WrongType)),
         };
         Ok(Self {
-            proof_backends: non_empty_strings(entry.get("proof_backend_values"), ProofBackend::new)
-                .map_err(RequestRule::ProofBackendValuesInvalid)?,
+            // The deployed verifier's config schema names the member
+            // proof_system_values (the draft-era spelling); the rulebook
+            // (docs/zkp_req_request.md §1.2) says proof_backend_values.
+            // Accept both — the spec spelling wins when both are present.
+            // (wallet-core #124: the verifier-core maps its config to the
+            // advertised metadata verbatim, so the draft spelling rides the
+            // wire until the verifier-core aligns.)
+            proof_backends: non_empty_strings(
+                entry
+                    .get("proof_backend_values")
+                    .or_else(|| entry.get("proof_system_values")),
+                ProofBackend::new,
+            )
+            .map_err(RequestRule::ProofBackendValuesInvalid)?,
             systems: non_empty_strings(entry.get("system_id_values"), SystemId::new)
                 .map_err(RequestRule::SystemIdValuesInvalid)?,
         })

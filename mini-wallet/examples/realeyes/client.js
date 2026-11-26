@@ -5,7 +5,7 @@
 // true for the harness; a real page asks its person).
 
 import { MiniWallet, LocalStorageWalletStorage, DemoAlwaysTrustedPlugin } from "/lib/index.js";
-import init, { WasmEngine } from "/engine/engine_adapter_wasm.js";
+import init, { WasmEngine } from "/engine2/engine_adapter_wasm.js";
 
 const out = document.getElementById("out");
 
@@ -87,7 +87,7 @@ document.getElementById("run").addEventListener("click", async () => {
         wasmUrl: "/presenter/siros_zkp_req_wasm.js",
         circuitsUrl: "/circuits/mdoc-circuits.zst",
       },
-      wasmUrl: "/engine/engine_adapter_wasm_bg.wasm",
+      wasmUrl: "/engine2/engine_adapter_wasm_bg.wasm",
       // The engine module, loaded the page's way (a URL import here; a
       // bundler resolves the package name in a real app).
       engine: { init, WasmEngine },
