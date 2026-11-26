@@ -27,6 +27,18 @@ fn a_create_adds_a_member_who_joins_and_reads_the_epoch() {
     // mint — the same id the joiner's process_welcome answers.
     assert!(!group.group_id.is_empty() && !group.group_id.starts_with("grp-"));
 
+    // The GroupInfo export (spec §3.1's `group_info` create param, issue
+    // #108): the serialized MlsMessageOut, base64url, with the ratchet
+    // tree — the param the peer's group-create validator demands.
+    let info = alice
+        .export_group_info(group.group_id.clone())
+        .expect("the group info exports");
+    assert!(!info.is_empty(), "the export is non-empty");
+    assert!(
+        !info.starts_with("grp-") && !info.contains(' '),
+        "the export is base64url wire bytes, not an id: {info}"
+    );
+
     // Bob's KeyPackage (spec §2.3) — the add flow's input.
     let package = bob.generate_key_package(SUITE).expect("the package mints");
     assert!(package.key_package.len() > 32);
@@ -116,6 +128,17 @@ fn unknown_group_operations_refuse() {
             );
         }
         other => panic!("the unknown group refuses, got {other:?}"),
+    }
+    // The GroupInfo export refuses the same (the provider's unknown-group
+    // answer, the surface's own share of the refusal rule).
+    match alice.export_group_info("grp-none".to_owned()) {
+        Err(MlsException::Refused(detail)) => {
+            assert!(
+                detail.contains("unknown group"),
+                "the export refusal names the cause: {detail}"
+            );
+        }
+        other => panic!("the unknown group's export refuses, got {other:?}"),
     }
     // An empty identity mints fine (the member names itself nothing — MLS
     // basic credentials carry it); NOT a refusal surface. The guard here
