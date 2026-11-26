@@ -3,6 +3,12 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.2] — 2026-11-26
+
+### Changed
+
+- **The workspace rides our jose-rs fork — the 1 MiB emit cap lifted to 4 MiB (#125)**: jose-rs 0.10's `MAX_TOKEN_BYTES` refused the ~1.1 MiB JARM JWE the wasm engine emits for zkp presentations (the Longfellow proof alone is ~620 KiB) — at the last inch, after the proof builds and the token assembles. The `[patch.crates-io]` section points at `sirosfoundation/jose-rs` (the `cap-4m-0.10` line): the one-constant raise, the same patch the realeyes demo proved live. The raise rides upstream as kushaldas/jose-rs#33 (the fork's `raise-max-token-bytes` branch); the section is removed when upstream ships it and the workspace re-pins. Tokens under 1 MiB behave byte-identically.
+
 ## [0.6.1] — 2026-11-26
 
 ### Fixed
