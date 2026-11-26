@@ -123,3 +123,14 @@ strip = "debuginfo"
 opt-level = 3
 [profile.dev.package.sha2]
 opt-level = 3
+
+[patch.crates-io]
+# jose-rs 0.10's MAX_TOKEN_BYTES (1 MiB) refuses the ~1.1 MiB JARM JWE
+# the wasm engine emits for zkp presentations (the Longfellow proof alone
+# is ~620 KiB) — at the last inch, after the proof builds and the token
+# assembles. Our fork's cap-4m-0.10 line raises the one constant to
+# 4 MiB — the same patch the realeyes demo proved live (issue #124's
+# arithmetic). The raise rides upstream as kushaldas/jose-rs PR (the
+# fork's raise-max-token-bytes branch); REMOVE this section when
+# upstream ships it and the workspace re-pins.
+jose-rs = { git = "https://github.com/sirosfoundation/jose-rs", rev = "a21303ec4cd713ebbd35c9ef04de589c228f5fc8" }
