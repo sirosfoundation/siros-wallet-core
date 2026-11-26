@@ -90,6 +90,14 @@ impl EngineHandler {
                     eprintln!("engine-server: invalid capabilities: {err}");
                     std::process::exit(1);
                 }),
+                // The security modes the session create accepts: the
+                // same list the well-known serves (security_modes()
+                // below) — one truth, two readers. An advertisement the
+                // session refuses is a lie, and a mode the build serves
+                // but never advertises strands the wallets that read the
+                // well-known before choosing their `security.mode`
+                // (issue #110: the relay wallets send `mode: "mls"`).
+                security_modes: security_modes(),
                 ..SessionServiceConfig::default()
             })
             .unwrap_or_else(|err| {
@@ -623,7 +631,28 @@ fn flows_capability(max_concurrent: i64) -> Result<wmp_core::types::Capabilities
     .map_err(|err| format!("the flows capability does not serialize: {err}"))
 }
 
+/// The session security modes this build serves (wmp-core's
+/// `security.mode` — the session-create negotiation, `SessionServiceConfig::
+/// security_modes`: an empty requested mode selects the first entry, any
+/// mode not listed is rejected with `-32602`): `tls` always — the HTTPS
+/// transport itself is the session's security — and `mls` only when the
+/// build carries the MLS handler (the `mls` feature, the `MlsProfile`
+/// registration with the OpenMLS provider in lib.rs). Both the session
+/// service and the well-known document read this one list: the wallet
+/// that reads the advertisement and then offers the advertised mode must
+/// never meet a refusal (issue #110 — the relay wallets send
+/// `security: {mode: "mls"}` and met a `["tls"]`-only advertisement on a
+/// build that serves MLS).
+pub(crate) fn security_modes() -> Vec<String> {
+    let mut modes = vec!["tls".to_owned()];
+    if cfg!(feature = "mls") {
+        modes.push("mls".to_owned());
+    }
+    modes
+}
+
 /// The engine's whole supported set (core §10.3): the flows capability, the
+/// `mcp` capability (issue #76) when the engine answers tools, and the
 /// `mcp` capability (issue #76) when the engine answers tools, and the
 /// messaging + resolve capabilities the engine's mailbox and `wmp.resolve`
 /// answer — the same set the well-known document advertises (CS-15 §7.2,

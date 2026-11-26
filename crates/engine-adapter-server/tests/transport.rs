@@ -977,10 +977,99 @@ async fn the_well_known_configuration_answers_the_engines_live_shape() {
         capabilities.contains_key("mcp"),
         "the mcp capability: {capabilities:?}"
     );
-    // The security modes.
+    // The security modes: `tls` is always served and always first —
+    // the session create's empty-mode selection takes the first entry,
+    // so the default mode is deterministic. (`mls` joins it on an
+    // `mls`-feature build; the advertisement-acceptance coherence is
+    // pinned by the test below.)
     let modes: Vec<String> =
         serde_json::from_value(doc["security_modes"].clone()).expect("security_modes is a list");
-    assert_eq!(modes, vec!["tls".to_owned()]);
+    assert_eq!(modes.first().map(String::as_str), Some("tls"));
+}
+
+/// Issue #110: the well-known's `security_modes` and the session create's
+/// accepted set are one list (`handler::security_modes()` — one truth,
+/// two readers). A wallet that reads the advertisement and offers an
+/// advertised mode must never meet a refusal — the relay wallets send
+/// `security: {mode: "mls"}` and met a `["tls"]`-only advertisement on a
+/// build that serves MLS. The refusal side is pinned too: a mode no build
+/// serves answers `-32602` carrying the same list the well-known served.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_advertised_security_mode_is_accepted_and_every_unserved_one_refuses() {
+    let server = test_server();
+    // The advertisement.
+    let app = engine_adapter_server::transport::router(server.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/.well-known/wmp-configuration")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("serve");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("read body");
+    let doc: serde_json::Value = serde_json::from_slice(&bytes).expect("the document is JSON");
+    let advertised: Vec<String> =
+        serde_json::from_value(doc["security_modes"].clone()).expect("security_modes is a list");
+    assert!(
+        advertised.contains(&"tls".to_owned()),
+        "tls is always served: {advertised:?}"
+    );
+    // Every advertised mode: a session create offering it mints a
+    // session — the advertisement never names a mode the create refuses.
+    for mode in &advertised {
+        let (status, body) = post_wmp(
+            &server,
+            &format!(
+                r#"{{"jsonrpc":"2.0","id":"req-1","method":"wmp.session.create","params":{{"wmp":{{"version":"0.1"}},"security":{{"mode":"{mode}"}}}}}}"#
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let created: serde_json::Value = serde_json::from_slice(&body).expect("parse");
+        assert!(
+            created.pointer("/result/wmp/session_id").is_some(),
+            "the advertised mode {mode:?} mints a session: {created}"
+        );
+        assert_eq!(
+            created
+                .pointer("/result/security/mode")
+                .and_then(serde_json::Value::as_str),
+            Some(mode.as_str()),
+            "the session echoes the offered mode: {created}"
+        );
+    }
+    // A mode no build serves: refused with -32602, the error data
+    // carrying the same list the well-known served.
+    let (status, body) = post_wmp(
+        &server,
+        r#"{"jsonrpc":"2.0","id":"req-1","method":"wmp.session.create","params":{"wmp":{"version":"0.1"},"security":{"mode":"courier"}}}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let refused: serde_json::Value = serde_json::from_slice(&body).expect("parse");
+    assert_eq!(
+        refused
+            .pointer("/error/code")
+            .and_then(serde_json::Value::as_i64),
+        Some(-32602),
+        "an unserved mode refuses: {refused}"
+    );
+    let served: Vec<String> = serde_json::from_value(
+        refused
+            .pointer("/error/data/security_modes")
+            .cloned()
+            .expect("the refusal carries the served modes"),
+    )
+    .expect("the refusal's security_modes is a list");
+    assert_eq!(
+        served, advertised,
+        "the refusal and the well-known serve one list"
+    );
 }
 
 /// The invitation JWKS serving (the kid-resolution path, wmp-core §12.2):

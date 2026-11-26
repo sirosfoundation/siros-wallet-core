@@ -48,7 +48,7 @@ path = "src/main.rs"
 valkey = ["dep:fred", "dep:dashmap"]
 # The MLS group encryption (the wmp-mls spec, RFC 9420): the OpenMLS-backed
 # provider + the handler bridge, the MlsProfile registered on the peer.
-# The 0.8 line rides wmp-mls (the 0.9 MSRV is above the workspace floor).
+# Rides wmp-mls's 0.10 line (the MSRV 1.94 floor matches the workspace's).
 mls = ["dep:wmp-mls"]
 
 [lints]

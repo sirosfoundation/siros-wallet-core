@@ -373,7 +373,12 @@ async fn get_wmp_configuration(State(server): State<Arc<EngineServer>>) -> Respo
         .into_iter()
         .collect(),
         capabilities,
-        security_modes: vec!["tls".to_owned()],
+        // The security modes (issue #110): the same list the session
+        // create accepts — handler::security_modes(), the one truth.
+        // `tls` always; `mls` when the build carries the MLS handler
+        // (the `mls` feature). A wallet that reads this advertisement
+        // and offers the advertised mode must never meet a -32602.
+        security_modes: crate::handler::security_modes(),
         invitation_jwks: server.invitation_jwks(),
         ..wmp_core::discovery::WellKnownConfig::default()
     };
