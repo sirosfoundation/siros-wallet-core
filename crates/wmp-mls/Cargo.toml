@@ -10,15 +10,27 @@ description = "The OpenMLS-backed MlsProvider for the WMP engine (RFC 9420 group
 
 [dependencies]
 wmp-core = { path = "../wmp-core" }
-# The 0.8 line: the 0.9 MSRV (1.91) is above the workspace floor (1.89).
-openmls = "0.8.3"
-openmls_rust_crypto = "0.5"
-openmls_basic_credential = "0.5"
+# The 0.10 line (issue #114): openmls_rust_crypto 0.7.0-rc.1 carries
+# hpke-rs 0.8 → hpke-rs-libcrux 0.8.1 → libcrux ≥0.0.10, lifting the eight
+# RUSTSEC advisories the 0.8 line's libcrux =0.0.7 carried. NOTE: the 0.10
+# line declares MSRV 1.94 — the workspace floor was raised to match (issue #114)
+# CI job needs the floor raised (see issue #114).
+openmls = "0.10.0-rc.1"
+openmls_rust_crypto = "0.7.0-rc.1"
+openmls_basic_credential = "0.7.0-rc.1"
 serde_json = { workspace = true }
 sha2 = "0.10"
-openmls_traits = "0.5"
+openmls_traits = "0.7.0-rc.1"
+# The certificate key import (issue #114): the same signature crates
+# openmls_basic_credential signs with — Ed25519 (RFC 8410) and P-256
+# (RFC 5915), the two algorithms the MLS suites' leaf certificates
+# carry — added here so the signer-accepting constructor can read the
+# leaf's own PKCS#8 key (RFC 5958) and derive the signer type from it.
+ed25519-dalek = { version = "3", features = ["pkcs8"] }
+p256 = "0.14"
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+base64 = "0.22"

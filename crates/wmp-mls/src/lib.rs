@@ -16,9 +16,11 @@
 //! The OpenMLS-backed [`MlsProvider`] (the wmp-mls spec, RFC 9420): the
 //! engine's real MLS group cryptography.
 //!
-//! **The 0.8 line deliberately**: openmls 0.9 raised its MSRV to 1.91, above
-//! the workspace floor (1.89); 0.8.3 (with the 0.5 supporting crates)
-//! declares none — the `msrv` job keeps it.
+//! **The 0.10 line** (issue #114): `openmls_rust_crypto` 0.7 carries
+//! hpke-rs 0.8 → hpke-rs-libcrux 0.8.1 → libcrux ≥0.0.10, lifting the
+//! eight RUSTSEC advisories the 0.8 line's libcrux =0.0.7 carried.
+//! The 0.10 crates declare MSRV 1.94 — above the workspace floor
+//! (1.94, raised with this upgrade, issue #114).
 //!
 //! The wire shapes (wmp-mls spec §2–§4): every MLS artefact — KeyPackage,
 //! Welcome, Commit, the application ciphertext — crosses WMP
@@ -57,7 +59,14 @@ use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
 use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
+use openmls_traits::types::SignatureScheme;
 use openmls_traits::OpenMlsProvider as _;
+
+// The certificate key import (issue #114): the PKCS#8 decoder trait
+// (the same pkcs8 0.11 both signature crates re-export) and the SEC1
+// point encoder for the P-256 public key.
+use p256::elliptic_curve::sec1::ToSec1Point as _;
+use p256::pkcs8::DecodePrivateKey as _;
 
 use wmp_core::error::RpcError;
 use wmp_core::handler::HandlerError;
@@ -112,15 +121,39 @@ impl OpenMlsProvider {
     /// find the member by certificate (found live at the Cleverbase
     /// interop: Echo's MLS refused to decrypt our messages because our
     /// member carried a BasicCredential while the scheme called for X.509).
+    ///
+    /// The member signs with a fresh Ed25519 key here — blind to the
+    /// chain's key algorithm; [`Self::for_identity_with_certificate_and_key`]
+    /// is the form that carries the leaf's own private key.
     pub fn for_identity_with_certificate(
         identity: &str,
         certificate_chain_der: Option<Vec<Vec<u8>>>,
     ) -> Result<Self, HandlerError> {
+        Self::for_identity_with_certificate_and_key(identity, certificate_chain_der, None)
+    }
+
+    /// The signer-accepting form of [`Self::for_identity_with_certificate`]:
+    /// the certificate's own private key signs the member's group
+    /// operations. RFC 9420 §5.3.1: the leaf node's signature key is the
+    /// credential's key — a chain whose leaf is P-256 must sign with that
+    /// P-256 key, not with a fresh Ed25519 pair (the mismatch refuses:
+    /// "the leaf node signature is not valid").
+    ///
+    /// `private_key_der` is the leaf's private key, PKCS#8 (RFC 5958) —
+    /// the one DER form that names its own algorithm (the OID), so the
+    /// signer type derives from the key itself: Ed25519 (RFC 8410 §7)
+    /// or P-256 (RFC 5915). Without a key the member signs with a fresh
+    /// Ed25519 pair (the current behaviour).
+    pub fn for_identity_with_certificate_and_key(
+        identity: &str,
+        certificate_chain_der: Option<Vec<Vec<u8>>>,
+        private_key_der: Option<Vec<u8>>,
+    ) -> Result<Self, HandlerError> {
         let crypto = OpenMlsRustCrypto::default();
-        let signer = SignatureKeyPair::new(
-            Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519.signature_algorithm(),
-        )
-        .map_err(|e| mls_error(&e.to_string()))?;
+        let signer = match private_key_der {
+            Some(der) => signer_from_pkcs8_der(&der)?,
+            None => fresh_ed25519_signer()?,
+        };
         Ok(Self {
             crypto,
             signer,
@@ -231,6 +264,28 @@ impl MlsProvider for OpenMlsProvider {
             signature_key: signer.public().to_vec().into(),
         };
         let bundle = KeyPackage::builder()
+            // The published package must be addable to any group the
+            // wire spec's accepted_credential_types ([x509, basic],
+            // wmp-mls §2.3) admits: RFC 9420 valn0104 runs BOTH ways —
+            // the group's members must accept the package's credential
+            // type, and the package's leaf must accept the credential
+            // types the group's members carry. openmls 0.10 holds an
+            // explicitly-set capability list to exactly what it names
+            // (the Reject policy), so both wire suites and both
+            // credential types go in explicitly (a package minted
+            // basic-only refuses a group with an X.509 member: found
+            // by the certificate-key suite — the add failed with
+            // "Credentials are not acceptable" the other way round).
+            .leaf_node_capabilities(Capabilities::new(
+                None,
+                Some(&[
+                    Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519,
+                    Ciphersuite::MLS_128_DHKEMP256_AES128GCM_SHA256_P256,
+                ]),
+                None,
+                None,
+                Some(&[CredentialType::Basic, CredentialType::X509]),
+            ))
             .build(suite, &self.crypto, &signer, credential)
             .map_err(|e| mls_error(&e.to_string()))?;
         let bytes = bundle
@@ -273,23 +328,42 @@ impl MlsProvider for OpenMlsProvider {
     ) -> Result<(String, BTreeMap<String, String>), HandlerError> {
         let suite = Self::suite(cipher_suite)?;
         let group = MlsGroup::builder()
+            // The suite the caller names governs the group (spec §3.1's
+            // cipher_suite param). The builder's own default is 0x0001,
+            // and a create that silently minted the default refused
+            // every 0x0002 member's package later ("the add proposal's
+            // ciphersuite ... do not match the ones in the group
+            // context", RFC 9420 valn0201 — found by the
+            // certificate-key suite after the 0.10 upgrade: the group
+            // was 0x0001 while the added member's package was 0x0002).
+            .ciphersuite(suite)
             // The Welcome's GroupInfo carries the ratchet tree (the
             // extension), so the joiner needs nothing out of band - the
             // book's own async handshaking rule.
             .use_ratchet_tree_extension(true)
-            // The group creator's capabilities MUST advertise the
-            // accepted credential types (wmp-mls spec 2.3: the group
-            // create names them; RFC 9420 valn0104: every member's
-            // leaf must support every other member's credential type).
-            // Found live at the Cleverbase interop: our creator's leaf
-            // advertised basic-only, so adding a peer whose KeyPackage
-            // carries an X.509 credential failed with "Credentials are
-            // not acceptable" - the provider's own group create refused
-            // the very members the spec's accepted_credential_types
-            // ([x509, basic]) promise to accept.
+            // The group creator's capabilities MUST advertise the wire
+            // suites and the accepted credential types (wmp-mls spec
+            // 2.3; RFC 9420 valn0104: every member's leaf must support
+            // the group's ciphersuite and every other member's
+            // credential type). openmls 0.10 holds an explicitly-set
+            // capability list to exactly what it names (the Reject
+            // policy) — an unset ciphersuite list is EMPTY, and the
+            // create refused its own group (found by the round-trip
+            // suite after the 0.10 upgrade). Both wire suites go in:
+            // 0x0001 (the MUST) and 0x0002 (the SHOULD), both the
+            // provider answers. Found live at the Cleverbase interop
+            // in the 0.8 line: a creator's leaf that advertised
+            // basic-only refused a peer whose KeyPackage carried an
+            // X.509 credential ("Credentials are not acceptable") - the
+            // provider's own group create refused the very members the
+            // spec's accepted_credential_types ([x509, basic]) promise
+            // to accept.
             .with_capabilities(Capabilities::new(
                 None,
-                None,
+                Some(&[
+                    Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519,
+                    Ciphersuite::MLS_128_DHKEMP256_AES128GCM_SHA256_P256,
+                ]),
                 None,
                 None,
                 Some(&[CredentialType::Basic, CredentialType::X509]),
@@ -306,7 +380,6 @@ impl MlsProvider for OpenMlsProvider {
                 "participant packages in create (use add_member)",
             ));
         }
-        let _ = suite;
         let group_id = base64url(group.group_id().as_slice());
         self.groups
             .lock()
@@ -514,6 +587,53 @@ impl MlsProvider for OpenMlsProvider {
         };
         Ok((plaintext, epoch))
     }
+}
+
+// ─── The signer (the certificate's key import) ─────────────────────────────
+
+/// A fresh Ed25519 signer — the member's own signature keypair when no
+/// certificate key arrives (the 0x0001 suite's algorithm, RFC 9420
+/// §5.1). Fallible: never a panic in library code.
+fn fresh_ed25519_signer() -> Result<SignatureKeyPair, HandlerError> {
+    SignatureKeyPair::new(
+        Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519.signature_algorithm(),
+    )
+    .map_err(|e| mls_error(&e.to_string()))
+}
+
+/// The certificate's private key as the member's signer. The PKCS#8
+/// algorithm OID names the scheme — RFC 9420 §5.3.1: the credential's
+/// signature key is the certificate's, so the signer type derives from
+/// the key, and the public key derives from the private (the
+/// certificate's own key pair, never a fresh one beside it).
+///
+/// Ed25519 (RFC 8410 §7) and P-256 (RFC 5915) — the two algorithms the
+/// wire suites' leaf certificates carry. Each decoder checks its own
+/// OID, so the two parses cannot borrow each other's keys; anything
+/// else refuses (never a silent fallback that signs with a key the
+/// certificate never certified).
+fn signer_from_pkcs8_der(der: &[u8]) -> Result<SignatureKeyPair, HandlerError> {
+    if let Ok(ed) = ed25519_dalek::SigningKey::from_pkcs8_der(der) {
+        return Ok(SignatureKeyPair::from_raw(
+            SignatureScheme::ED25519,
+            ed.as_bytes().to_vec(),
+            ed.verifying_key().to_bytes().to_vec(),
+        ));
+    }
+    if let Ok(ec) = p256::SecretKey::from_pkcs8_der(der) {
+        // The public key in the encoding the MLS credential carries:
+        // the uncompressed SEC1 point (RFC 9420 §5.3.1's signature
+        // key; the same form SignatureKeyPair::new mints for 0x0002).
+        let public = ec.public_key().to_sec1_point(false).as_bytes().to_vec();
+        return Ok(SignatureKeyPair::from_raw(
+            SignatureScheme::ECDSA_SECP256R1_SHA256,
+            ec.to_bytes().to_vec(),
+            public,
+        ));
+    }
+    Err(mls_error(
+        "the private key is neither Ed25519 (RFC 8410) nor P-256 (RFC 5915) PKCS#8",
+    ))
 }
 
 // ─── The codec + the errors ────────────────────────────────────────────────
