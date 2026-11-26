@@ -215,12 +215,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # `rustup toolchain install` installs 1.89; RUSTUP_TOOLCHAIN makes cargo
+      # `rustup toolchain install` installs the MSRV; RUSTUP_TOOLCHAIN makes cargo
       # use it over the pin in rust-toolchain.toml.
+      # 2026-11-26 (#115): 1.89 -> 1.94 — the openmls 0.10 line declares 1.94.
       - name: Install the MSRV toolchain
         run: |
-          rustup toolchain install 1.89 --profile minimal
-          echo "RUSTUP_TOOLCHAIN=1.89" >> "$GITHUB_ENV"
+          rustup toolchain install 1.94 --profile minimal
+          echo "RUSTUP_TOOLCHAIN=1.94" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo check --locked --workspace
       - name: Each crate, with and without its default features
