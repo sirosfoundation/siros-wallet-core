@@ -12,12 +12,15 @@ export {
   memoryStore,
 } from "./storage.js";
 export { migrateWalletStorage } from "./migration.js";
-export { AlwaysTrustedPlugin, AuthzenTrustPlugin, asPdp } from "./trust.js";
+export { AlwaysTrustedPlugin, AuthzenTrustPlugin, asPdp, DemoAlwaysTrustedPlugin } from "./trust.js";
 export type { TrustPlugin, TrustAsk, TrustAnswer } from "./trust.js";
 export { GoWalletBackendTarget, NullCipher } from "./adopt.js";
 export type { AdoptAsk, AdoptReport, AdoptTarget, AdoptUi, PrivateDataCipher } from "./adopt.js";
-export { renderAdoptModal } from "./modal.js";
-export type { AdoptModal } from "./modal.js";
+// The modal CONTRACT only (types.ts): the library ships no renderer —
+// every UX string, style and layout is the hosting page's (the design
+// brief: "the library renders nothing"). The example carries a
+// reference implementation (examples/realeyes/adopt-modal.mjs).
+export type { AdoptModal } from "./types.js";
 export type { MigrationReport } from "./migration.js";
 export {
   isOfferUri,
@@ -26,6 +29,8 @@ export {
   unwrapAuthorizationRequest,
 } from "./offer.js";
 export type { NormalizedOffer, OfferSource } from "./offer.js";
+export { ZkpPresenterPort, fromEngineJson, asRecord, openId4VpHandover, secretSeedOf } from "./presenter.js";
+export type { PresenterOptions, PresenterRefusal, VpAskParams, MatchAskParams } from "./presenter.js";
 export type {
   MiniWalletEvent,
   MiniWalletFetch,

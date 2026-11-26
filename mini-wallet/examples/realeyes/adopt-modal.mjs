@@ -1,46 +1,16 @@
-// The adopt modal: the onboard/set-passkey/move arc as a modal on the
-// hosting page — the library's DOM-thin rendering of the steps it
-// drives (the decision was (a): the page serves from the wallet's
-// origin, and the adopt runs as a modal in that page).
+// The adopt modal — the EXAMPLE'S OWN renderer of the AdoptModal
+// contract (the library ships no UI: every string, style and layout is
+// the hosting page's, per the design brief). This copy is the reference
+// implementation: DOM-thin, every style inline on its element (no
+// <style> beyond the spinner's keyframes scoped INSIDE the overlay), no
+// framework, no dependencies. A page brings its own modal (or none).
 //
-// THE SURFACE: the `AdoptModal` interface is the contract — `adopt`'s
-// `modal` option accepts `true` (this built-in renderer, mounted on
-// document.body), an `HTMLElement` (the same, mounted there), or ANY
-// implementation of the interface (the page's own modal — the steps
-// arrive as the calls below, the page renders them however it likes).
-//
-// DOM-thin by the house style (issuance-flow's badge precedent): every
-// style is INLINE on its element — no <style> tag, no document.head
-// mutation, nothing a page CSP would refuse; the mw-* class names let
-// the app skin it. No framework, no dependencies.
-
-import type { AdoptAsk } from "./adopt.js";
-
-/** The modal's step surface — the contract `adopt` drives. The
- *  built-in `renderAdoptModal` implements it; a page can supply its
- *  own (the `modal` option accepts any implementation). */
-export interface AdoptModal {
-  /** Show the "add a permanent wallet?" step. The step settles when
-   *  the user answers; false aborts the adopt. */
-  ask(ask: AdoptAsk): Promise<boolean>;
-  /** The passkey step: shown while the ceremony runs (the browser's
-   *  own WebAuthn prompt fires over it). */
-  passkey(): void;
-  /** The move step: shown while the records migrate. */
-  moving(keys: string[]): void;
-  /** The done step: the report. */
-  done(report: { account: string; backend: string; keys: string[] }): void;
-  /** The failed step: the move failed; the local wallet is intact. */
-  failed(failed: string): void;
-  /** The ask was declined — close. */
-  declined(): void;
-  /** Tear everything down (an error outside the steps, a stop). */
-  close(): void;
-}
+// The contract lives in the library (types.ts): `adopt`'s `modal`
+// option takes this object; the steps arrive as the calls below.
 
 /** One element with the class and the inline styles (the DOM-thin
  *  rule: everything inline, the classes only for the app's skin). */
-function styled<E extends HTMLElement>(element: E, className: string, cssText: string): E {
+function styled(element, className, cssText) {
   element.className = className;
   element.style.cssText = cssText;
   return element;
@@ -77,7 +47,8 @@ const SPINFRAMES = () => `@keyframes mw-rotate{to{transform:rotate(360deg)}}`;
  *  default). Returns the AdoptModal controller `adopt` drives. The
  *  page's own ask runs BESIDE the modal and both must consent — the
  *  modal is the button surface, never an override of the page's veto. */
-export function renderAdoptModal(root?: HTMLElement): AdoptModal {
+/** Render the example's adopt modal into `root` (document.body by default). */
+export function renderAdoptModal(root) {
   const host = root ?? document.body;
   if (!host) throw new Error("the adopt modal needs a DOM");
 
@@ -90,7 +61,7 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
   // attached ONCE here: a reused modal must not stack a listener per ask.
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) {
-      card.querySelector<HTMLButtonElement>(".mw-row .mw-button")?.click();
+      card.querySelector(".mw-row .mw-button")?.click();
     }
   });
   host.append(overlay);
@@ -99,7 +70,7 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
   style.textContent = SPINFRAMES();
   overlay.append(style); // INSIDE the overlay: removed with it
 
-  const body = (title: string, text: string): HTMLElement => {
+  const body = (title, text) => {
     card.replaceChildren(style);
     const h = styled(document.createElement("h2"), "mw-title", TITLE_STYLE);
     h.textContent = title;
@@ -109,10 +80,9 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
     return p;
   };
 
-  const spin = (): HTMLElement =>
-    styled(document.createElement("div"), "mw-spin", SPIN_STYLE);
+  const spin = () => styled(document.createElement("div"), "mw-spin", SPIN_STYLE);
 
-  const row = (labels: Array<{ text: string; go?: boolean }>): Promise<number> =>
+  const row = (labels) =>
     new Promise((resolve) => {
       const r = styled(document.createElement("div"), "mw-row", ROW_STYLE);
       labels.forEach((spec, index) => {
@@ -129,12 +99,12 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
       card.append(r);
     });
 
-  const close = (): void => {
+  const close = () => {
     overlay.remove();
   };
 
   return {
-    ask(ask: AdoptAsk): Promise<boolean> {
+    async ask(ask) {
       const n = ask.credentials.length;
       body(
         "Add a permanent wallet?",
@@ -149,15 +119,15 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
       // the done/failed Close buttons' business, never the ask's.
       return answer;
     },
-    passkey(): void {
+    passkey() {
       body("Set your passkey", "Follow your browser's prompt — the passkey unlocks your wallet on every device.");
       card.append(spin());
     },
-    moving(keys: string[]): void {
+    moving(keys) {
       body("Moving your credential…", `${keys.length} record${keys.length === 1 ? "" : "s"} move into your wallet.`);
       card.append(spin());
     },
-    done(report: { account: string; backend: string; keys: string[] }): void {
+    done(report) {
       const n = report.keys.length;
       const p = body("Your permanent wallet is set up", `${n} record${n === 1 ? "" : "s"} moved to ${report.backend}. Your passkey unlocks it.`);
       const ok = styled(document.createElement("p"), "mw-ok", OK_STYLE);
@@ -165,17 +135,17 @@ export function renderAdoptModal(root?: HTMLElement): AdoptModal {
       p.replaceWith(ok);
       row([{ text: "Close", go: true }]).then(close);
     },
-    failed(failed: string): void {
+    failed(failed) {
       const p = body("The move did not complete", `The record "${failed}" failed to verify against the backend. Your page wallet is untouched — nothing was lost.`);
       const bad = styled(document.createElement("p"), "mw-bad", BAD_STYLE);
       bad.textContent = "You can try again.";
       p.replaceWith(bad);
       row([{ text: "Close", go: true }]).then(close);
     },
-    declined(): void {
+    declined() {
       close();
     },
-    close(): void {
+    close() {
       close();
     },
   };

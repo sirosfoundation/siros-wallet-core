@@ -258,6 +258,7 @@ const server = createServer(async (req, res) => {
     else if (url.pathname.startsWith("/presenter/")) { file = join(assetsRoot, "presenter", url.pathname.slice(11)); fileRoot = join(assetsRoot, "presenter"); }
     else if (url.pathname.startsWith("/circuits/")) { file = join(assetsRoot, "circuits", url.pathname.slice(10)); fileRoot = join(assetsRoot, "circuits"); }
     else if (url.pathname === "/client.js") { file = join(HERE, "client.js"); fileRoot = HERE; }
+    else if (url.pathname === "/adopt-modal.mjs") { file = join(HERE, "adopt-modal.mjs"); fileRoot = HERE; }
     if (!file || !fileRoot || !normalize(file).startsWith(normalize(fileRoot))) return notFound(res);
     try {
       const body = await readFile(file);

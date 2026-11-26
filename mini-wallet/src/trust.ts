@@ -33,12 +33,19 @@ export interface TrustPlugin {
   evaluate(ask: TrustAsk): Promise<TrustAnswer>;
 }
 
-/** The demo shim: always trusted, no authzen client. */
-export class AlwaysTrustedPlugin implements TrustPlugin {
+/** The DEMO shim: always trusted, no authzen client, no policy — the
+ *  name says so. Demos and test benches ONLY; a production page brings
+ *  the authzen-client (or the backend's PDP-proxy). An import of this
+ *  class into production code is the review flag. */
+export class DemoAlwaysTrustedPlugin implements TrustPlugin {
   async evaluate(_ask: TrustAsk): Promise<TrustAnswer> {
     return { trusted: true, decision: "Permit" };
   }
 }
+
+/** The old name — a deprecated alias for {@link DemoAlwaysTrustedPlugin},
+ *  kept for the 0.1.x migrations. The name lied about itself. */
+export class AlwaysTrustedPlugin extends DemoAlwaysTrustedPlugin {}
 
 /** A token for the evaluation's Authorization — the wallet's authz
  *  continuity: before any user exists this is the PRE-REGISTRATION

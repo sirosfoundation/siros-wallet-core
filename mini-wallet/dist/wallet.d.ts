@@ -2,6 +2,7 @@ import type { TrustTokenProvider } from "./trust.js";
 import type { MiniWalletPdpOption } from "./types.js";
 import type { PresenterOptions } from "./presenter.js";
 import type { AdoptReport, AdoptTarget, AdoptUi, PrivateDataCipher } from "./adopt.js";
+import type { AdoptModal } from "./types.js";
 import type { MiniWalletEvent, MiniWalletFetch, MiniWalletUi, StoredCredential, WalletStorage } from "./types.js";
 /** The engine module, injected by the page — it loads the published wasm
  *  its own way (a bundler import of the package name, or a URL import of
@@ -65,6 +66,12 @@ export interface MiniWalletOptions {
      *  every presentation; a page's own `ui.vp` replaces this seam) and
      *  defaults the `match` ask when the page provides none. */
     presenter?: PresenterOptions;
+    /** A2: the bound on the engine's flow-start answer (milliseconds).
+     *  A transport that never answers rejects the flow instead of hanging
+     *  it forever. The user-paced asks (consent, the tx code) run INSIDE
+     *  the request, so the default is generous: 300_000. `0` disables the
+     *  bound. */
+    requestTimeoutMs?: number;
     /** Every event the wallet surfaces: progress, credentials, errors. */
     onEvent?: (event: MiniWalletEvent) => void;
 }
@@ -108,6 +115,13 @@ export declare class MiniWallet {
      */
     migrate(target: WalletStorage): Promise<import("./migration.js").MigrationReport>;
     /**
+     * A5: the lifecycle the library owed. Best-effort: the session closes
+     *  on the engine (a transport that already died is not an error), the
+     *  pending flows reject (a page tearing down mid-flow hears it), and a
+     *  later call re-creates the engine — dispose is a stop, not a tomb.
+     */
+    dispose(): Promise<void>;
+    /**
      * Adopt a permanent wallet: the page's mini-wallet moves onto a
      * go-wallet-backend — the ask ("add a permanent wallet?"), the
      * passkey (the AS's WebAuthn registration, the page's ceremony), the
@@ -129,12 +143,12 @@ export declare class MiniWallet {
         ui: AdoptUi;
         /** The blob's cipher — the private-data library's slot. */
         cipher?: PrivateDataCipher;
-        /** The adopt as a MODAL on the page (the decision: the page serves
-         *  from the wallet's origin and the onboard/set-passkey/move arc
-         *  runs as a modal). The library renders the steps (the buttons ARE
-         *  the ask's answer); `true` mounts on document.body, an element
-         *  mounts there. The page's callbacks still run alongside. */
-        modal?: boolean | HTMLElement;
+        /** The adopt's modal surface — the PAGE's own implementation of the
+         *  AdoptModal contract (the library ships no renderer: every string,
+         *  style and layout stays the page's). Pass an instance alongside
+         *  `ui`: both asks run, and BOTH must consent — the page's false is
+         *  a veto the modal never overrides. */
+        modal?: AdoptModal;
     }): Promise<AdoptReport | null>;
 }
 export {};
