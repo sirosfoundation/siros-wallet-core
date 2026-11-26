@@ -2547,8 +2547,7 @@ dependencies = [
 [[package]]
 name = "jose-rs"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f770b54eb5860309b8d7afce4231ea9373d692ced7b42aea7677a00c0f419b54"
+source = "git+https://github.com/sirosfoundation/jose-rs?rev=5e8ada5eab942c183083c1c74246fb9743291448#5e8ada5eab942c183083c1c74246fb9743291448"
 dependencies = [
  "aes 0.9.4",
  "aes-gcm 0.11.1",
