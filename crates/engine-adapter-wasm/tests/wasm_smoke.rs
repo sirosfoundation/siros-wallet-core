@@ -208,3 +208,105 @@ async fn a_flow_without_the_capability_refuses_with_the_wmp_error() {
         "the gate's error was {detail}"
     );
 }
+
+/// The host-ask boundary: the raw-JSON members of an ask cross into
+/// JavaScript as PLAIN OBJECTS, never `Map`s. The default
+/// `serde_wasm_bindgen::to_value` keeps the Map (to preserve round-trips
+/// for Rust hosts); the wasm engine's hosts are JS pages — a page reading
+/// `params.dcql_query.credentials` sees `undefined` against a `Map`, and
+/// `JSON.stringify(Map)` answers `{}`, so every raw-JSON member read as
+/// empty (found live in the realeyes demo: the match ask's DCQL was
+/// `{}`, every zkp query empty, the presentation refused).
+#[wasm_bindgen_test]
+async fn the_host_asks_cross_as_plain_objects_never_maps() {
+    use engine_adapter_wasm::ports::JsHost;
+    use engine_ports::{ClientIdScheme, Host, MatchParams, VerifierInfo};
+
+    // The JS side records what it saw: the dcql root's constructor, the
+    // credentials read, and the number member's shape. A plain object
+    // stringifies itself; a Map answers "{}".
+    let noop =
+        js_sys::Function::new_with_args("params", "return Promise.resolve({ selections: [] })");
+    let r#match = js_sys::Function::new_with_args(
+        "params",
+        r#"
+        globalThis.__ask_ctor = params.dcql_query.constructor.name;
+        globalThis.__ask_credentials = params.dcql_query.credentials
+            ? JSON.stringify(params.dcql_query.credentials)
+            : "(undefined)";
+        globalThis.__ask_ver = JSON.stringify(
+            params.dcql_query.credentials && params.dcql_query.credentials[0].params.ver,
+        );
+        return Promise.resolve({ selections: [] });
+        "#,
+    );
+    let host = JsHost {
+        sign: noop.clone(),
+        r#match,
+        consent: noop.clone(),
+        tx_code: noop.clone(),
+        open_authorization: noop.clone(),
+        vp: noop.clone(),
+        dpop_proof: noop.clone(),
+        attestation: noop,
+        progress: None,
+        signing_key: None,
+        response_encryption_key: None,
+        decrypt_credential_response: None,
+    };
+    let dcql = serde_json::json!({
+        "credentials": [ { "id": "q1", "params": { "ver": 1 } } ]
+    });
+    let params = MatchParams {
+        flow_id: "flow-1".to_owned(),
+        dcql_query: Some(dcql.clone()),
+        scope: String::new(),
+        verifier: VerifierInfo {
+            name: "verifier".to_owned(),
+            client_id: "x509_san_dns:verifier.example".to_owned(),
+            client_id_scheme: ClientIdScheme::X509SanDns,
+            domain: String::new(),
+            logo_uri: String::new(),
+            trusted: true,
+            framework: String::new(),
+            reason: String::new(),
+            trust_context: None,
+        },
+        transaction_data: Vec::new(),
+        client_metadata: None,
+    };
+    let _ = host.request_match(params).await;
+
+    let global = js_sys::global();
+    let ctor: String = js_sys::Reflect::get(&global, &JsValue::from_str("__ask_ctor"))
+        .ok()
+        .and_then(|v| v.as_string())
+        .unwrap_or_default();
+    let credentials: String =
+        js_sys::Reflect::get(&global, &JsValue::from_str("__ask_credentials"))
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default();
+    let ver: String = js_sys::Reflect::get(&global, &JsValue::from_str("__ask_ver"))
+        .ok()
+        .and_then(|v| v.as_string())
+        .unwrap_or_default();
+    assert_eq!(
+        ctor, "Object",
+        "the raw-JSON members cross as plain objects, never Maps"
+    );
+    assert_eq!(
+        credentials, r#"[{"id":"q1","params":{"ver":{"$serde_json::private::Number":"1"}}}]"#,
+        "a JS host reads the credentials array (a Map would stringify to {{}})"
+    );
+    // The number member: serde_json's `arbitrary_precision` (a jose-rs
+    // feature, additive across this build) still tags raw numbers as
+    // `{"$serde_json::private::Number":"…"}` even through the
+    // maps-as-objects serializer — the boundary's known artifact until
+    // the feature goes. A JS host unwraps it (the mini-wallet's
+    // fromEngineJson); the pin documents today's honest shape.
+    assert!(
+        ver.contains("$serde_json::private::Number"),
+        "the raw number rides the arbitrary_precision tag today (documented): {ver}"
+    );
+}
