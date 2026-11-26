@@ -11,11 +11,12 @@
 //! decrypts it.
 //!
 //! **KNOWN INTEROP GAP (found by this suite, 2026-11-21):** the TS side's
-//! key package (ts-mls) does not deserialize under openmls 0.8.3 —
-//! tls_codec 0.4.2's `quic_vec` asserts (`len_len_log <= MAX_LEN_LEN_LOG`)
-//! on the wire form ts-mls writes. The two implementations disagree on
-//! the TLS varint length encoding. Until the codecs align (an upstream
-//! item: ts-mls or openmls), the cross-implementation round-trip fails
+//! key package (ts-mls) does not deserialize under openmls — 0.8.3
+//! (tls_codec 0.4.2's `quic_vec` asserts on the wire form ts-mls
+//! writes) and still 0.10.0-rc.1 (tls_codec 0.5 refuses with
+//! `InvalidVectorLength`). The two implementations disagree on the TLS
+//! varint length encoding. Until the codecs align (an upstream item:
+//! ts-mls or openmls), the cross-implementation round-trip fails
 //! closed here — pinned by the `#[ignore]` below with the full context,
 //! so the suite stays green while the gap is documented, not hidden.
 
@@ -31,7 +32,7 @@ const HANDOFF: &str = concat!(
 );
 
 #[test]
-#[ignore = "the ts-mls key package does not deserialize under openmls 0.8.3 (tls_codec varint difference) - the vectors' documented gap"]
+#[ignore = "the ts-mls key package does not deserialize under openmls 0.8.3 or 0.10.0-rc.1 (tls_codec varint difference) - the vectors' documented gap"]
 fn answer_the_ts_key_package_with_a_welcome_and_ciphertext() {
     let handoff = std::fs::read_to_string(HANDOFF)
         .unwrap_or_else(|err| panic!("{err}: run the wmp-js leg first"));

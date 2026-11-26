@@ -42,7 +42,7 @@ fn write_the_interop_vectors() {
 
     let vectors = serde_json::json!({
         "version": 1,
-        "note": "the wmp-mls interop vectors: A (Rust, openmls 0.8.3) mints; the TS implementation joins by the Welcome and decrypts the ciphertext",
+        "note": "the wmp-mls interop vectors: A (Rust, openmls 0.10.0-rc.1) mints; the TS implementation joins by the Welcome and decrypts the ciphertext",
         "cipher_suite": 0x0001,
         "welcome": welcome,
         "ciphertext": ciphertext,

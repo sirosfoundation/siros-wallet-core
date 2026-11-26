@@ -39,7 +39,7 @@ license = "BSD-2-Clause"
 repository = "https://github.com/sirosfoundation/siros-wallet-core"
 authors = ["SIROS Foundation"]
 # The floor of every crate: aes 0.9.4 declares 1.89. Checked by the msrv CI job.
-rust-version = "1.89"
+rust-version = "1.94"
 
 [workspace.dependencies]
 siros-codec = { path = "crates/siros-codec" }

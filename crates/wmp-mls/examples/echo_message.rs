@@ -22,7 +22,40 @@ fn main() -> Result<(), Box<dyn Error>> {
     let plaintext = args[2].as_bytes();
 
     let identity = "ebcore:iso6523:0007:5595421925";
-    let provider = OpenMlsProvider::for_identity(identity)?;
+    // The X.509 credential (the interop fix): the subscriber certificate
+    // chain carries the MLS credential for certificate-backed schemes —
+    // Echo's MLS finds the member by certificate and DECRYPTS the message.
+    // Parse the PEM chain to DER (leaf first, then the CA).
+    let cert_chain: Vec<Vec<u8>> = {
+        let pem =
+            std::fs::read_to_string("/tmp/opencode/device-round-cert.pem").unwrap_or_default();
+        use base64::Engine;
+        pem.split("-----END CERTIFICATE-----")
+            .filter(|block| block.contains("BEGIN CERTIFICATE"))
+            .filter_map(|block| {
+                let body = block
+                    .split("-----BEGIN CERTIFICATE-----")
+                    .nth(1)
+                    .unwrap_or_default();
+                let clean: String = body.chars().filter(|c| !c.is_whitespace()).collect();
+                base64::engine::general_purpose::STANDARD.decode(clean).ok()
+            })
+            .filter(|bytes| !bytes.is_empty())
+            .collect()
+    };
+    eprintln!(
+        "the cert chain: {} cert(s), leaf {} bytes",
+        cert_chain.len(),
+        cert_chain.first().map_or(0, <Vec<u8>>::len)
+    );
+    let provider = OpenMlsProvider::for_identity_with_certificate(
+        identity,
+        if cert_chain.is_empty() {
+            None
+        } else {
+            Some(cert_chain)
+        },
+    )?;
 
     let (kp_bytes, echo_suite) = {
         use openmls::prelude::tls_codec::Deserialize as _;
