@@ -3,6 +3,25 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] — 2026-11-26
+
+### Changed
+
+- **openmls 0.10 (issue #115)**: wmp-mls upgrades openmls 0.8.3 → 0.10.0-rc.1, openmls_rust_crypto 0.5.1 → 0.7.0-rc.1 (hpke 0.8, hpke-rs-libcrux 0.8.1, libcrux ≥0.0.10), openmls_basic_credential and openmls_traits → 0.7.0-rc.1. **All eight RUSTSEC advisories lifted** (2026-0124/0330/0331/0207/0208/0209/0211/0212); cargo audit: 11 → 3 vulnerabilities (the 3 remaining are pre-existing and unrelated).
+
+### Fixed
+
+- **`create_group` never passed the caller's `cipher_suite` to the builder** (`let _ = suite;`) — every group was silently minted on the default 0x0001, and a 0x0002 member's add failed valn0201. The spec's `cipher_suite` param now governs the group (a pre-existing latent bug surfaced by the 0.10 upgrade's Capabilities Reject policy).
+- **`Capabilities::new` Reject policy** (the 0.10 semantic break): an unset ciphersuite list is now *empty* and every group create refused its own group. Fixed by advertising both wire suites (0x0001, 0x0002) explicitly, and the KeyPackage leaf also advertises both credential types (a package must be addable to a group holding an X.509 member).
+
+### Added
+
+- **The signer-accepting constructor** (`for_identity_with_certificate_and_key`): reads the leaf's PKCS#8 key, derives the signer type from the key's own OID (Ed25519 RFC 8410 / P-256 RFC 5915), falls back to the fresh-Ed25519 behaviour on `None`, and fails closed (-31004) on any other algorithm. The X.509 credential's signature key now matches the certificate's key (RFC 9420 §5.3.1's key binding) — the coherence the siros-verifier-core WMP surface was waiting on.
+
+### MSRV
+
+- **The workspace floor raised 1.89 → 1.94** — the openmls 0.10 line declares 1.94. The `msrv` CI job installs 1.94 with this release.
+
 ## [0.4.2] — 2026-11-25
 
 ### Fixed
