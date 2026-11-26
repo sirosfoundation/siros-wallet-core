@@ -43,7 +43,7 @@ jobs:
             -p 'siros-wallet-core-*.aar' -p 'siros-wallet-core-*.pom' -D target/
           echo "AAR_VERSION=${{ inputs.tag }}" | sed 's/^AAR_VERSION=v/AAR_VERSION=/' >> "$GITHUB_ENV"
 
-      - uses: sirosfoundation/siros-sdk-kotlin/.github/actions/central-publish@734063a7d874bb1cb79ebca7e7f642143694ee40
+      - uses: sirosfoundation/siros-sdk-kotlin/.github/actions/central-publish@460b2cdeb30c5d888f0114667f5dfa795780d315
         with:
           artifact-id: siros-wallet-core
           version: ${{ env.AAR_VERSION }}
