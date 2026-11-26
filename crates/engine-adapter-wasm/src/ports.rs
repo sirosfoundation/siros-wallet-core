@@ -99,6 +99,22 @@ pub struct JsFetchHttp {
     fetch: js_sys::Function,
 }
 
+/// The serializer every value that crosses INTO JavaScript uses: maps
+/// become plain objects, never `Map` (a JS host reading
+/// `params.dcql_query.credentials` sees `undefined` against a `Map`,
+/// `Object.keys(aMap)` answers `[]` and `JSON.stringify(Map)` answers
+/// `{}` — found live in the realeyes demo: every raw-JSON member of a
+/// host ask arrived as a nested `Map` and the whole DCQL read as
+/// empty). The raw-JSON members still carry serde_json's
+/// `arbitrary_precision` number tags when the build enables it
+/// (jose-rs does, feature-additively) — a JS host unwraps those at its
+/// own boundary; maps-as-objects is the boundary's share.
+pub(crate) fn to_js_value<T: serde::Serialize + ?Sized>(
+    value: &T,
+) -> Result<wasm_bindgen::JsValue, serde_wasm_bindgen::Error> {
+    value.serialize(&serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true))
+}
+
 impl JsFetchHttp {
     /// The port over the page's fetch function:
     /// `fetch(request) -> Promise<{status, headers, body}>`.
@@ -126,7 +142,7 @@ impl HttpClient for JsFetchHttp {
             allow_plaintext: request.allow_plaintext,
             timeout_ms: request.timeout_ms,
         };
-        let value = serde_wasm_bindgen::to_value(&js_request)
+        let value = to_js_value(&js_request)
             .map_err(|err| js_error(format!("serialize the request: {err}")))?;
 
         let fetch = self.fetch.clone();
@@ -212,8 +228,8 @@ impl JsHost {
         function: &js_sys::Function,
         ask: &impl serde::Serialize,
     ) -> Result<T, HostError> {
-        let value = serde_wasm_bindgen::to_value(ask)
-            .map_err(|err| host_error(format!("serialize the ask: {err}")))?;
+        let value =
+            to_js_value(ask).map_err(|err| host_error(format!("serialize the ask: {err}")))?;
         let function = function.clone();
         await_js(spawn_js(async move {
             let promise = function
@@ -318,7 +334,7 @@ impl Host for JsHost {
     fn progress(&self, flow_id: &str, step: &str, detail: Option<String>) {
         if let Some(progress) = &self.progress {
             let payload = serde_json::json!({ "flow_id": flow_id, "step": step, "detail": detail });
-            if let Ok(value) = serde_wasm_bindgen::to_value(&payload) {
+            if let Ok(value) = to_js_value(&payload) {
                 let _ = progress.call1(&JsValue::NULL, &value);
             }
         }
@@ -341,7 +357,7 @@ impl JsPdp {
 #[async_trait::async_trait]
 impl Pdp for JsPdp {
     async fn evaluate(&self, request: EvaluationRequest) -> Result<EvaluationResponse, PdpError> {
-        let value = serde_wasm_bindgen::to_value(&request)
+        let value = to_js_value(&request)
             .map_err(|err| PdpError::Error(format!("serialize the evaluation: {err}")))?;
         let evaluate = self.evaluate.clone();
         await_js(spawn_js(async move {
