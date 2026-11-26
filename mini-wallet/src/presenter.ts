@@ -415,7 +415,9 @@ export class ZkpPresenterPort {
       return { vp_token: vpToken };
     } catch (thrown) {
       // The wasm's uniform refusal shape — the engine's ask gets the
-      // allowlisted code, never the presenter's internals.
+      // allowlisted code, never the presenter's internals. The refusal's
+      // code is logged (the wasm's own {error_code, kind, code} shape)
+      // for the integrator's diagnostics.
       const refusal = thrown as Partial<PresenterRefusal>;
       this.#context.delete(flowId);
       return { refusal: { code: typeof refusal.code === "string" ? refusal.code : "SIGN_REFUSED" } };

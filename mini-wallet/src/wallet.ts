@@ -700,8 +700,7 @@ export class MiniWallet {
 
   /** The vp ask through the seam: the presenter's answer, in the
    *  engine's VpResult shape ({vp_token} or {refusal:{code}}). */
-  async #hostVp(params: { flow_id: string }): Promise<unknown> {
-    const port = this.#presenter;
+  async #hostVp(params: { flow_id: string }): Promise<unknown> {    const port = this.#presenter;
     if (!port) throw new Error("the presenter seam is not configured");
     return port.vp(params.flow_id, params as never);
   }

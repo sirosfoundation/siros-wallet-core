@@ -4,8 +4,8 @@
 // terminal-simple: the page owns every decision (the consent answers
 // true for the harness; a real page asks its person).
 
-import { MiniWallet, LocalStorageWalletStorage, DemoAlwaysTrustedPlugin } from "/lib2/index.js";
-import init, { WasmEngine } from "/engine2/engine_adapter_wasm.js";
+import { MiniWallet, LocalStorageWalletStorage, DemoAlwaysTrustedPlugin } from "/lib/index.js";
+import init, { WasmEngine } from "/engine/engine_adapter_wasm.js";
 
 const out = document.getElementById("out");
 
@@ -79,7 +79,7 @@ document.getElementById("run").addEventListener("click", async () => {
       pdp: new DemoAlwaysTrustedPlugin(),
       // ALL UI delegated: the consent is this page's answer (the harness
       // says yes; a real page asks).
-      ui: { consent: async () => ({ consented: true }) },
+      ui: { consent: async (p) => { console.log("[consent]", JSON.stringify(p).slice(0, 200)); return { consented: true }; } },
       // The zkp presenter: the browser proving wasm + the circuits the
       // page serves. The CONSENT above stays this page's; the vp ask (the
       // construction) is the library's default over the seam.
@@ -87,7 +87,7 @@ document.getElementById("run").addEventListener("click", async () => {
         wasmUrl: "/presenter/siros_zkp_req_wasm.js",
         circuitsUrl: "/circuits/mdoc-circuits.zst",
       },
-      wasmUrl: "/engine2/engine_adapter_wasm_bg.wasm?v=e5",
+      wasmUrl: "/engine/engine_adapter_wasm_bg.wasm",
       // The engine module, loaded the page's way (a URL import here; a
       // bundler resolves the package name in a real app).
       engine: { init, WasmEngine },
