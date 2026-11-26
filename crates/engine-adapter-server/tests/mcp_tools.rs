@@ -78,7 +78,9 @@ fn mcp_peer(mcp_tools: bool) -> Arc<Peer> {
     let handler = Arc::new(SessionHandler::new(service, fixed_clock()));
     PeerBuilder::new(handler)
         .session_store(store.clone())
-        .profile(Arc::new(McpToolProfile::new(mcp_tools)))
+        .profile(Arc::new(
+            McpToolProfile::new(mcp_tools).with_clock(fixed_clock()),
+        ))
         .expect("register the mcp profile")
         .build()
 }
@@ -209,6 +211,68 @@ fn a_call_naming_no_session_refuses() {
     assert_eq!(
         err["error"]["code"],
         wmp_core::error::ERR_CAPABILITY_NOT_SUPPORTED
+    );
+}
+
+/// Issue #104: a session the call NAMED but the store no longer holds
+/// (the engine restarted and lost its in-memory table, or the id went
+/// stale) answers the session's own `-31000` — the code the SDKs'
+/// session recovery re-creates and retries on — not the capability's
+/// `-31005`, which reads as "the server does not support this" and
+/// bricked the wallet until a hard app restart (gdc 2026-11-24).
+#[test]
+fn a_call_naming_a_session_the_store_lost_answers_the_sessions_own_not_found() {
+    let peer = mcp_peer(true);
+    let _ = create_session(&peer, true);
+    let err = request(
+        &peer,
+        &ctx(),
+        "tools/list",
+        json!({ "wmp": { "session_id": "ses-lost-in-the-restart" } }),
+    )
+    .expect_err("the lost-session call refuses");
+    assert_eq!(
+        err["error"]["code"],
+        wmp_core::error::ERR_SESSION_NOT_FOUND,
+        "the named-but-unresolved session is the session's semantics: {err}"
+    );
+    assert_eq!(
+        err["error"]["data"]["session_id"], "ses-lost-in-the-restart",
+        "the refusal names the lost session: {err}"
+    );
+    assert_eq!(
+        err["error"]["data"]["capability"], CAPABILITY_MCP,
+        "the refusal names the capability the recovery re-negotiates: {err}"
+    );
+}
+
+/// Issue #104, the #48 mirror: a resolved but expired record answers
+/// `-31001` Session expired — the recovery path re-creates the session —
+/// instead of running the tool against a dead record.
+#[test]
+fn an_expired_sessions_tools_call_answers_session_expired() {
+    let peer = mcp_peer(true);
+    let _ = create_session(&peer, true);
+    // A session the store resolved but whose TTL the clock has passed:
+    // the fixed clock reads 1_000_000, the record expired at 999_000.
+    let mut expired_ctx = ctx();
+    expired_ctx.session = Some(wmp_core::session::Session {
+        id: "ses-expired".to_owned(),
+        expires_at: Some(999_000),
+        capabilities: Capabilities::default(),
+        ..Default::default()
+    });
+    let err = request(
+        &peer,
+        &expired_ctx,
+        "tools/list",
+        json!({ "wmp": { "session_id": "ses-expired" } }),
+    )
+    .expect_err("the expired-session call refuses");
+    assert_eq!(
+        err["error"]["code"],
+        wmp_core::error::ERR_SESSION_EXPIRED,
+        "the expired record answers the session's semantics: {err}"
     );
 }
 

@@ -24,7 +24,10 @@
 use std::sync::Arc;
 
 use wmp_core::context::RequestContext;
-use wmp_core::error::{RpcError, ERR_CAPABILITY_NOT_SUPPORTED, ERR_INVALID_PARAMS};
+use wmp_core::error::{
+    RpcError, ERR_CAPABILITY_NOT_SUPPORTED, ERR_INVALID_PARAMS, ERR_SESSION_EXPIRED,
+    ERR_SESSION_NOT_FOUND,
+};
 use wmp_core::handler::HandlerError;
 use wmp_core::profile::{DispatchResult, PeerContext, Profile};
 use wmp_core::types::McpCap;
@@ -88,6 +91,10 @@ pub struct McpToolProfile {
     /// so no session negotiates the capability, and every `tools/*` call
     /// answers `-31005`.
     enabled: bool,
+    /// The clock the gate's expired-session check reads (issue #104): set
+    /// by the registration site (the peer's own clock); `None` keeps the
+    /// pre-#104 behaviour (no expiry pre-check, only the resolution check).
+    clock: Option<wmp_core::sessionservice::Clock>,
 }
 
 impl McpToolProfile {
@@ -96,7 +103,16 @@ impl McpToolProfile {
         Self {
             tools: debug_tools(),
             enabled,
+            clock: None,
         }
+    }
+
+    /// Sets the clock the gate's expired-session check reads. The
+    /// registration site passes the peer's clock — one time source for
+    /// every session-bound gate.
+    pub fn with_clock(mut self, clock: wmp_core::sessionservice::Clock) -> Self {
+        self.clock = Some(clock);
+        self
     }
 
     /// The `mcp` capability's supported-side params — merged into the
@@ -110,17 +126,64 @@ impl McpToolProfile {
         }
     }
 
-    /// The gate: whether the session negotiated the `mcp` capability. `None`
-    /// session fails closed (the peer resolved no session; a tools call has
-    /// no business running without one).
-    fn session_negotiated(&self, ctx: &RequestContext) -> Result<(), HandlerError> {
+    /// The gate: whether the session negotiated the `mcp` capability.
+    ///
+    /// Issue #104: a session the request NAMED but the store no longer
+    /// resolves is the session's own semantics — `-31000` Session not
+    /// found — not the capability's `-31005`. The engine restarted and
+    /// lost its in-memory session table, or the id went stale; the
+    /// clients' session recovery (both SDKs' `WmpSession`) re-creates
+    /// the session and retries on the session code, while `-31005`
+    /// reads as "the server does not support this" and bricks the
+    /// wallet until a hard app restart (gdc 2026-11-24: a routine
+    /// engine redeploy, every connected wallet answered "Capability
+    /// not supported" and stayed there). The flows gate answers the
+    /// same distinction for `wmp.flow.start` (#48, peer.rs).
+    ///
+    /// A live-but-expired record answers `-31001` Session expired
+    /// (#48's mirror): the store resolved it, but the gate's clock
+    /// says the session is dead — the same recovery path.
+    ///
+    /// A call that names no session at all keeps the fail-closed
+    /// `-31005`: nothing counts as negotiated there (core §10.3), and
+    /// the client lost no session it could re-create.
+    fn session_negotiated(
+        &self,
+        ctx: &RequestContext,
+        params: &serde_json::Value,
+    ) -> Result<(), HandlerError> {
         if !self.enabled {
             return Err(not_supported("this engine answers no MCP tools"));
         }
-        let session = ctx
-            .session
-            .as_ref()
-            .ok_or_else(|| not_supported("no session: the tools surface rides a session"))?;
+        let named = params
+            .pointer("/wmp/session_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let Some(session) = ctx.session.as_ref() else {
+            if named.is_empty() {
+                return Err(not_supported(
+                    "no session: the tools surface rides a session",
+                ));
+            }
+            return Err(HandlerError::Rpc(RpcError::new(
+                ERR_SESSION_NOT_FOUND,
+                Some(serde_json::json!({
+                    "session_id": named,
+                    "capability": CAPABILITY_MCP,
+                })),
+            )));
+        };
+        if let Some(clock) = &self.clock {
+            if session.is_expired(clock()) {
+                return Err(HandlerError::Rpc(RpcError::new(
+                    ERR_SESSION_EXPIRED,
+                    Some(serde_json::json!({
+                        "session_id": named,
+                        "capability": CAPABILITY_MCP,
+                    })),
+                )));
+            }
+        }
         if !session.capabilities.0.contains_key(CAPABILITY_MCP) {
             return Err(not_supported(
                 "the session did not negotiate the mcp capability",
@@ -130,8 +193,8 @@ impl McpToolProfile {
     }
 
     /// `tools/list`: every tool's name, description and schema.
-    fn list(&self, ctx: &RequestContext) -> DispatchResult {
-        self.session_negotiated(ctx)?;
+    fn list(&self, ctx: &RequestContext, params: &serde_json::Value) -> DispatchResult {
+        self.session_negotiated(ctx, params)?;
         Ok(Some(serde_json::json!({
             "tools": self.tools.iter().map(|tool| {
                 serde_json::json!({
@@ -146,7 +209,7 @@ impl McpToolProfile {
     /// `tools/call`: one tool by name, its `arguments`, the answer.
     /// `-32602` for an unknown tool (the envelope's invalid-params code).
     fn call(&self, ctx: &RequestContext, params: &serde_json::Value) -> DispatchResult {
-        self.session_negotiated(ctx)?;
+        self.session_negotiated(ctx, params)?;
         let name = params
             .get("name")
             .and_then(|v| v.as_str())
@@ -200,7 +263,7 @@ impl Profile for McpToolProfile {
         params: &serde_json::Value,
     ) -> DispatchResult {
         match method {
-            METHOD_TOOLS_LIST => self.list(ctx),
+            METHOD_TOOLS_LIST => self.list(ctx, params),
             METHOD_TOOLS_CALL => self.call(ctx, params),
             _ => Err(HandlerError::Rpc(RpcError::code(
                 wmp_core::error::ERR_METHOD_NOT_FOUND,

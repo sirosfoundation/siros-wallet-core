@@ -327,9 +327,13 @@ fn build_peer(
         // negotiated `mcp` capability, on the registry's custom-method
         // dispatch. A registration collision would be a programming error
         // (no other profile claims the method names); refuse to start.
-        .profile(Arc::new(crate::mcp_tools::McpToolProfile::new(
-            config.mcp_tools,
-        )))
+        // #104: the gate carries the peer's clock — the expired-session
+        // pre-check answers -31001, the same one time source every
+        // session-bound gate reads.
+        .profile(Arc::new(
+            crate::mcp_tools::McpToolProfile::new(config.mcp_tools)
+                .with_clock(handler::system_clock()),
+        ))
         .unwrap_or_else(|err| {
             eprintln!("engine-server: register the mcp tool surface: {err}");
             std::process::exit(1);
