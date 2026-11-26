@@ -26,8 +26,7 @@ import { GoWalletBackendTarget, NullCipher } from "./adopt.js";
 import { ZkpPresenterPort, fromEngineJson } from "./presenter.js";
 import type { PresenterOptions } from "./presenter.js";
 import type { AdoptReport, AdoptTarget, AdoptUi, PrivateDataCipher } from "./adopt.js";
-import { renderAdoptModal } from "./modal.js";
-import type { AdoptModal } from "./modal.js";
+import type { AdoptModal } from "./types.js";
 import { migrateWalletStorage } from "./migration.js";
 import {
   isOfferUri,
@@ -109,6 +108,12 @@ export interface MiniWalletOptions {
    *  every presentation; a page's own `ui.vp` replaces this seam) and
    *  defaults the `match` ask when the page provides none. */
   presenter?: PresenterOptions;
+  /** A2: the bound on the engine's flow-start answer (milliseconds).
+   *  A transport that never answers rejects the flow instead of hanging
+   *  it forever. The user-paced asks (consent, the tx code) run INSIDE
+   *  the request, so the default is generous: 300_000. `0` disables the
+   *  bound. */
+  requestTimeoutMs?: number;
   /** Every event the wallet surfaces: progress, credentials, errors. */
   onEvent?: (event: MiniWalletEvent) => void;
 }
@@ -118,8 +123,6 @@ const CREDENTIAL_PREFIX = "credential:";
 export class MiniWallet {
   #opts: MiniWalletOptions;
   #storage: WalletStorage;
-  #engine: EngineLike | null = null;
-  #sessionId: string | null = null;
   #deviceJwk: Record<string, unknown> | null = null;
   /** The late frames' joins (an error after the start answered, a
    *  completion the transport carries) — the standard flows resolve on
@@ -129,6 +132,9 @@ export class MiniWallet {
   #trustToken: TrustTokenProvider | undefined;
   /** The zkp presenter seam, when the option configured one. */
   #presenter: ZkpPresenterPort | null = null;
+  /** The live engine + its session — dispose()'s handles (A5). */
+  #engine: EngineLike | null = null;
+  #sessionId: string | null = null;
 
   constructor(options: MiniWalletOptions) {
     if (!options.pdp && !options.backend) {
@@ -260,7 +266,6 @@ export class MiniWallet {
       await this.#storage.del(stale).catch(() => {});
     }
     this.#engine = engine;
-    this.#sessionId = sessionId;
     this.#opts.onEvent?.({ type: "session", sessionId });
     return { engine, sessionId };
   }
@@ -327,7 +332,7 @@ export class MiniWallet {
   /** The completion of a START's answer: the result the engine resolved
    *  the request with — {flow_id, credentials?, redirect_uri?, …}. The
    *  delivered credentials store here. */
-  #complete(flowId: string, rawResult: Record<string, unknown>): unknown {
+  async #complete(flowId: string, rawResult: Record<string, unknown>): Promise<unknown> {
     // The engine's return values serialize raw-JSON members as nested JS
     // Maps (the same serde default the host asks carry): the completion's
     // `credential_metadata` is a Map, and a Map stringifies as {} — the
@@ -335,7 +340,11 @@ export class MiniWallet {
     // deep conversion. Convert ONCE, at the boundary.
     const result = fromEngineJson(rawResult) as Record<string, unknown>;
     const credentials = (result.credentials ?? []) as Array<Record<string, unknown>>;
-    for (const entry of credentials) this.#storeCredential(entry, flowId);
+    // A1: the puts are AWAITED — a resolved receiveCredential means a
+    // persisted credential, not a put still in flight that a reload in
+    // the window would lose. The put's own failure names the loss as the
+    // flow-error below; the flow settles either way.
+    for (const entry of credentials) await this.#storeCredential(entry, flowId);
     this.#opts.onEvent?.({
       // "presented": a flow completing WITHOUT credentials — a verifier
       // presentation, or an issuance that ended in a redirect alone
@@ -424,7 +433,11 @@ export class MiniWallet {
         resolve(value);
       };
       this.#pending.set(flowId, {
-        resolve: (result) => finish(this.#complete(flowId, result as Record<string, unknown>)),
+        resolve: (result) => {
+          // A1's other half: the completion's store is awaited before the
+          // flow settles.
+          void this.#complete(flowId, result as Record<string, unknown>).then(finish, finish);
+        },
         reject: (err) => {
           if (settled) return;
           settled = true;
@@ -432,7 +445,23 @@ export class MiniWallet {
           reject(err);
         },
       });
-      start()
+      // A2: the START's answer is bounded — a transport that never
+      // answers (a hung engine, a dead worker) rejects the flow instead
+      // of hanging it forever. The user-paced asks run INSIDE the
+      // request, so the default is generous; 0 disables the bound.
+      const bound = this.#opts.requestTimeoutMs !== 0
+        ? Promise.race([
+            start(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error("the engine never answered the flow start")),
+                this.#opts.requestTimeoutMs ?? 300_000,
+              );
+            }),
+          ])
+        : start();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      bound
         .then((answer) => {
           const result = answer as Record<string, unknown> | null;
           // The synchronous completion carries the flow's result members
@@ -443,7 +472,7 @@ export class MiniWallet {
           // credentials nor a redirect is still an answer, never a hang.
           const started = result && typeof result.flow_type === "string" && result.wmp !== undefined;
           if (result && !started) {
-            finish(this.#complete(flowId, result));
+            void this.#complete(flowId, result).then(finish, finish);
           }
         })
         .catch((err) => {
@@ -457,6 +486,9 @@ export class MiniWallet {
             ? (() => { try { return JSON.stringify(err); } catch { return `keys:[${Object.getOwnPropertyNames(err).join(",")}]`; } })()
             : String(err);
           reject(err instanceof Error ? err : new Error(`the flow rejected: ${detail.slice(0, 600)}`));
+        })
+        .finally(() => {
+          if (timer) clearTimeout(timer);
         });
     });
   }
@@ -480,7 +512,7 @@ export class MiniWallet {
   /** Store one delivered credential — the value plus its format and
    *  configuration, and the response-level metadata verbatim (the
    *  nym_auth ssc opening rides it; the zkp proofs read it back). */
-  #storeCredential(entry: Record<string, unknown>, flowId: string): StoredCredential {
+  async #storeCredential(entry: Record<string, unknown>, flowId: string): Promise<StoredCredential> {
     const id = crypto.randomUUID();
     const record = {
       format: entry.format,
@@ -496,13 +528,15 @@ export class MiniWallet {
     // flow-error (the credential-received event alone would lie). The
     // put stays async — #complete is the flow's result builder, and the
     // event order (received, then the store's failure) is documented.
-    this.#storage.put(key, JSON.stringify(record)).catch((err) => {
+    try {
+      await this.#storage.put(key, JSON.stringify(record));
+    } catch (err) {
       this.#opts.onEvent?.({
         type: "flow-error",
         flowId,
         message: `the credential did not store: ${err instanceof Error ? err.message : String(err)}`,
       });
-    });
+    }
     return {
       key,
       format: typeof record.format === "string" ? record.format : "",
@@ -637,10 +671,19 @@ export class MiniWallet {
     fresh?: boolean;
   }): Promise<{ jwk: Record<string, unknown> }> {
     if (params.fresh && params.credential_configuration_id) {
-      // Per-FLOW: a concurrent second flow on the same configuration
-      // used to overwrite `key:config:<id>` and orphan the first flow's
-      // proofs; `key:flow:<flow_id>` cannot collide.
-      const key = await this.#generateKey(`key:flow:${params.flow_id}`);
+      // Per-FLOW, get-or-create: a concurrent second flow on the same
+      // configuration used to overwrite `key:config:<id>` and orphan
+      // the first flow's proofs; `key:flow:<flow_id>` cannot collide.
+      // Two fresh asks on ONE flow (a same-flow race) return the SAME
+      // key — the second would otherwise orphan the first's proofs.
+      const storeKey = `key:flow:${params.flow_id}`;
+      const existing = await this.#storage.get(storeKey);
+      if (existing) {
+        try {
+          return { jwk: publicOf(JSON.parse(existing) as Record<string, unknown>) };
+        } catch { /* unreadable: a fresh key below */ }
+      }
+      const key = await this.#generateKey(storeKey);
       return { jwk: publicOf(key) };
     }
     return { jwk: publicOf(await this.#keyFor(params.flow_id, params.credential_configuration_id, params.key_id)) };
@@ -710,6 +753,32 @@ export class MiniWallet {
   }
 
   /**
+   * A5: the lifecycle the library owed. Best-effort: the session closes
+   *  on the engine (a transport that already died is not an error), the
+   *  pending flows reject (a page tearing down mid-flow hears it), and a
+   *  later call re-creates the engine — dispose is a stop, not a tomb.
+   */
+  async dispose(): Promise<void> {
+    const engine = this.#engine;
+    this.#engine = null;
+    this.#ready = null;
+    const pending = [...this.#pending.values()];
+    this.#pending.clear();
+    for (const entry of pending) {
+      entry.reject(new Error("the wallet was disposed"));
+    }
+    if (engine) {
+      const sessionId = this.#sessionId;
+      await engine.request("wmp.session.close", {
+        wmp: { session_id: sessionId, version: "0.1" },
+        reason: "complete",
+      }).catch(() => {
+        /* already gone: the close is best-effort */
+      });
+    }
+  }
+
+  /**
    * Adopt a permanent wallet: the page's mini-wallet moves onto a
    * go-wallet-backend — the ask ("add a permanent wallet?"), the
    * passkey (the AS's WebAuthn registration, the page's ceremony), the
@@ -731,21 +800,19 @@ export class MiniWallet {
     ui: AdoptUi;
     /** The blob's cipher — the private-data library's slot. */
     cipher?: PrivateDataCipher;
-    /** The adopt as a MODAL on the page (the decision: the page serves
-     *  from the wallet's origin and the onboard/set-passkey/move arc
-     *  runs as a modal). The library renders the steps (the buttons ARE
-     *  the ask's answer); `true` mounts on document.body, an element
-     *  mounts there. The page's callbacks still run alongside. */
-    modal?: boolean | HTMLElement;
+    /** The adopt's modal surface — the PAGE's own implementation of the
+     *  AdoptModal contract (the library ships no renderer: every string,
+     *  style and layout stays the page's). Pass an instance alongside
+     *  `ui`: both asks run, and BOTH must consent — the page's false is
+     *  a veto the modal never overrides. */
+    modal?: AdoptModal;
   }): Promise<AdoptReport | null> {
     const target = options.target === undefined && this.#opts.backend
       ? new GoWalletBackendTarget(this.#opts.backend.url, this.#opts.backend.tenantId)
       : typeof options.target === "string"
         ? new GoWalletBackendTarget(options.target)
         : options.target!;
-    const modal: AdoptModal | null = options.modal
-      ? renderAdoptModal(options.modal === true ? undefined : options.modal)
-      : null;
+    const modal: AdoptModal | null = options.modal ?? null;
     // Everything from HERE on lives inside the try: the overlay is mounted,
     // so a rejected ask — or a throwing credentials() — must close it, never
     // leave it stuck on the page.

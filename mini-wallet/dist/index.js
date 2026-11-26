@@ -6,7 +6,7 @@
 export { MiniWallet } from "./wallet.js";
 export { LocalStorageWalletStorage, MemoryWalletStorage, memoryStore, } from "./storage.js";
 export { migrateWalletStorage } from "./migration.js";
-export { AlwaysTrustedPlugin, AuthzenTrustPlugin, asPdp } from "./trust.js";
+export { AlwaysTrustedPlugin, AuthzenTrustPlugin, asPdp, DemoAlwaysTrustedPlugin } from "./trust.js";
 export { GoWalletBackendTarget, NullCipher } from "./adopt.js";
-export { renderAdoptModal } from "./modal.js";
 export { isOfferUri, normalizeOffer, unwrapOffer, unwrapAuthorizationRequest, } from "./offer.js";
+export { ZkpPresenterPort, fromEngineJson, asRecord, openId4VpHandover, secretSeedOf } from "./presenter.js";

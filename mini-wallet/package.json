@@ -1,7 +1,7 @@
 {
   "name": "@sirosfoundation/mini-wallet",
   "version": "0.1.0",
-  "description": "The whole wallet a page hosts — the browser wasm engine behind a pluggable-storage, UI-delegating TS library. Credentials arrive before any onboarding; a passkey (a PRF-derived key over the new private-data storage) can come later as a storage migration. nym_auth capable.",
+  "description": "The whole wallet a page hosts \u2014 the browser wasm engine behind a pluggable-storage, UI-delegating TS library. Credentials arrive before any onboarding; a passkey (a PRF-derived key over the new private-data storage) can come later as a storage migration. nym_auth capable.",
   "keywords": [
     "openid4vci",
     "openid4vp",
@@ -11,6 +11,7 @@
     "verifiable-credentials"
   ],
   "type": "module",
+  "sideEffects": false,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -24,7 +25,6 @@
     "README.md",
     "LICENSE"
   ],
-  "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test"

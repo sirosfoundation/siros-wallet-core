@@ -32,6 +32,38 @@ export interface MiniWalletUi {
     attestation?: (params: unknown) => Promise<unknown>;
 }
 import type { TrustPlugin } from "./trust.js";
+import type { AdoptAsk } from "./adopt.js";
+/** The modal the `adopt` flow renders THROUGH — the page's own
+ *  implementation. The library ships no renderer: every UX string,
+ *  style and layout is the hosting page's (the design brief: "the
+ *  library renders nothing"). `adopt`'s `modal` option takes an
+ *  instance of this contract; the steps arrive as the calls below, the
+ *  page renders them however it likes. The example carries a reference
+ *  implementation (examples/realeyes/adopt-modal.mjs). */
+export interface AdoptModal {
+    /** Show the "add a permanent wallet?" step. The step settles when
+     *  the user answers; false aborts the adopt. When a modal renders
+     *  beside the page's own `ui.ask`, BOTH must consent: the page's
+     *  false is a veto the modal never overrides. */
+    ask(ask: AdoptAsk): Promise<boolean>;
+    /** The passkey step: shown while the ceremony runs (the browser's
+     *  own WebAuthn prompt fires over it). */
+    passkey(): void;
+    /** The move step: shown while the records migrate. */
+    moving(keys: string[]): void;
+    /** The done step: the report. */
+    done(report: {
+        account: string;
+        backend: string;
+        keys: string[];
+    }): void;
+    /** The failed step: the move failed; the local wallet is intact. */
+    failed(failed: string): void;
+    /** The ask was declined — close. */
+    declined(): void;
+    /** Tear everything down (an error outside the steps, a stop). */
+    close(): void;
+}
 /** The engine's PDP port shape. The MiniWallet's `pdp` option accepts
  *  this OR a TrustPlugin (the plugin is the first-class form — the
  *  authzen-client's layer); asPdp adapts. */

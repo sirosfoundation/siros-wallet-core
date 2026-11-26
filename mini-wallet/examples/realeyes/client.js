@@ -4,7 +4,7 @@
 // terminal-simple: the page owns every decision (the consent answers
 // true for the harness; a real page asks its person).
 
-import { MiniWallet, LocalStorageWalletStorage, AlwaysTrustedPlugin } from "/lib2/index.js";
+import { MiniWallet, LocalStorageWalletStorage, DemoAlwaysTrustedPlugin } from "/lib2/index.js";
 import init, { WasmEngine } from "/engine2/engine_adapter_wasm.js";
 
 const out = document.getElementById("out");
@@ -70,12 +70,13 @@ document.getElementById("run").addEventListener("click", async () => {
       storage,
       fetch: pageFetch,
       // The trust layer — the DEMO SHIM for the INITIAL issuance
-      // (AlwaysTrustedPlugin, no authzen client). The backend
+      // (DemoAlwaysTrustedPlugin — the demo shim names itself; a real
+      // deployment brings the authzen client or the backend’s PDP-proxy). The backend
       // configuration flips this to gdc's PDP-proxy the moment
       // go-wallet-backend#566's pre-registration tenant token ships
       // (the slot is wired below); post-adopt the session's token
       // carries the evaluations either way.
-      pdp: new AlwaysTrustedPlugin(),
+      pdp: new DemoAlwaysTrustedPlugin(),
       // ALL UI delegated: the consent is this page's answer (the harness
       // says yes; a real page asks).
       ui: { consent: async () => ({ consented: true }) },
@@ -127,11 +128,10 @@ document.getElementById("run").addEventListener("click", async () => {
     try {
     adopt = await wallet.adopt({
       target: new (await import("/lib/index.js")).GoWalletBackendTarget("/api/backend", "default"),
-      // The adopt as a MODAL (the decision: the page serves from the
-      // wallet's origin, the onboard/set-passkey/move arc runs as a
-      // modal) — the library renders the steps; the ceremony stays the
-      // browser's own prompt.
-      modal: true,
+      // The adopt's modal is THIS PAGE'S renderer (the library ships no
+      // UI — every string and style is the host's, per the design brief).
+      // The ceremony stays the browser's own prompt.
+      modal: (await import("/adopt-modal.mjs")).renderAdoptModal(),
       ui: {
         ask: async () => true,
         create: (options) => navigator.credentials.create(options),

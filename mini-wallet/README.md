@@ -24,7 +24,7 @@ engine speaks works through the same surface.
 | 100% TS/JS + wasm | the engine is the published wasm peer dep; the library never bundles a second copy |
 | All UI delegated to the page | the `ui` callbacks pass verbatim to the engine's host port — consent, match, tx-code, presentation approval; the library renders nothing |
 | Pluggable storage | the `WalletStorage` interface; `LocalStorageWalletStorage` now |
-| The trust as a local plugin layer (the authzen-client's home) | the `TrustPlugin` interface; `AuthzenTrustPlugin` speaks the AuthZEN evaluation to the environment's go-trust PDP (the client's own library plugs in behind the same interface when it ships); `AlwaysTrustedPlugin` is the demo shim — always trusted, no authzen client, no PDP |
+| The trust as a local plugin layer (the authzen-client's home) | the `TrustPlugin` interface; `AuthzenTrustPlugin` speaks the AuthZEN evaluation to the environment's go-trust PDP (the client's own library plugs in behind the same interface when it ships); `DemoAlwaysTrustedPlugin` is the demo shim (its name says so) — always trusted, no authzen client, no PDP; `AlwaysTrustedPlugin` stays as the deprecated pre-0.2 alias |
 | The private-data library later (@smncd: passkey + PRF-derived key) | any `WalletStorage` implementation plugs in; see the migration below |
 | No onboarding before receiving a credential | the wallet initializes with the unencrypted localStorage backend and works — credentials arrive immediately |
 | Passkey later, as a migration | `wallet.migrate(target)` copies every key, verifies each write, then drains the source — the deferred onboarding |
