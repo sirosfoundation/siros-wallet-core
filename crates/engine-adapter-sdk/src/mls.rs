@@ -151,6 +151,18 @@ impl WmpMls {
         Ok(MlsGroupCreated { group_id, epoch: 0 })
     }
 
+    /// Export the group's GroupInfo (spec §3.1's `group_info` create
+    /// param): the serialized MlsMessageOut, base64url, with the
+    /// ratchet tree. The peer's `wmp.mls.group.create` validator
+    /// demands the param — a wallet-driven create mints it here and
+    /// hands it to the peer; a member joining by Welcome never needs
+    /// it. Found live at the Cleverbase interop (2026-11-24): the
+    /// wallet path hit the create's refusal on its first group create
+    /// because this surface had no export (issue #108).
+    pub fn export_group_info(&self, group_id: String) -> Result<String, MlsException> {
+        self.provider.export_group_info(&group_id).map_err(mls)
+    }
+
     /// Process a Welcome (spec §3.2): the member joins the group, the
     /// epoch it joined at. The Welcome rides the invitation or the
     /// group's message passing (out of band).

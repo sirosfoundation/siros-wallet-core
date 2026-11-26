@@ -896,6 +896,32 @@ internal open class UniffiVTableCallbackInterfacePdp(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -929,6 +955,34 @@ internal interface UniffiLib : Library {
     fun uniffi_engine_adapter_sdk_fn_method_wmpengine_send(`ptr`: Pointer,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_engine_adapter_sdk_fn_method_wmpengine_take_notifications(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_engine_adapter_sdk_fn_clone_wmpmls(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_engine_adapter_sdk_fn_free_wmpmls(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_engine_adapter_sdk_fn_constructor_wmpmls_new(`identity`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_add_member(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,`keyPackage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_create_group(`ptr`: Pointer,`cipherSuite`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_decrypt(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,`ciphertext`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_encrypt(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,`plaintext`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_export_group_info(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_generate_key_package(`ptr`: Pointer,`cipherSuite`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_identity(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_process_commit(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,`commit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_process_welcome(`ptr`: Pointer,`welcome`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_remove_member(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,`participant`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_engine_adapter_sdk_fn_method_wmpmls_self_update(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_engine_adapter_sdk_fn_init_callback_vtable_host(`vtable`: UniffiVTableCallbackInterfaceHost,
     ): Unit
@@ -1068,6 +1122,30 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_wmpengine_take_notifications(
     ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_add_member(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_create_group(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_decrypt(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_encrypt(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_export_group_info(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_generate_key_package(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_identity(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_process_commit(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_process_welcome(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_remove_member(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpmls_self_update(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_constructor_wmpmls_new(
+    ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_host_request_sign(
     ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_host_request_match(
@@ -1138,6 +1216,42 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpengine_take_notifications() != 42796.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_add_member() != 7665.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_create_group() != 45007.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_decrypt() != 43631.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_encrypt() != 53426.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_export_group_info() != 5896.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_generate_key_package() != 10074.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_identity() != 26559.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_process_commit() != 42733.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_process_welcome() != 3370.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_remove_member() != 55213.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpmls_self_update() != 38788.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_constructor_wmpmls_new() != 25503.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_sign() != 1394.toShort()) {
@@ -1417,6 +1531,29 @@ public object FfiConverterULong: FfiConverter<ULong, Long> {
 
     override fun write(value: ULong, buf: ByteBuffer) {
         buf.putLong(value.toLong())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterLong: FfiConverter<Long, Long> {
+    override fun lift(value: Long): Long {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Long {
+        return buf.getLong()
+    }
+
+    override fun lower(value: Long): Long {
+        return value
+    }
+
+    override fun allocationSize(value: Long) = 8UL
+
+    override fun write(value: Long, buf: ByteBuffer) {
+        buf.putLong(value)
     }
 }
 
@@ -1950,6 +2087,518 @@ public object FfiConverterTypeWmpEngine: FfiConverter<WmpEngine, Pointer> {
     override fun allocationSize(value: WmpEngine) = 8UL
 
     override fun write(value: WmpEngine, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * The member's MLS crypto: ONE provider per wallet identity (one
+ * identity, one key store), the groups it belongs to.
+ */
+public interface WmpMlsInterface {
+    
+    /**
+     * Stage an add (spec §3.3): the commit for the group, the Welcome
+     * for the added member. The commit is merged here (the member set
+     * grew); carry the Welcome to the member.
+     */
+    fun `addMember`(`groupId`: kotlin.String, `keyPackage`: kotlin.String): MlsAddStaged
+    
+    /**
+     * Create a group (spec §3.1): THIS member's group, epoch 0. The
+     * members join by the add flow ([`Self::add_member`]) once their
+     * KeyPackages are at hand.
+     */
+    fun `createGroup`(`cipherSuite`: kotlin.Long): MlsGroupCreated
+    
+    /**
+     * Decrypt the group's ciphertext (spec §4.1): the plaintext, the
+     * epoch. A message this member sent itself refuses (MLS ratchets —
+     * the recipient's provider answers).
+     */
+    fun `decrypt`(`groupId`: kotlin.String, `ciphertext`: kotlin.String): MlsDecrypted
+    
+    /**
+     * Encrypt a message body to the group's current epoch key
+     * (spec §4.1): the base64url MLSMessage, the epoch. The relay
+     * carries this ciphertext opaque (it never sees plaintext).
+     */
+    fun `encrypt`(`groupId`: kotlin.String, `plaintext`: kotlin.ByteArray): MlsEncrypted
+    
+    /**
+     * Export the group's GroupInfo (spec §3.1's `group_info` create
+     * param): the serialized MlsMessageOut, base64url, with the
+     * ratchet tree. The peer's `wmp.mls.group.create` validator
+     * demands the param — a wallet-driven create mints it here and
+     * hands it to the peer; a member joining by Welcome never needs
+     * it. Found live at the Cleverbase interop (2026-11-24): the
+     * wallet path hit the create's refusal on its first group create
+     * because this surface had no export (issue #108).
+     */
+    fun `exportGroupInfo`(`groupId`: kotlin.String): kotlin.String
+    
+    /**
+     * A fresh KeyPackage (spec §2.3) for the suite: publish it on the
+     * member's well-known for the add flows.
+     */
+    fun `generateKeyPackage`(`cipherSuite`: kotlin.Long): MlsKeyPackage
+    
+    /**
+     * The member's identity (the string `new` took).
+     */
+    fun `identity`(): kotlin.String
+    
+    /**
+     * Process a commit (a staged add/remove/update the member
+     * receives): the epoch it advanced to.
+     */
+    fun `processCommit`(`groupId`: kotlin.String, `commit`: kotlin.String): kotlin.Long
+    
+    /**
+     * Process a Welcome (spec §3.2): the member joins the group, the
+     * epoch it joined at. The Welcome rides the invitation or the
+     * group's message passing (out of band).
+     */
+    fun `processWelcome`(`welcome`: kotlin.String): MlsJoined
+    
+    /**
+     * Stage a removal (spec §3.4): the commit (merged here) that
+     * cryptographically excludes the participant.
+     */
+    fun `removeMember`(`groupId`: kotlin.String, `participant`: kotlin.String): kotlin.String
+    
+    /**
+     * A self-update commit (spec §3.5): the post-compromise rotation,
+     * merged here.
+     */
+    fun `selfUpdate`(`groupId`: kotlin.String): kotlin.String
+    
+    companion object
+}
+
+/**
+ * The member's MLS crypto: ONE provider per wallet identity (one
+ * identity, one key store), the groups it belongs to.
+ */
+open class WmpMls: Disposable, AutoCloseable, WmpMlsInterface {
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+    /**
+     * A provider for the member `identity` (the WMP identifier string —
+     * the sender the session names).
+     */
+    constructor(`identity`: kotlin.String) :
+        this(
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_constructor_wmpmls_new(
+        FfiConverterString.lower(`identity`),_status)
+}
+    )
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_free_wmpmls(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_clone_wmpmls(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Stage an add (spec §3.3): the commit for the group, the Welcome
+     * for the added member. The commit is merged here (the member set
+     * grew); carry the Welcome to the member.
+     */
+    @Throws(MlsException::class)override fun `addMember`(`groupId`: kotlin.String, `keyPackage`: kotlin.String): MlsAddStaged {
+            return FfiConverterTypeMlsAddStaged.lift(
+    callWithPointer {
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_add_member(
+        it, FfiConverterString.lower(`groupId`),FfiConverterString.lower(`keyPackage`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Create a group (spec §3.1): THIS member's group, epoch 0. The
+     * members join by the add flow ([`Self::add_member`]) once their
+     * KeyPackages are at hand.
+     */
+    @Throws(MlsException::class)override fun `createGroup`(`cipherSuite`: kotlin.Long): MlsGroupCreated {
+            return FfiConverterTypeMlsGroupCreated.lift(
+    callWithPointer {
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_create_group(
+        it, FfiConverterLong.lower(`cipherSuite`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Decrypt the group's ciphertext (spec §4.1): the plaintext, the
+     * epoch. A message this member sent itself refuses (MLS ratchets —
+     * the recipient's provider answers).
+     */
+    @Throws(MlsException::class)override fun `decrypt`(`groupId`: kotlin.String, `ciphertext`: kotlin.String): MlsDecrypted {
+            return FfiConverterTypeMlsDecrypted.lift(
+    callWithPointer {
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_decrypt(
+        it, FfiConverterString.lower(`groupId`),FfiConverterString.lower(`ciphertext`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Encrypt a message body to the group's current epoch key
+     * (spec §4.1): the base64url MLSMessage, the epoch. The relay
+     * carries this ciphertext opaque (it never sees plaintext).
+     */
+    @Throws(MlsException::class)override fun `encrypt`(`groupId`: kotlin.String, `plaintext`: kotlin.ByteArray): MlsEncrypted {
+            return FfiConverterTypeMlsEncrypted.lift(
+    callWithPointer {
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_encrypt(
+        it, FfiConverterString.lower(`groupId`),FfiConverterByteArray.lower(`plaintext`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Export the group's GroupInfo (spec §3.1's `group_info` create
+     * param): the serialized MlsMessageOut, base64url, with the
+     * ratchet tree. The peer's `wmp.mls.group.create` validator
+     * demands the param — a wallet-driven create mints it here and
+     * hands it to the peer; a member joining by Welcome never needs
+     * it. Found live at the Cleverbase interop (2026-11-24): the
+     * wallet path hit the create's refusal on its first group create
+     * because this surface had no export (issue #108).
+     */
+    @Throws(MlsException::class)override fun `exportGroupInfo`(`groupId`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_export_group_info(
+        it, FfiConverterString.lower(`groupId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * A fresh KeyPackage (spec §2.3) for the suite: publish it on the
+     * member's well-known for the add flows.
+     */
+    @Throws(MlsException::class)override fun `generateKeyPackage`(`cipherSuite`: kotlin.Long): MlsKeyPackage {
+            return FfiConverterTypeMlsKeyPackage.lift(
+    callWithPointer {
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_generate_key_package(
+        it, FfiConverterLong.lower(`cipherSuite`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The member's identity (the string `new` took).
+     */override fun `identity`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_identity(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Process a commit (a staged add/remove/update the member
+     * receives): the epoch it advanced to.
+     */
+    @Throws(MlsException::class)override fun `processCommit`(`groupId`: kotlin.String, `commit`: kotlin.String): kotlin.Long {
+            return FfiConverterLong.lift(
+    callWithPointer {
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_process_commit(
+        it, FfiConverterString.lower(`groupId`),FfiConverterString.lower(`commit`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Process a Welcome (spec §3.2): the member joins the group, the
+     * epoch it joined at. The Welcome rides the invitation or the
+     * group's message passing (out of band).
+     */
+    @Throws(MlsException::class)override fun `processWelcome`(`welcome`: kotlin.String): MlsJoined {
+            return FfiConverterTypeMlsJoined.lift(
+    callWithPointer {
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_process_welcome(
+        it, FfiConverterString.lower(`welcome`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Stage a removal (spec §3.4): the commit (merged here) that
+     * cryptographically excludes the participant.
+     */
+    @Throws(MlsException::class)override fun `removeMember`(`groupId`: kotlin.String, `participant`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_remove_member(
+        it, FfiConverterString.lower(`groupId`),FfiConverterString.lower(`participant`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * A self-update commit (spec §3.5): the post-compromise rotation,
+     * merged here.
+     */
+    @Throws(MlsException::class)override fun `selfUpdate`(`groupId`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(MlsException) { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpmls_self_update(
+        it, FfiConverterString.lower(`groupId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeWmpMls: FfiConverter<WmpMls, Pointer> {
+
+    override fun lower(value: WmpMls): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): WmpMls {
+        return WmpMls(value)
+    }
+
+    override fun read(buf: ByteBuffer): WmpMls {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: WmpMls) = 8UL
+
+    override fun write(value: WmpMls, buf: ByteBuffer) {
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
@@ -3149,6 +3798,264 @@ public object FfiConverterTypeMatchResult: FfiConverterRustBuffer<MatchResult> {
 
 
 /**
+ * An add staged (spec §3.3): the commit for the group, the Welcome for
+ * the added member.
+ */
+data class MlsAddStaged (
+    /**
+     * The base64url MLS Commit (merged into this member's group).
+     */
+    var `commit`: kotlin.String, 
+    /**
+     * The base64url MLS Welcome (hand to the added member).
+     */
+    var `welcome`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMlsAddStaged: FfiConverterRustBuffer<MlsAddStaged> {
+    override fun read(buf: ByteBuffer): MlsAddStaged {
+        return MlsAddStaged(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MlsAddStaged) = (
+            FfiConverterString.allocationSize(value.`commit`) +
+            FfiConverterString.allocationSize(value.`welcome`)
+    )
+
+    override fun write(value: MlsAddStaged, buf: ByteBuffer) {
+            FfiConverterString.write(value.`commit`, buf)
+            FfiConverterString.write(value.`welcome`, buf)
+    }
+}
+
+
+
+/**
+ * A message decrypted: the plaintext bytes, the epoch.
+ */
+data class MlsDecrypted (
+    /**
+     * The plaintext bytes.
+     */
+    var `plaintext`: kotlin.ByteArray, 
+    /**
+     * The epoch the ciphertext was encrypted under.
+     */
+    var `epoch`: kotlin.Long
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMlsDecrypted: FfiConverterRustBuffer<MlsDecrypted> {
+    override fun read(buf: ByteBuffer): MlsDecrypted {
+        return MlsDecrypted(
+            FfiConverterByteArray.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MlsDecrypted) = (
+            FfiConverterByteArray.allocationSize(value.`plaintext`) +
+            FfiConverterLong.allocationSize(value.`epoch`)
+    )
+
+    override fun write(value: MlsDecrypted, buf: ByteBuffer) {
+            FfiConverterByteArray.write(value.`plaintext`, buf)
+            FfiConverterLong.write(value.`epoch`, buf)
+    }
+}
+
+
+
+/**
+ * A message encrypted (spec §4): the base64url MLSMessage, the epoch
+ * it was encrypted under.
+ */
+data class MlsEncrypted (
+    /**
+     * The base64url MLSMessage (the ciphertext the relay carries).
+     */
+    var `ciphertext`: kotlin.String, 
+    /**
+     * The epoch the encryption used.
+     */
+    var `epoch`: kotlin.Long
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMlsEncrypted: FfiConverterRustBuffer<MlsEncrypted> {
+    override fun read(buf: ByteBuffer): MlsEncrypted {
+        return MlsEncrypted(
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MlsEncrypted) = (
+            FfiConverterString.allocationSize(value.`ciphertext`) +
+            FfiConverterLong.allocationSize(value.`epoch`)
+    )
+
+    override fun write(value: MlsEncrypted, buf: ByteBuffer) {
+            FfiConverterString.write(value.`ciphertext`, buf)
+            FfiConverterLong.write(value.`epoch`, buf)
+    }
+}
+
+
+
+/**
+ * A group creation (spec §3.1): the group's id, the epoch (0 — the
+ * create mints the group alone; members join by the add).
+ */
+data class MlsGroupCreated (
+    /**
+     * The minted group id (`grp-<serial>`).
+     */
+    var `groupId`: kotlin.String, 
+    /**
+     * The epoch the create minted (0).
+     */
+    var `epoch`: kotlin.Long
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMlsGroupCreated: FfiConverterRustBuffer<MlsGroupCreated> {
+    override fun read(buf: ByteBuffer): MlsGroupCreated {
+        return MlsGroupCreated(
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MlsGroupCreated) = (
+            FfiConverterString.allocationSize(value.`groupId`) +
+            FfiConverterLong.allocationSize(value.`epoch`)
+    )
+
+    override fun write(value: MlsGroupCreated, buf: ByteBuffer) {
+            FfiConverterString.write(value.`groupId`, buf)
+            FfiConverterLong.write(value.`epoch`, buf)
+    }
+}
+
+
+
+/**
+ * A Welcome processed (spec §3.2): the group the member joined, the
+ * epoch it joined at.
+ */
+data class MlsJoined (
+    /**
+     * The group the Welcome opened (minted fresh on the join).
+     */
+    var `groupId`: kotlin.String, 
+    /**
+     * The epoch the member joined at.
+     */
+    var `epoch`: kotlin.Long
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMlsJoined: FfiConverterRustBuffer<MlsJoined> {
+    override fun read(buf: ByteBuffer): MlsJoined {
+        return MlsJoined(
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MlsJoined) = (
+            FfiConverterString.allocationSize(value.`groupId`) +
+            FfiConverterLong.allocationSize(value.`epoch`)
+    )
+
+    override fun write(value: MlsJoined, buf: ByteBuffer) {
+            FfiConverterString.write(value.`groupId`, buf)
+            FfiConverterLong.write(value.`epoch`, buf)
+    }
+}
+
+
+
+/**
+ * A member's KeyPackage (spec §2.3): the base64url package, its minted
+ * id, the suite. Published on the member's well-known for the add flows.
+ */
+data class MlsKeyPackage (
+    /**
+     * The minted package id (`kp-<serial>`).
+     */
+    var `id`: kotlin.String, 
+    /**
+     * The cipher suite (0x0001 X25519 / 0x0002 P-256).
+     */
+    var `cipherSuite`: kotlin.Long, 
+    /**
+     * The base64url-encoded MLS KeyPackage.
+     */
+    var `keyPackage`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMlsKeyPackage: FfiConverterRustBuffer<MlsKeyPackage> {
+    override fun read(buf: ByteBuffer): MlsKeyPackage {
+        return MlsKeyPackage(
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MlsKeyPackage) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterLong.allocationSize(value.`cipherSuite`) +
+            FfiConverterString.allocationSize(value.`keyPackage`)
+    )
+
+    override fun write(value: MlsKeyPackage, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterLong.write(value.`cipherSuite`, buf)
+            FfiConverterString.write(value.`keyPackage`, buf)
+    }
+}
+
+
+
+/**
  * The metadata resolution request. Mirrors
  * `engine_ports::ResolveRequest`.
  */
@@ -4261,6 +5168,72 @@ public object FfiConverterTypeFetchPurpose: FfiConverterRustBuffer<FetchPurpose>
 }
 
 
+
+
+
+
+
+/**
+ * An MLS operation refused: the message names the cause (never a panic
+ * in library code).
+ */
+sealed class MlsException: kotlin.Exception() {
+    
+    /**
+     * The operation refused; the detail names the cause.
+     */
+    class Refused(
+        
+        val v1: kotlin.String
+        ) : MlsException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<MlsException> {
+        override fun lift(error_buf: RustBuffer.ByValue): MlsException = FfiConverterTypeMlsException.lift(error_buf)
+    }
+
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMlsException : FfiConverterRustBuffer<MlsException> {
+    override fun read(buf: ByteBuffer): MlsException {
+        
+
+        return when(buf.getInt()) {
+            1 -> MlsException.Refused(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: MlsException): ULong {
+        return when(value) {
+            is MlsException.Refused -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+        }
+    }
+
+    override fun write(value: MlsException, buf: ByteBuffer) {
+        when(value) {
+            is MlsException.Refused -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
 
 
 
