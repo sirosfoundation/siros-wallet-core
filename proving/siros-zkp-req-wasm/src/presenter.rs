@@ -233,13 +233,19 @@ impl ZkpPresenter {
             .assemble(&output.0)
             .map_err(|e| host(e.code()))?;
         // Decode the envelope to promote the verifier's top-level members.
-        let envelope = ProofEnvelope::decode(&presentation.proof)
-            .map_err(|_| host("envelope_decode"))?;
+        let envelope =
+            ProofEnvelope::decode(&presentation.proof).map_err(|_| host("envelope_decode"))?;
         let mut members: Vec<(Cbor, Cbor)> = vec![
-            (Cbor::text("system_id"), Cbor::text(presentation.system_id.as_str())),
+            (
+                Cbor::text("system_id"),
+                Cbor::text(presentation.system_id.as_str()),
+            ),
             // The raw zk_proof (the JsProofOutput's accessor), not the
             // envelope's wrapper.
-            (Cbor::text("proof"), Cbor::Bytes(output.0.zk_proof.as_bytes().to_vec())),
+            (
+                Cbor::text("proof"),
+                Cbor::Bytes(output.0.zk_proof.as_bytes().to_vec()),
+            ),
         ];
         for (name, value) in &envelope.inputs {
             match name.as_str() {
