@@ -35,21 +35,39 @@ fn decode(encoded: &str) -> Vec<u8> {
 #[test]
 fn a_key_package_serializes_the_wmp_wire_shape() {
     let provider = OpenMlsProvider::for_identity("wallet-a").expect("the provider");
-    // 0x0001 (the MUST suite) and 0x0002 (the SHOULD) both build.
-    for suite in [0x0001, 0x0002] {
-        let package = provider
-            .generate_key_package(suite)
-            .expect("the key package");
-        assert!(
-            package.id.starts_with("kp-"),
-            "the id is minted: {}",
-            package.id
-        );
-        assert_eq!(package.cipher_suite, suite);
-        // The wire form: base64url, decodes to non-empty TLS bytes.
-        let bytes = decode(&package.key_package);
-        assert!(!bytes.is_empty(), "the package carries bytes");
-    }
+    // The signer's own suite builds (issue #127): the package carries
+    // the CONFIGURED signer — the member's Ed25519 identity key serves
+    // 0x0001, and the wire form is base64url over non-empty TLS bytes.
+    let package = provider
+        .generate_key_package(0x0001)
+        .expect("the signer's own suite builds");
+    assert!(
+        package.id.starts_with("kp-"),
+        "the id is minted: {}",
+        package.id
+    );
+    assert_eq!(package.cipher_suite, 0x0001);
+    let bytes = decode(&package.key_package);
+    assert!(!bytes.is_empty(), "the package carries bytes");
+    // 0x0002 (the SHOULD suite) names P-256 signatures: the Ed25519
+    // identity signer cannot serve it, and the mint refuses loudly —
+    // never a fresh per-suite key beside the identity advertising a
+    // signer the member cannot operate with in the group (issue #127).
+    let refused = provider
+        .generate_key_package(0x0002)
+        .expect_err("a suite the signer does not serve refuses");
+    assert_eq!(refused.to_rpc().code, wmp_core::error::ERR_INVALID_PARAMS);
+    let data = refused
+        .to_rpc()
+        .data
+        .expect("the refusal names the mismatch");
+    let data: serde_json::Value =
+        serde_json::from_str(data.get()).expect("the refusal data is JSON");
+    assert_eq!(
+        data.get("cipher_suite").and_then(|v| v.as_i64()),
+        Some(0x0002),
+        "the refusal names the suite"
+    );
     // An unknown suite refuses -32602 (Invalid params).
     let refused = provider
         .generate_key_package(0x0099)

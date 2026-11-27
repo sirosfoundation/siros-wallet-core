@@ -97,6 +97,14 @@ pub struct OpenMlsProvider {
     next: Mutex<u64>,
 }
 
+/// A staged join (issue #127): a Welcome processed — its key material
+/// consumed, its group id readable — but **not committed**; the group
+/// enters the provider's map only at [`OpenMlsProvider::commit_staged`].
+/// The caller holds this between the compare and the commit.
+pub struct StagedJoin {
+    staged: StagedWelcome,
+}
+
 impl OpenMlsProvider {
     /// The member's identity (its WMP identifier string).
     pub fn identity(&self) -> &str {
@@ -240,6 +248,70 @@ impl OpenMlsProvider {
         let epoch: GroupEpoch = group.epoch();
         epoch.as_u64() as i64
     }
+
+    /// Stages a Welcome (issue #127's split of the join): decodes, names
+    /// its Welcome, and stages it — the member's key material consumed,
+    /// the group id readable — WITHOUT committing anything to the
+    /// provider's map. The shared internal of [`Self::stage_welcome`],
+    /// [`Self::process_welcome`] and [`Self::process_welcome_for_group`].
+    fn stage(&self, welcome: &str) -> Result<StagedWelcome, HandlerError> {
+        let bytes = decode_base64url(welcome)?;
+        let message =
+            MlsMessageIn::tls_deserialize_exact(&bytes).map_err(|e| mls_error(&e.to_string()))?;
+        // The official extraction (the book's own join path): the body
+        // names its Welcome or the join refuses.
+        let welcome = match message.extract() {
+            MlsMessageBodyIn::Welcome(welcome) => welcome,
+            _ => return Err(mls_error("the message is not a Welcome")),
+        };
+        StagedWelcome::new_from_welcome(
+            &self.crypto,
+            &MlsGroupJoinConfig::default(),
+            welcome,
+            // The ratchet tree rides the Welcome's GroupInfo (the create's
+            // use_ratchet_tree_extension) — nothing out of band.
+            None,
+        )
+        .map_err(|e| mls_error(&e.to_string()))
+    }
+
+    /// Stages a Welcome and answers the staged join beside the group id
+    /// it names — the join held **uncommitted** between this and
+    /// [`Self::commit_staged`] (issue #127: the caller's compare window;
+    /// the GroupInfo is encrypted, so the id is readable only here,
+    /// after the staging). Dropping the [`StagedJoin`] abandons the
+    /// join: no group state changes (the staging consumed the key
+    /// material — MLS's own rule, the package does not come back).
+    #[must_use = "the staged join commits nothing until commit_staged"]
+    pub fn stage_welcome(&self, welcome: &str) -> Result<(StagedJoin, String), HandlerError> {
+        let staged = self.stage(welcome)?;
+        // The SAME id the creator's create answered (the MLS GroupId from
+        // the shared GroupContext — see create_group), readable off the
+        // staged welcome before any commit.
+        let group_id = base64url(staged.group_context().group_id().as_slice());
+        Ok((StagedJoin { staged }, group_id))
+    }
+
+    /// Commits a staged join: the group enters the provider's map, keyed
+    /// by the MLS GroupId the Welcome named, answering the id and the
+    /// epoch joined at.
+    pub fn commit_staged(&self, staged: StagedJoin) -> Result<(String, i64), HandlerError> {
+        let StagedJoin { staged } = staged;
+        let group = staged
+            .into_group(&self.crypto)
+            .map_err(|e| mls_error(&e.to_string()))?;
+        let epoch = Self::epoch(&group);
+        // The SAME id the creator's create answered (the MLS GroupId from
+        // the shared GroupContext — see create_group): the join keys the
+        // member's group by it, so the creator's id addresses the joiner's
+        // group too.
+        let group_id = base64url(group.group_id().as_slice());
+        self.groups
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(group_id.clone(), group);
+        Ok((group_id, epoch))
+    }
 }
 
 impl MlsProvider for OpenMlsProvider {
@@ -247,22 +319,39 @@ impl MlsProvider for OpenMlsProvider {
     /// minted (`kp-<serial>`), the identity THIS member's own. The private
     /// keys land in the member's own key store — the Welcome join reads
     /// them back from there.
+    ///
+    /// **The configured signer signs** (issue #127, RFC 9420 §5.3.1):
+    /// the package's leaf carries the member's own signature key and
+    /// the credential its group operations use — the X.509 chain when
+    /// configured, the basic identity otherwise — never a fresh
+    /// per-suite pair beside them (the group's peers resolve the
+    /// member by the leaf; a package advertising a key the member
+    /// cannot sign with lied to them). A suite whose signature
+    /// algorithm the signer does not serve refuses loudly.
     fn generate_key_package(&self, cipher_suite: i64) -> Result<WmpKeyPackage, HandlerError> {
         let suite = Self::suite(cipher_suite)?;
-        // Per-suite signature keys: the suite's algorithm names the scheme
-        // (P-256 for 0x0002; the group's own signer may be another suite's).
-        // The credential carries THIS signer's public key — the leaf's
-        // signature and the credential's key must agree (the "leaf node
-        // signature is not valid" refusal's cause).
-        let signer = SignatureKeyPair::new(suite.signature_algorithm())
-            .map_err(|e| mls_error(&e.to_string()))?;
-        signer
+        // RFC 9420 §5.1: the ciphersuite names the signature scheme. The
+        // member has ONE signer — the configured identity key — so a
+        // suite asking for another scheme is a configuration mismatch,
+        // refused by name: never a fresh key minted to satisfy it (the
+        // member could not sign with that key in the group anyway).
+        if suite.signature_algorithm() != self.signer.signature_scheme() {
+            return Err(RpcError::new(
+                wmp_core::error::ERR_INVALID_PARAMS,
+                Some(serde_json::json!({
+                    "reason": "the member's signer does not serve the suite's signature algorithm",
+                    "cipher_suite": cipher_suite,
+                    "signer_scheme": format!("{:?}", self.signer.signature_scheme()),
+                })),
+            )
+            .into());
+        }
+        // The signer lands in the member's key store beside the package
+        // (the join path reads the member's own keys back from there).
+        self.signer
             .store(self.crypto.storage())
             .map_err(|e| mls_error(&e.to_string()))?;
-        let credential = CredentialWithKey {
-            credential: BasicCredential::new(self.identity.as_bytes().to_vec()).into(),
-            signature_key: signer.public().to_vec().into(),
-        };
+        let credential = self.credential();
         let bundle = KeyPackage::builder()
             // The published package must be addable to any group the
             // wire spec's accepted_credential_types ([x509, basic],
@@ -286,7 +375,7 @@ impl MlsProvider for OpenMlsProvider {
                 None,
                 Some(&[CredentialType::Basic, CredentialType::X509]),
             ))
-            .build(suite, &self.crypto, &signer, credential)
+            .build(suite, &self.crypto, &self.signer, credential)
             .map_err(|e| mls_error(&e.to_string()))?;
         let bytes = bundle
             .key_package()
@@ -391,39 +480,43 @@ impl MlsProvider for OpenMlsProvider {
     /// Joins by processing a Welcome (spec §3.2): the member's own key
     /// store holds the package the Welcome encrypted to — the group
     /// answers under a fresh minted id.
+    ///
+    /// The unconditional form (issue #127 kept it for the legacy
+    /// callers): stage and commit in one breath. The join surface that
+    /// knows its group id uses [`Self::process_welcome_for_group`]; a
+    /// caller that must hold the join between its own checks uses
+    /// [`Self::stage_welcome`] + [`Self::commit_staged`].
     fn process_welcome(&self, welcome: &str) -> Result<(String, i64), HandlerError> {
-        let bytes = decode_base64url(welcome)?;
-        let message =
-            MlsMessageIn::tls_deserialize_exact(&bytes).map_err(|e| mls_error(&e.to_string()))?;
-        // The official extraction (the book's own join path): the body
-        // names its Welcome or the join refuses.
-        let welcome = match message.extract() {
-            MlsMessageBodyIn::Welcome(welcome) => welcome,
-            _ => return Err(mls_error("the message is not a Welcome")),
-        };
-        let staged = StagedWelcome::new_from_welcome(
-            &self.crypto,
-            &MlsGroupJoinConfig::default(),
-            welcome,
-            // The ratchet tree rides the Welcome's GroupInfo (the create's
-            // use_ratchet_tree_extension) — nothing out of band.
-            None,
-        )
-        .map_err(|e| mls_error(&e.to_string()))?;
-        let group = staged
-            .into_group(&self.crypto)
-            .map_err(|e| mls_error(&e.to_string()))?;
-        let epoch = Self::epoch(&group);
-        // The SAME id the creator's create answered (the MLS GroupId from
-        // the shared GroupContext — see create_group): the join keys the
-        // member's group by it, so the creator's id addresses the joiner's
-        // group too.
-        let group_id = base64url(group.group_id().as_slice());
-        self.groups
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(group_id.clone(), group);
-        Ok((group_id, epoch))
+        let (staged, _group_id) = self.stage_welcome(welcome)?;
+        self.commit_staged(staged)
+    }
+
+    /// Joins by processing a Welcome whose group is already declared
+    /// (issue #127): the Welcome's MLS GroupId — readable only after
+    /// the staging, because the GroupInfo it rides is encrypted — must
+    /// be the expected one, or the join refuses **before any commit**:
+    /// the group never enters the provider's map, so a Welcome for
+    /// group B delivered under a declaration for group A leaves B
+    /// unstated (the refusal names both ids). On a match the commit is
+    /// the staged join's own.
+    fn process_welcome_for_group(
+        &self,
+        welcome: &str,
+        expected_group_id: &str,
+    ) -> Result<(String, i64), HandlerError> {
+        let (staged, group_id) = self.stage_welcome(welcome)?;
+        if group_id != expected_group_id {
+            return Err(RpcError::new(
+                wmp_core::error::ERR_MLS_ERROR,
+                Some(serde_json::json!({
+                    "reason": "the Welcome names another group",
+                    "expected": expected_group_id,
+                    "actual": group_id,
+                })),
+            )
+            .into());
+        }
+        self.commit_staged(staged)
     }
 
     /// Adds a member (spec §3.3): the commit for the group, the Welcome
