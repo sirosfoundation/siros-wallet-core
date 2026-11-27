@@ -538,12 +538,44 @@ fn validate_scheme_requirements(
             Ok(())
         }
         ClientIdScheme::X509SanDns => {
-            // §5: the DNS binding rides a signed request object whose
-            // x5c chain names the certificate. The signature under the
-            // leaf was verified at the header.
-            leaf_der.ok_or(RequestError::SchemeRequiresRequestObject {
+            // OpenID4VP 1.0 §5: the client_id IS a DNS name in the
+            // certificate's SAN — the binding the scheme exists for. The
+            // signature under the leaf was verified at the header; the
+            // client_id's VALUE is now verified against the
+            // certificate's own SAN entries (issue #129: the value was
+            // never compared, so any signed request could claim any SAN).
+            let der = leaf_der.ok_or(RequestError::SchemeRequiresRequestObject {
                 scheme: "x509_san_dns".to_owned(),
             })?;
+            let claimed = request
+                .client_id
+                .strip_prefix("x509_san_dns:")
+                .unwrap_or_default();
+            if !certificate_san_dns(&der)?
+                .iter()
+                .any(|name| wmp_core::token::tokens_equal(name.as_str(), claimed))
+            {
+                return Err(RequestError::ClientIdSanDnsMismatch);
+            }
+            Ok(())
+        }
+        ClientIdScheme::X509SanUri => {
+            // OpenID4VP 1.0 §5.1: the client_id IS a URI in the
+            // certificate's SAN — the URI binding, verified against the
+            // certificate's own SAN entries (issue #129's second arm).
+            let der = leaf_der.ok_or(RequestError::SchemeRequiresRequestObject {
+                scheme: "x509_san_uri".to_owned(),
+            })?;
+            let claimed = request
+                .client_id
+                .strip_prefix("x509_san_uri:")
+                .unwrap_or_default();
+            if !certificate_san_uris(&der)?
+                .iter()
+                .any(|uri| wmp_core::token::tokens_equal(uri.as_str(), claimed))
+            {
+                return Err(RequestError::ClientIdSanUriMismatch);
+            }
             Ok(())
         }
         ClientIdScheme::VerifierAttestation => {
@@ -878,6 +910,59 @@ fn decode_base64url(encoded: &str) -> Option<Vec<u8>> {
         }
     }
     Some(out)
+}
+
+// ── The x509 SAN extraction (issue #129) ────────────────────────────────────
+
+/// The leaf certificate's SAN DNS names (RFC 5280 §4.2.1.6): the strings the
+/// `x509_san_dns:` scheme's client_id must carry. An absent SAN extension
+/// answers an empty list — a certificate with no DNS names binds none.
+fn certificate_san_dns(leaf_der: &[u8]) -> Result<Vec<String>, RequestError> {
+    let certificate = <x509_cert::Certificate as x509_cert::der::Decode>::from_der(leaf_der)
+        .map_err(|_| RequestError::NotRecognized)?;
+    // TbsCertificate::get::<T>() decodes the SubjectAltName extension
+    // by its associated OID; None answers the empty list.
+    let san: Option<x509_cert::ext::pkix::SubjectAltName> = certificate
+        .tbs_certificate
+        .get::<x509_cert::ext::pkix::SubjectAltName>()
+        .map_err(|_| RequestError::NotRecognized)?
+        .map(|(_, san)| san);
+    Ok(san
+        .map(|san| {
+            san.0
+                .iter()
+                .filter_map(|name| match name {
+                    x509_cert::ext::pkix::name::GeneralName::DnsName(dns) => Some(dns.to_string()),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// The leaf certificate's SAN URIs (RFC 5280 §4.2.1.6): the strings the
+/// `x509_san_uri:` scheme's client_id must carry.
+fn certificate_san_uris(leaf_der: &[u8]) -> Result<Vec<String>, RequestError> {
+    let certificate = <x509_cert::Certificate as x509_cert::der::Decode>::from_der(leaf_der)
+        .map_err(|_| RequestError::NotRecognized)?;
+    let san: Option<x509_cert::ext::pkix::SubjectAltName> = certificate
+        .tbs_certificate
+        .get::<x509_cert::ext::pkix::SubjectAltName>()
+        .map_err(|_| RequestError::NotRecognized)?
+        .map(|(_, san)| san);
+    Ok(san
+        .map(|san| {
+            san.0
+                .iter()
+                .filter_map(|name| match name {
+                    x509_cert::ext::pkix::name::GeneralName::UniformResourceIdentifier(uri) => {
+                        Some(uri.to_string())
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 #[cfg(test)]
