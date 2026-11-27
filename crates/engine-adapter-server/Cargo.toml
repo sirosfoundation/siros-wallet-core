@@ -21,6 +21,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 jose-rs = { version = "0.13.1", default-features = false }
+# The well-known's signed form (issue #100): the x5c chain entries are
+# standard-alphabet base64 DER (RFC 7515 §4.1.6), and the PEM chain
+# parse is a base64 body decode.
+base64 = "0.23"
 ureq = { version = "2", features = ["json"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 parking_lot = "0.12"
@@ -39,6 +43,11 @@ fred = { version = "10", default-features = false, features = ["enable-rustls", 
 [[bin]]
 name = "engine-server"
 path = "src/main.rs"
+
+[dev-dependencies]
+# The well-known signed-form tests (issue #100): real self-signed
+# participant certificates to sign the document under.
+rcgen = "0.14"
 
 [features]
 # The Valkey-backed shared outbox (issue #65): a multi-replica deployment

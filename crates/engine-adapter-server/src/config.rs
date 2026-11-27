@@ -79,6 +79,26 @@ pub struct Config {
     /// counterparty's discovery resolves against. Empty disables the
     /// invitation endpoint (the create route answers `-32601`).
     pub public_url: String,
+    /// The participant's own identifier (`ENGINE_PARTICIPANT_ID`,
+    /// issue #100): the `x509:san:dns:…` form the well-known document
+    /// carries (CS-15 §7.2) — who this endpoint is, beside where it
+    /// is. Empty omits the field.
+    #[serde(default)]
+    pub participant_id: String,
+    /// The participant's certificate chain, PEM
+    /// (`ENGINE_PARTICIPANT_CERT_PEM`, issue #100): the leaf first,
+    /// then the intermediates — the `x5c` the well-known's signed form
+    /// carries (CS-15 §7.2: the configuration as attestation,
+    /// `application/jwt` on request). Empty serves the plain JSON
+    /// only.
+    #[serde(default)]
+    pub participant_cert_pem: String,
+    /// The participant certificate's private key, PEM
+    /// (`ENGINE_PARTICIPANT_KEY_PEM`, issue #100) — signs the
+    /// well-known's `application/jwt` form. Empty disables the signed
+    /// form (the route answers `406`).
+    #[serde(default)]
+    pub participant_key_pem: String,
     /// The invitation TTL in seconds when a create carries none
     /// (`ENGINE_INVITATION_TTL_SECS`, issue #77). Default 900.
     pub invitation_ttl_secs: i64,
@@ -120,6 +140,9 @@ impl Default for Config {
             max_concurrent_flows: 16,
             principal_mode: wmp_core::principal::PrincipalMode::User,
             public_url: String::new(),
+            participant_id: String::new(),
+            participant_cert_pem: String::new(),
+            participant_key_pem: String::new(),
             invitation_ttl_secs: 900,
             persistence_path: String::new(),
             mcp_tools: true,
@@ -201,6 +224,21 @@ impl Config {
         }
         if let Some(value) = text("ENGINE_PUBLIC_URL") {
             config.public_url = value;
+        }
+        // The participant identity and the well-known's signing material
+        // (issue #100, CS-15 §7.2): the identifier the document
+        // carries, and the certificate chain + key that sign its
+        // `application/jwt` form. PEM in the environment is the
+        // multi-line secret form the container platforms accept; the
+        // ENGINE_CONFIG JSON file carries them as string fields.
+        if let Some(value) = text("ENGINE_PARTICIPANT_ID") {
+            config.participant_id = value;
+        }
+        if let Some(value) = text("ENGINE_PARTICIPANT_CERT_PEM") {
+            config.participant_cert_pem = value;
+        }
+        if let Some(value) = text("ENGINE_PARTICIPANT_KEY_PEM") {
+            config.participant_key_pem = value;
         }
         if let Some(value) = text("ENGINE_INVITATION_TTL_SECS") {
             if let Ok(parsed) = value.trim().parse() {
