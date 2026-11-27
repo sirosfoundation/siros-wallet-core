@@ -105,6 +105,23 @@ const P384_KEY_PKCS8: &[u8] = &[
     0xa5, 0xe8, 0x92, 0x75, 0x86, 0x71, 0xcc, 0xea, 0xd3,
 ];
 
+/// A second P-256 private key — PKCS#8 (RFC 5958), openssl-minted
+/// (2026-11-27) — the second member of the P-256 suite's lifecycle: a
+/// basic-credential member whose signer serves the suite (issue #127:
+/// the package carries the CONFIGURED signer, so a member of a 0x0002
+/// group must hold a P-256 key).
+const P256_KEY_B_PKCS8: &[u8] = &[
+    0x30, 0x81, 0x87, 0x02, 0x01, 0x00, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02,
+    0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x04, 0x6d, 0x30, 0x6b, 0x02,
+    0x01, 0x01, 0x04, 0x20, 0x66, 0xa2, 0x3f, 0xac, 0x41, 0xd7, 0x93, 0x3d, 0x7d, 0x42, 0x88, 0x6c,
+    0x0b, 0x7a, 0xb8, 0x6b, 0x03, 0x56, 0xa3, 0x4c, 0xa8, 0x73, 0x33, 0x6b, 0x3d, 0xa6, 0xae, 0xdf,
+    0x38, 0x29, 0x18, 0xd8, 0xa1, 0x44, 0x03, 0x42, 0x00, 0x04, 0x67, 0xfb, 0x36, 0xbb, 0xc4, 0x12,
+    0xca, 0xa1, 0x11, 0xf6, 0xc4, 0x9d, 0xa1, 0xbd, 0x64, 0x49, 0xc5, 0x26, 0x57, 0x0c, 0xdb, 0x98,
+    0xff, 0x28, 0xfb, 0x21, 0x6d, 0x69, 0x80, 0xdd, 0xb4, 0x1f, 0xed, 0xe8, 0x31, 0xb6, 0x4c, 0xf8,
+    0x9e, 0x04, 0x3c, 0xe5, 0xb4, 0xe1, 0x48, 0xcf, 0xc8, 0x06, 0xf4, 0xbc, 0xbe, 0xe4, 0xb4, 0x76,
+    0xdd, 0x2c, 0x90, 0x64, 0xaa, 0xf3, 0x52, 0x84, 0x23, 0x87,
+];
+
 // ─── The tests ─────────────────────────────────────────────────────────────
 
 /// One imported-key case: the chain (leaf first), the PKCS#8 private
@@ -232,7 +249,15 @@ fn a_certificate_signed_member_runs_the_full_group_lifecycle() {
         Some(P256_KEY_PKCS8.to_vec()),
     )
     .expect("A mints from the certificate's key");
-    let b = OpenMlsProvider::for_identity("wallet-b").expect("B mints");
+    // B holds a P-256 key of its own (issue #127: the package carries the
+    // CONFIGURED signer — a 0x0002 member signs with P-256, so the basic
+    // Ed25519 shape no longer mints a fresh key beside the identity).
+    let b = OpenMlsProvider::for_identity_with_certificate_and_key(
+        "wallet-b",
+        None,
+        Some(P256_KEY_B_PKCS8.to_vec()),
+    )
+    .expect("B mints from its own P-256 key");
     let (group_id, _) = a
         .create_group(wmp_core::mls::CIPHER_SUITE_P256_AES128_GCM, &[])
         .expect("A creates on the P-256 suite");
@@ -291,4 +316,56 @@ fn decode(encoded: &str) -> Vec<u8> {
         }
     }
     out
+}
+
+/// The certificate-bound member's PUBLISHED package carries the
+/// configured identity end to end (issue #127, RFC 9420 §5.3.1): the
+/// leaf's signature key is the certificate's own key and the credential
+/// is the X.509 chain — the same credential the provider's own group
+/// operations use, so the group peers see the configured identity in
+/// the leaf, never a self-asserted basic one beside a key the member
+/// cannot sign with.
+#[test]
+fn a_certificate_bound_members_package_carries_the_chain_and_the_signers_key() {
+    let provider = OpenMlsProvider::for_identity_with_certificate_and_key(
+        "wallet-a",
+        Some(vec![P256_CERT_DER.to_vec()]),
+        Some(P256_KEY_PKCS8.to_vec()),
+    )
+    .expect("the provider mints from the certificate's key");
+    let package = provider
+        .generate_key_package(wmp_core::mls::CIPHER_SUITE_P256_AES128_GCM)
+        .expect("the certificate's signer serves the P-256 suite");
+
+    // The oracle walk: openmls's own wire decoder reads the package
+    // back — the provider hands out only strings.
+    use openmls::prelude::tls_codec::Deserialize as _;
+    use openmls_traits::OpenMlsProvider as _;
+    let crypto = openmls_rust_crypto::OpenMlsRustCrypto::default();
+    let package_in = openmls::key_packages::KeyPackageIn::tls_deserialize_exact(
+        decode(&package.key_package).as_slice(),
+    )
+    .expect("the package parses off the wire");
+    let parsed = package_in
+        .validate(
+            crypto.crypto(),
+            openmls::versions::ProtocolVersion::default(),
+        )
+        .expect("the package validates");
+    let leaf = parsed.leaf_node();
+    assert_eq!(
+        leaf.signature_key().as_slice(),
+        P256_PUBLIC_SEC1,
+        "the package's leaf signs with the certificate's own key",
+    );
+    let credential = leaf.credential();
+    assert_eq!(
+        credential.credential_type(),
+        openmls::credentials::CredentialType::X509,
+        "the package's credential is the certificate",
+    );
+    assert!(
+        credential.serialized_content().ends_with(P256_CERT_DER),
+        "the package's credential carries the leaf certificate",
+    );
 }
