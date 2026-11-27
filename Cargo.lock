@@ -1358,6 +1358,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base64 0.23.1",
  "dashmap",
  "engine-core",
  "engine-ports",
@@ -1365,6 +1366,7 @@ dependencies = [
  "futures-util",
  "jose-rs",
  "parking_lot",
+ "rcgen",
  "reqwest",
  "rustc-hash",
  "serde",

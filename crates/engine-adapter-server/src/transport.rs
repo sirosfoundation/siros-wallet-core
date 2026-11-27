@@ -344,13 +344,29 @@ async fn get_readyz(State(server): State<Arc<EngineServer>>) -> Response {
 /// `GET /.well-known/wmp-configuration` (CS-15 §7.2): the discovery
 /// document — the versions the engine speaks, its endpoints, the
 /// capabilities a session can negotiate (the same supported set the
-/// session create answers from), the security modes it accepts.
+/// session create answers from), the security modes it accepts, and
+/// the participant's own identifier (`ENGINE_PARTICIPANT_ID`, issue
+/// #100: who this endpoint is, beside where it is).
+///
+/// Two forms (CS-15 §17's conformance table: `application/json` or
+/// `application/jwt`): the plain JSON for the default request, and —
+/// on `Accept: application/jwt` — the same document as a JWS signed
+/// under the participant certificate's key, the chain in the `x5c`
+/// header (the configuration as attestation, verifiable without the
+/// TLS session). The signed form needs the signing material
+/// (`ENGINE_PARTICIPANT_CERT_PEM` + `ENGINE_PARTICIPANT_KEY_PEM`);
+/// without it the negotiation answers `406` — the deployment cannot
+/// produce the attestation, and serving the unsigned document in its
+/// place would hand the checker a body it cannot verify.
 ///
 /// The endpoints name the engine's PUBLIC routes: the `public_url`
 /// (`ENGINE_PUBLIC_URL`) prefix when configured (the wallet-proxy's
 /// `/wmp-engine/` location is the deployed shape), else the relative
 /// paths (a local dial answers them on the listen address itself).
-async fn get_wmp_configuration(State(server): State<Arc<EngineServer>>) -> Response {
+async fn get_wmp_configuration(
+    State(server): State<Arc<EngineServer>>,
+    headers: HeaderMap,
+) -> Response {
     let base = server.config.public_url.trim_end_matches('/').to_owned();
     let prefixed = |path: &str| {
         if base.is_empty() {
@@ -364,6 +380,7 @@ async fn get_wmp_configuration(State(server): State<Arc<EngineServer>>) -> Respo
         .and_then(|supported| serde_json::to_value(&supported.0).ok());
     let config = wmp_core::discovery::WellKnownConfig {
         supported_versions: wmp_core::version::SUPPORTED_VERSIONS.to_vec(),
+        participant_id: server.config.participant_id.clone(),
         endpoints: [
             ("wmp".to_owned(), prefixed("/wmp")),
             ("events".to_owned(), prefixed("/wmp/events")),
@@ -383,7 +400,35 @@ async fn get_wmp_configuration(State(server): State<Arc<EngineServer>>) -> Respo
         ..wmp_core::discovery::WellKnownConfig::default()
     };
     match serde_json::to_value(&config) {
-        Ok(value) => (StatusCode::OK, axum::Json(value)).into_response(),
+        Ok(value) => {
+            if crate::well_known::wants_signed_form(&headers) {
+                match crate::well_known::signed_document(&server.config, &value) {
+                    Some(jwt) => (
+                        StatusCode::OK,
+                        [(header::CONTENT_TYPE, "application/jwt")],
+                        jwt,
+                    )
+                        .into_response(),
+                    // The material's absence is a deployment state, not
+                    // an error: `406` names the negotiation the server
+                    // cannot answer. A configured-but-broken pair is an
+                    // error: `500`, the operator learns their signing
+                    // material does not hold together.
+                    None if server.config.participant_key_pem.is_empty() => (
+                        StatusCode::NOT_ACCEPTABLE,
+                        "the signed configuration form is not configured",
+                    )
+                        .into_response(),
+                    None => (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "the signing material does not produce a verifiable document",
+                    )
+                        .into_response(),
+                }
+            } else {
+                (StatusCode::OK, axum::Json(value)).into_response()
+            }
+        }
         Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             "the configuration does not serialize",
