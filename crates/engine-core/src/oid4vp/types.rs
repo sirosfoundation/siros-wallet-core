@@ -173,6 +173,14 @@ pub enum RequestError {
         "oid4vp: x509_hash: the client_id hash does not match the request object's certificate"
     )]
     ClientIdHashMismatch,
+    /// The `x509_san_dns` client_id does not match any DNS name in the
+    /// request object's `x5c` leaf certificate's SAN (OpenID4VP 1.0 §5).
+    #[error("oid4vp: x509_san_dns: the client_id does not match the certificate's SAN DNS names")]
+    ClientIdSanDnsMismatch,
+    /// The `x509_san_uri` client_id does not match any URI in the
+    /// request object's `x5c` leaf certificate's SAN (OpenID4VP 1.0 §5.1).
+    #[error("oid4vp: x509_san_uri: the client_id does not match the certificate's SAN URIs")]
+    ClientIdSanUriMismatch,
     /// The scheme requires a signed request object carrying the
     /// certificate chain (§5: x509_san_dns; §5.2.3: x509_hash), and the
     /// request carried none.

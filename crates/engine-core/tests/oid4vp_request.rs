@@ -1,6 +1,7 @@
 //! The request parsing (OpenID4VP 1.0 §5): by value, by reference, the
 //! client_id schemes, and the signed request object.
 
+use base64::Engine as _;
 use engine_core::oid4vp::request::parse_request;
 use engine_core::oid4vp::types::{ClientIdScheme, RequestError, ResponseMode};
 use engine_ports::{FetchPurpose, HttpClient, HttpError, HttpRequest};
@@ -535,5 +536,113 @@ async fn a_verifier_attestation_request_without_the_attestation_refuses() {
     assert!(matches!(
         parse_request(&http, &params).await,
         Err(RequestError::VerifierAttestationRequired)
+    ));
+}
+
+// ── The SAN binding (#129) ─────────────────────────────────────────────────
+
+/// A self-signed P-256 certificate whose SAN carries the given DNS
+/// names and URIs, and a request-object JWT signed under its key with
+/// the DER chain in the x5c header — the form the x509 scheme arms
+/// verify. Returns the params the parse takes (the inline `request`).
+fn san_signed_request(client_id: &str, dns_names: &[&str], uris: &[&str]) -> serde_json::Value {
+    let mut sans = Vec::new();
+    for &dns in dns_names {
+        sans.push(rcgen::SanType::DnsName(
+            dns.try_into().expect("the DNS name is IA5"),
+        ));
+    }
+    for &uri in uris {
+        sans.push(rcgen::SanType::URI(uri.try_into().expect("the URI is IA5")));
+    }
+    let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("params");
+    params.subject_alt_names = sans;
+    let key_pair = rcgen::KeyPair::generate().expect("the P-256 key");
+    let cert = params.self_signed(&key_pair).expect("the certificate");
+    let der = cert.der().to_vec();
+
+    let payload = serde_json::json!({
+        "client_id": client_id,
+        "nonce": "nonce-1",
+        "response_uri": "https://verifier.example/response",
+        "response_mode": "direct_post",
+        "state": "state-1",
+        "dcql_query": {"credentials": []}
+    });
+    let body = serde_json::to_vec(&payload).expect("the payload serializes");
+
+    // The request object: the x5c chain rides the protected header
+    // (RFC 9052 §4.4), the signature under the certificate's own key —
+    // the key the chain's leaf carries.
+    let mut jwk = jose_rs::jwk::pem::jwk_from_pem(&key_pair.serialize_pem())
+        .expect("the rcgen key imports as a private JWK");
+    jwk.alg = Some("ES256".to_owned());
+    let mut header = jose_rs::header::JoseHeader::new("ES256");
+    header.typ = Some("oauth-authz-req+jwt".to_owned());
+    header.x5c = Some(vec![base64::engine::general_purpose::STANDARD.encode(&der)]);
+    let mut options = jose_rs::jws::compact::SignOptions::default();
+    options.allow_key_reference_headers = true;
+    let jwt = jose_rs::jws::compact::sign_with_jwk_options(&jwk, &body, &header, &options)
+        .expect("the request object signs");
+    serde_json::json!({ "request": jwt })
+}
+
+#[tokio::test]
+async fn the_san_dns_client_id_matching_the_certificates_san_passes() {
+    let http = FakeHttp {
+        body: Vec::new(),
+        status: 200,
+    };
+    let params = san_signed_request("x509_san_dns:verifier.example", &["verifier.example"], &[]);
+    let request = parse_request(&http, &params)
+        .await
+        .expect("the matching SAN passes");
+    assert_eq!(request.client_id, "x509_san_dns:verifier.example");
+}
+
+#[tokio::test]
+async fn the_san_dns_client_id_not_matching_the_certificates_san_refuses() {
+    let http = FakeHttp {
+        body: Vec::new(),
+        status: 200,
+    };
+    let params = san_signed_request("x509_san_dns:evil.example", &["verifier.example"], &[]);
+    assert!(matches!(
+        parse_request(&http, &params).await,
+        Err(RequestError::ClientIdSanDnsMismatch)
+    ));
+}
+
+#[tokio::test]
+async fn the_san_uri_client_id_matching_the_certificates_san_passes() {
+    let http = FakeHttp {
+        body: Vec::new(),
+        status: 200,
+    };
+    let params = san_signed_request(
+        "x509_san_uri:https://verifier.example",
+        &[],
+        &["https://verifier.example"],
+    );
+    let request = parse_request(&http, &params)
+        .await
+        .expect("the matching URI passes");
+    assert_eq!(request.client_id, "x509_san_uri:https://verifier.example");
+}
+
+#[tokio::test]
+async fn the_san_uri_client_id_not_matching_the_certificates_san_refuses() {
+    let http = FakeHttp {
+        body: Vec::new(),
+        status: 200,
+    };
+    let params = san_signed_request(
+        "x509_san_uri:https://evil.example",
+        &[],
+        &["https://verifier.example"],
+    );
+    assert!(matches!(
+        parse_request(&http, &params).await,
+        Err(RequestError::ClientIdSanUriMismatch)
     ));
 }

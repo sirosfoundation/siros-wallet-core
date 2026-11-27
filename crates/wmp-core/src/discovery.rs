@@ -21,6 +21,13 @@ pub struct WellKnownConfig {
     /// `https://<host><tenant-path>`. Required for a tenant path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discovery_base: Option<String>,
+    /// The participant's own identifier (CS-15 §7.2: the
+    /// `x509:san:dns:…` form) — who this endpoint is, beside where it
+    /// is. The discovery document names the endpoints; this names the
+    /// party (the eDelivery profile reads it as the participant
+    /// binding, issue #100).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub participant_id: String,
     /// The protocol versions the endpoint speaks (core §2.2.1). Decoding
     /// refuses a document with an entry that is not `MAJOR.MINOR`.
     pub supported_versions: Vec<Version>,

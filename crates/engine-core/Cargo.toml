@@ -16,6 +16,10 @@ jose-rs = { version = "0.13.1", default-features = false }
 # jose-rs's crypto backend, pinned the same way jose-rs pins it
 # (rustcrypto only, no pkcs11) — the SHA-256 for the PKCE S256 challenge.
 kryptering = { version = "0.7", default-features = false, features = ["rustcrypto"] }
+# The x509 SAN binding (issue #129): parsing the leaf certificate's
+# SubjectAltName entries for the x509_san_dns / x509_san_uri scheme
+# verification (OpenID4VP 1.0 §5, §5.1).
+x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -25,6 +29,12 @@ parking_lot = "0.12"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }
+# The SAN binding tests (#129): generating self-signed certificates
+# with SubjectAltName DNS / URI entries for the x509 scheme arms.
+rcgen = "0.14"
+# The x5c header entries: standard-alphabet base64 (RFC 7515 §4.1.6),
+# unlike the JOSE segments' base64url.
+base64 = "0.23"
 
 [lints]
 workspace = true

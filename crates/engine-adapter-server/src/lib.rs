@@ -38,6 +38,7 @@ pub mod invitation;
 pub mod mailbox;
 pub mod mcp_tools;
 pub mod outbox;
+pub mod participant;
 pub mod ports;
 pub mod shared_outbox;
 pub mod token;
@@ -46,6 +47,7 @@ pub mod transport;
 pub mod valkey_outbox;
 #[cfg(feature = "valkey")]
 pub mod valkey_stores;
+pub mod well_known;
 
 use std::sync::Arc;
 
@@ -78,6 +80,12 @@ pub struct EngineServer {
     /// ES256 pair the create endpoint signs with and the consume path
     /// verifies. None when `public_url` is unset (the endpoint refuses).
     pub invitation_key: Option<Arc<crate::invitation::InvitationKey>>,
+    /// The participant's signing credential (issue #100): the
+    /// certificate chain + signer the well-known's signed form rides —
+    /// the PEM pair from the config, or a PKCS#11 token (CS-15 §8.4's
+    /// WSCA/QSCD) when the deployment carries one. `None` when
+    /// unconfigured (the signed form answers `406`).
+    pub participant_credential: Option<Arc<dyn crate::participant::ParticipantCredential>>,
     /// The engine's configuration.
     pub config: config::Config,
 }
@@ -240,8 +248,24 @@ impl EngineServer {
             revocation,
             invitations,
             invitation_key,
+            participant_credential: crate::participant::from_config(&config),
             config,
         }
+    }
+
+    /// Sets the participant's signing credential (issue #100): the
+    /// injection point for deployments that assemble their own — a
+    /// PKCS#11 token this build's feature set does not name, a KMS, a
+    /// keystore — behind the [`ParticipantCredential`](crate::participant::ParticipantCredential)
+    /// trait. The config's PEM/PKCS#11 knobs build one at construction;
+    /// this replaces it.
+    #[must_use]
+    pub fn with_participant_credential(
+        mut self,
+        credential: Option<Arc<dyn crate::participant::ParticipantCredential>>,
+    ) -> Self {
+        self.participant_credential = credential;
+        self
     }
 
     /// Revokes the token identified by `jti` (engine-parity.md §8 G2):
