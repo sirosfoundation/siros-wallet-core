@@ -12,7 +12,7 @@ description = "The flow runtime and the OpenID4 flow family on top of it — the
 [dependencies]
 engine-ports = { path = "../engine-ports" }
 wmp-core = { path = "../wmp-core" }
-jose-rs = { version = "0.10", default-features = false }
+jose-rs = { version = "0.13.1", default-features = false }
 # jose-rs's crypto backend, pinned the same way jose-rs pins it
 # (rustcrypto only, no pkcs11) — the SHA-256 for the PKCE S256 challenge.
 kryptering = { version = "0.7", default-features = false, features = ["rustcrypto"] }

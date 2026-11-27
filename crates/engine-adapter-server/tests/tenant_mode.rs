@@ -66,7 +66,7 @@ fn access_token(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() + 3600)
         .unwrap_or_default();
-    let mut extra = std::collections::HashMap::new();
+    let mut extra = std::collections::BTreeMap::new();
     extra.insert(
         "tenant".to_owned(),
         serde_json::Value::String(tenant.to_owned()),
