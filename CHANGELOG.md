@@ -3,11 +3,33 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] — 2026-11-27
+
+### Changed
+
+- **The jose-rs re-pin to upstream 0.13.1 — the fork ride retired (#130)**: kushaldas/jose-rs#33 (merged as `cf9e7e81`) raised `MAX_TOKEN_BYTES` 1 MiB → 4 MiB and **v0.13.1 is published on crates.io**; the workspace pins move `0.10` → `0.13.1` across every crate and the `[patch.crates-io]` section is removed — the removal condition 0.6.2's entry named, met the same day. One test-only API change rides along: `Claims.extra` moved `HashMap` → `BTreeMap`.
+
+### Added
+
+- **The signed well-known + the `participant_id` (#132, #100 gaps 1–2)**: `Accept: application/jwt` answers the WMP well-known as a compact JWS — the same document, the participant chain in the `x5c` header (RFC 7515 §4.1.6: standard-alphabet base64 DER, not base64url), the signature under the chain's leaf, self-verified before serving (CS-15 §7.2: the configuration as **attestation**, the eDelivery profile's trust model — verifiable without the TLS session). Unconfigured answers `406`; a broken pair answers `500`. `participant_id` joins the document (CS-15 §7.2's MUST, the `x509:san:dns:…` form), from `ENGINE_PARTICIPANT_ID`.
+- **The participant credential port — the PKCS#11 home (#133)**: the certs&keys behind `ParticipantCredential` (chain + JOSE alg + `sign_compact`) — two homes shipped: the config's PEM pair, and a PKCS#11 token (the off-by-default `pkcs11` feature: kryptering's `Pkcs11Signer` through jose-rs's own `&dyn Signer` seam — the key never leaves the token, CS-15 §8.4's WSCA/QSCD). Both probe at construction (the key signs, the leaf must verify — a broken pair fails at the start line); `EngineServer::with_participant_credential` is the injection point for other homes. Knobs: `ENGINE_PKCS11_MODULE` (set = the token wins), `ENGINE_PKCS11_SLOT`, `ENGINE_PKCS11_PIN`, `ENGINE_PKCS11_KEY_LABEL`, `ENGINE_PKCS11_ALG`.
+
+### Fixed
+
+- **The x509 SAN binding (#129)**: the `x509_san_dns`/`x509_san_uri` arms verified the request object's signature under the `x5c` leaf's key but never compared the client_id's **value** against the certificate's own SAN entries — any signed request could claim a SAN name the certificate never carried. The arms now parse the leaf (x509-cert) and refuse with `ClientIdSanDnsMismatch`/`ClientIdSanUriMismatch` on a mismatch; an absent SAN extension binds none.
+- **The wmp-mls Welcome hardening (#134, issue #127)**: `process_welcome_for_group` refuses — committing **nothing**, both ids named — when the Welcome's MLS GroupId is not the declared one (the GroupInfo is encrypted, so the check belongs inside the provider); `stage_welcome`/`commit_staged` hold the join between the caller's checks and the commit. `generate_key_package` carries the **configured signer** and the `credential()` path (the X.509 chain when configured, basic otherwise) — RFC 9420 §5.3.1 end to end — and a suite whose signature algorithm the signer does not serve refuses loudly, never a fresh per-suite key beside the identity.
+- **The jose fork pin's reachability (#126)**: 0.6.2's fork pin (rev `5e8ada5`) was orphaned when the test-fix amend moved the `cap-4m-0.10` tip to `a21303e`; the pin named the reachable tip from here on. *(0.6.2's tagged tree predates this fix — see the note under [0.6.2].)*
+- **The zkp-req formats reader (96d441f)**: accepts the deployed chain's `proof_system_values` beside the rulebook's `proof_backend_values` — the draft-era spelling the deployed verifier's config schema names.
+
+> **The [0.6.2] correction**: the 0.6.2 release was cut 19 minutes before the fork pin's reachability fix (#126) and one day before the upstream re-pin (#130) — its tagged tree and its release artifacts bundle the orphaned fork-pin state the workspace no longer carries. Superseded by 0.7.0; the tag and its artifacts are left as cut (nothing reached Maven Central from it). Its behavioural claims stand: tokens under 1 MiB behave byte-identically, and the 4 MiB cap holds in both the fork and the upstream pin.
+
 ## [0.6.2] — 2026-11-26
 
 ### Changed
 
 - **The workspace rides our jose-rs fork — the 1 MiB emit cap lifted to 4 MiB (#125)**: jose-rs 0.10's `MAX_TOKEN_BYTES` refused the ~1.1 MiB JARM JWE the wasm engine emits for zkp presentations (the Longfellow proof alone is ~620 KiB) — at the last inch, after the proof builds and the token assembles. The `[patch.crates-io]` section points at `sirosfoundation/jose-rs` (the `cap-4m-0.10` line): the one-constant raise, the same patch the realeyes demo proved live. The raise rides upstream as kushaldas/jose-rs#33 (the fork's `raise-max-token-bytes` branch); the section is removed when upstream ships it and the workspace re-pins. Tokens under 1 MiB behave byte-identically.
+
+> **Corrected in 0.7.0**: this release was cut 19 minutes before the fork pin's reachability fix (#126) and one day before the upstream re-pin retired the fork (#130) — the tagged tree and its release artifacts bundle the orphaned pin state the workspace no longer carries. Superseded by 0.7.0; the tag and its artifacts are left as cut (nothing reached Maven Central from it).
 
 ## [0.6.1] — 2026-11-26
 
