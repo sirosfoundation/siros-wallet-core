@@ -95,10 +95,36 @@ pub struct Config {
     pub participant_cert_pem: String,
     /// The participant certificate's private key, PEM
     /// (`ENGINE_PARTICIPANT_KEY_PEM`, issue #100) — signs the
-    /// well-known's `application/jwt` form. Empty disables the signed
-    /// form (the route answers `406`).
+    /// well-known's `application/jwt` form, the software home. Empty
+    /// disables the signed form (the route answers `406`); when the
+    /// PKCS#11 knobs below name a token, the key lives there instead
+    /// and this field is ignored.
     #[serde(default)]
     pub participant_key_pem: String,
+    /// The PKCS#11 module path (`ENGINE_PKCS11_MODULE`, issue #100):
+    /// when set, the participant signing key lives on a PKCS#11 token
+    /// — CS-15 §8.4's WSCA/QSCD, the key MUST NOT leave it — and the
+    /// PEM key field is ignored. The certificate chain still comes
+    /// from `ENGINE_PARTICIPANT_CERT_PEM` (the `x5c` is public
+    /// material).
+    #[serde(default)]
+    pub pkcs11_module: String,
+    /// The PKCS#11 slot id (`ENGINE_PKCS11_SLOT`): unset picks the
+    /// first slot with a token.
+    #[serde(default)]
+    pub pkcs11_slot_id: Option<u64>,
+    /// The PKCS#11 login PIN (`ENGINE_PKCS11_PIN`).
+    #[serde(default)]
+    pub pkcs11_pin: String,
+    /// The private key object's label on the token
+    /// (`ENGINE_PKCS11_KEY_LABEL`).
+    #[serde(default)]
+    pub pkcs11_key_label: String,
+    /// The signing algorithm the token key uses (`ENGINE_PKCS11_ALG`):
+    /// `ES256` (the default), `ES384`, `RS256` — the token's key is
+    /// found by label, so the deployment names the algorithm.
+    #[serde(default)]
+    pub pkcs11_alg: String,
     /// The invitation TTL in seconds when a create carries none
     /// (`ENGINE_INVITATION_TTL_SECS`, issue #77). Default 900.
     pub invitation_ttl_secs: i64,
@@ -143,6 +169,11 @@ impl Default for Config {
             participant_id: String::new(),
             participant_cert_pem: String::new(),
             participant_key_pem: String::new(),
+            pkcs11_module: String::new(),
+            pkcs11_slot_id: None,
+            pkcs11_pin: String::new(),
+            pkcs11_key_label: String::new(),
+            pkcs11_alg: "ES256".to_owned(),
             invitation_ttl_secs: 900,
             persistence_path: String::new(),
             mcp_tools: true,
@@ -239,6 +270,25 @@ impl Config {
         }
         if let Some(value) = text("ENGINE_PARTICIPANT_KEY_PEM") {
             config.participant_key_pem = value;
+        }
+        // The PKCS#11 home (issue #100, CS-15 §8.4): the token the
+        // subscriber key lives on — the qualified deployments' shape.
+        if let Some(value) = text("ENGINE_PKCS11_MODULE") {
+            config.pkcs11_module = value;
+        }
+        if let Some(value) = text("ENGINE_PKCS11_SLOT") {
+            if let Ok(parsed) = value.trim().parse() {
+                config.pkcs11_slot_id = Some(parsed);
+            }
+        }
+        if let Some(value) = text("ENGINE_PKCS11_PIN") {
+            config.pkcs11_pin = value;
+        }
+        if let Some(value) = text("ENGINE_PKCS11_KEY_LABEL") {
+            config.pkcs11_key_label = value;
+        }
+        if let Some(value) = text("ENGINE_PKCS11_ALG") {
+            config.pkcs11_alg = value;
         }
         if let Some(value) = text("ENGINE_INVITATION_TTL_SECS") {
             if let Ok(parsed) = value.trim().parse() {

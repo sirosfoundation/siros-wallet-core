@@ -351,13 +351,14 @@ async fn get_readyz(State(server): State<Arc<EngineServer>>) -> Response {
 /// Two forms (CS-15 §17's conformance table: `application/json` or
 /// `application/jwt`): the plain JSON for the default request, and —
 /// on `Accept: application/jwt` — the same document as a JWS signed
-/// under the participant certificate's key, the chain in the `x5c`
-/// header (the configuration as attestation, verifiable without the
-/// TLS session). The signed form needs the signing material
-/// (`ENGINE_PARTICIPANT_CERT_PEM` + `ENGINE_PARTICIPANT_KEY_PEM`);
-/// without it the negotiation answers `406` — the deployment cannot
-/// produce the attestation, and serving the unsigned document in its
-/// place would hand the checker a body it cannot verify.
+/// under the participant credential the server holds, the chain in
+/// the `x5c` header (the configuration as attestation, verifiable
+/// without the TLS session). The credential comes from the config —
+/// the PEM pair, or a PKCS#11 token (CS-15 §8.4: the key's home is
+/// deployment material) — or the deployment's own injection; without
+/// one the negotiation answers `406`, and serving the unsigned
+/// document in its place would hand the checker a body it cannot
+/// verify.
 ///
 /// The endpoints name the engine's PUBLIC routes: the `public_url`
 /// (`ENGINE_PUBLIC_URL`) prefix when configured (the wallet-proxy's
@@ -402,19 +403,23 @@ async fn get_wmp_configuration(
     match serde_json::to_value(&config) {
         Ok(value) => {
             if crate::well_known::wants_signed_form(&headers) {
-                match crate::well_known::signed_document(&server.config, &value) {
+                match server
+                    .participant_credential
+                    .as_deref()
+                    .and_then(|credential| crate::well_known::signed_document(credential, &value))
+                {
                     Some(jwt) => (
                         StatusCode::OK,
                         [(header::CONTENT_TYPE, "application/jwt")],
                         jwt,
                     )
                         .into_response(),
-                    // The material's absence is a deployment state, not
+                    // The credential's absence is a deployment state, not
                     // an error: `406` names the negotiation the server
-                    // cannot answer. A configured-but-broken pair is an
-                    // error: `500`, the operator learns their signing
-                    // material does not hold together.
-                    None if server.config.participant_key_pem.is_empty() => (
+                    // cannot answer. A held credential that fails at sign
+                    // time is an error: `500`, the operator learns their
+                    // signing material does not hold together.
+                    None if server.participant_credential.is_none() => (
                         StatusCode::NOT_ACCEPTABLE,
                         "the signed configuration form is not configured",
                     )

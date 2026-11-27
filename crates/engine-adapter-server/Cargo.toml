@@ -26,6 +26,14 @@ jose-rs = { version = "0.13.1", default-features = false }
 # parse is a base64 body decode.
 base64 = "0.23"
 ureq = { version = "2", features = ["json"] }
+# The PKCS#11 credential (issue #100, the `pkcs11` feature): kryptering's
+# token-backed signer — CS-15 §8.4's WSCA/QSCD, the key never leaves the
+# token. Optional and off by default, so the default build keeps the
+# workspace's rustcrypto-only kryptering pin; the pkcs11 feature turns
+# kryptering's own pkcs11 module on for this build.
+kryptering = { version = "0.7", default-features = false, features = [
+    "rustcrypto",
+], optional = true }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 parking_lot = "0.12"
 async-trait = "0.1"
@@ -59,6 +67,10 @@ valkey = ["dep:fred", "dep:dashmap"]
 # provider + the handler bridge, the MlsProfile registered on the peer.
 # Rides wmp-mls's 0.10 line (the MSRV 1.94 floor matches the workspace's).
 mls = ["dep:wmp-mls"]
+# The PKCS#11 participant credential (issue #100): the signing key lives
+# on a token — CS-15 §8.4's WSCA/QSCD — and kryptering's Pkcs11Signer
+# signs through the same jose-rs JWS layer the software credential rides.
+pkcs11 = ["dep:kryptering", "kryptering/pkcs11"]
 
 [lints]
 workspace = true
