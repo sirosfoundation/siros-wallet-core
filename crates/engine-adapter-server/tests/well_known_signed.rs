@@ -168,3 +168,48 @@ async fn the_default_request_answers_plain_json_with_the_material_configured() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(content_type.as_deref(), Some("application/json"));
 }
+
+/// A key/certificate pair that does not hold together is refused at
+/// construction (the probe: the key signs, the leaf must verify), so the
+/// server holds no credential and the negotiation answers `406` — the
+/// mismatch never reaches a counterpart as an unverifiable document.
+#[tokio::test]
+async fn a_mismatched_key_certificate_pair_serves_no_credential() {
+    let (cert_pem, _, _) = participant_material();
+    // A DIFFERENT key under the real certificate's chain.
+    let other_key = rcgen::KeyPair::generate().expect("the other key");
+    let server = server_with_material(
+        "x509:san:dns:participant.example",
+        Some((cert_pem, other_key.serialize_pem())),
+    );
+    assert!(
+        server.participant_credential.is_none(),
+        "the probe refuses the mismatched pair"
+    );
+    let (status, _, _) = get_configuration(&server, Some("application/jwt")).await;
+    assert_eq!(status, StatusCode::NOT_ACCEPTABLE);
+}
+
+/// The injection seam: a credential the deployment assembled itself —
+/// not from the config — signs the document (the trait is the
+/// boundary; the route signs under whatever the server holds).
+#[tokio::test]
+async fn an_injected_credential_signs_the_document() {
+    let (cert_pem, key_pem, leaf_der) = participant_material();
+    let credential =
+        engine_adapter_server::participant::PemParticipantCredential::new(&cert_pem, &key_pem)
+            .expect("the pair holds together");
+    let server = Arc::new(
+        EngineServer::new(Config::default())
+            .with_participant_credential(Some(std::sync::Arc::new(credential))),
+    );
+
+    let (status, content_type, body) = get_configuration(&server, Some("application/jwt")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type.as_deref(), Some("application/jwt"));
+    let jwt = String::from_utf8(body).expect("the JWT is text");
+    let verifying =
+        jose_rs::jwk::cert::public_jwk_from_certificate_der(&leaf_der).expect("the leaf parses");
+    jose_rs::jws::compact::verify_with_jwk(&verifying, &jwt)
+        .expect("the injected credential signed the document");
+}

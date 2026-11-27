@@ -15,6 +15,8 @@ use axum::http::{header, HeaderMap};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 
+use crate::participant::ParticipantCredential;
+
 /// True when the caller's `Accept` names `application/jwt` — the
 /// request for the signed form. The signed form wins when named: no
 /// client names both media types preferring the unsigned one (the
@@ -63,27 +65,20 @@ pub(crate) fn certificate_chain_der(pem_text: &str) -> Option<Vec<Vec<u8>>> {
 /// The well-known document as a compact JWS: the JSON document as the
 /// payload, the participant chain in the `x5c` header (RFC 7515
 /// §4.1.6: standard-alphabet base64 DER, not base64url), the signature
-/// under the chain's leaf key. `None` when the signing material is
-/// absent or does not hold together — a JWT whose key does not match
-/// its own chain is not served; the caller learns the configuration is
-/// broken, not a document that cannot verify.
+/// under the credential the server holds — wherever its key lives, the
+/// PEM pair or a PKCS#11 token, the trait is the boundary (issue #100:
+/// CS-15 §8.4, the key's home is deployment material). `None` when the
+/// signing does not hold together — a JWT whose key does not match its
+/// own chain is not served; the caller learns the credential is broken,
+/// not a document that cannot verify.
 pub(crate) fn signed_document(
-    config: &crate::config::Config,
+    credential: &dyn ParticipantCredential,
     document: &serde_json::Value,
 ) -> Option<String> {
-    let chain = certificate_chain_der(&config.participant_cert_pem)?;
-    let mut key = jose_rs::jwk::pem::jwk_from_pem(&config.participant_key_pem).ok()?;
-    // The algorithm from the key's own shape — EC P-256/P-384 and RSA
-    // are the certificate keys the deployments carry.
-    let algorithm = match (key.kty.as_str(), key.crv.as_deref()) {
-        ("EC", Some("P-256")) => "ES256",
-        ("EC", Some("P-384")) => "ES384",
-        ("RSA", _) => "RS256",
-        _ => return None,
-    };
-    key.alg = Some(algorithm.to_owned());
+    let chain = credential.certificate_chain();
+    let leaf = chain.first()?.clone();
     let payload = serde_json::to_vec(document).ok()?;
-    let mut header = jose_rs::header::JoseHeader::new(algorithm);
+    let mut header = jose_rs::header::JoseHeader::new(credential.algorithm());
     header.typ = Some("wmp-configuration+jwt".to_owned());
     header.x5c = Some(
         chain
@@ -91,19 +86,12 @@ pub(crate) fn signed_document(
             .map(|der| BASE64_STANDARD.encode(der))
             .collect(),
     );
-    // The `x5c` header parameter is a key-reference member: the signing
-    // options must allow it (RFC 7515 §4.1.6 carries the verifying key
-    // in the header; jose-rs gates that on allow_key_reference_headers).
-    let mut options = jose_rs::jws::compact::SignOptions::default();
-    options.allow_key_reference_headers = true;
-    let jwt =
-        jose_rs::jws::compact::sign_with_jwk_options(&key, &payload, &header, &options).ok()?;
+    let jwt = credential.sign_compact(&payload, &header).ok()?;
     // Fail closed on a key/certificate mismatch: the document verifies
     // under the chain's leaf before it is served — the same check a
     // counterpart's parser runs, done here so a broken deployment fails
     // loudly at its own edge.
-    let leaf = chain.first()?;
-    let verifying = jose_rs::jwk::cert::public_jwk_from_certificate_der(leaf).ok()?;
+    let verifying = jose_rs::jwk::cert::public_jwk_from_certificate_der(&leaf).ok()?;
     jose_rs::jws::compact::verify_with_jwk(&verifying, &jwt).ok()?;
     Some(jwt)
 }
