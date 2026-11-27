@@ -283,6 +283,20 @@ pub trait MlsProvider: Send + Sync {
     /// Processes an incoming Welcome, joining the group.
     fn process_welcome(&self, welcome: &str) -> Result<(String, i64), HandlerError>;
 
+    /// Processes an incoming Welcome whose group is already declared:
+    /// the join refuses — committing **nothing** — when the Welcome's
+    /// MLS GroupId is not the expected one (issue #127). The Welcome's
+    /// GroupInfo is encrypted, so the caller cannot peek the group id
+    /// without the key material — the check belongs inside the
+    /// provider, before the group enters its map. The refusal names
+    /// both ids: the one the caller declared and the one the Welcome
+    /// carries.
+    fn process_welcome_for_group(
+        &self,
+        welcome: &str,
+        expected_group_id: &str,
+    ) -> Result<(String, i64), HandlerError>;
+
     /// Generates a Commit and Welcome for adding a member.
     fn add_member(
         &self,
@@ -613,6 +627,28 @@ impl MlsProvider for NoopMlsProvider {
     }
 
     fn process_welcome(&self, _welcome: &str) -> Result<(String, i64), HandlerError> {
+        Ok(("noop-group".to_owned(), 0))
+    }
+
+    /// The noop compares against its own fixed id — the same contract
+    /// the real provider enforces, so a caller tested against the noop
+    /// meets no surprises on the real one.
+    fn process_welcome_for_group(
+        &self,
+        _welcome: &str,
+        expected_group_id: &str,
+    ) -> Result<(String, i64), HandlerError> {
+        if expected_group_id != "noop-group" {
+            return Err(RpcError::new(
+                ERR_MLS_ERROR,
+                Some(serde_json::json!({
+                    "reason": "the Welcome names another group",
+                    "expected": expected_group_id,
+                    "actual": "noop-group",
+                })),
+            )
+            .into());
+        }
         Ok(("noop-group".to_owned(), 0))
     }
 
