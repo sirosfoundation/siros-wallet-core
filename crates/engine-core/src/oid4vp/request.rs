@@ -166,7 +166,7 @@ fn url_to_params(text: &str) -> Result<serde_json::Value, RequestError> {
 
 /// Percent-decodes a query member (RFC 3986 §2.1; the `+` form is not
 /// used in these URLs).
-fn percent_decode(value: &str) -> String {
+pub(crate) fn percent_decode(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     // A hex digit, or 0xff when the byte is not one.

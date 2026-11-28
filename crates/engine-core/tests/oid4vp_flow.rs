@@ -64,6 +64,7 @@ mod presentation_flow_tests {
     struct RecordingHost {
         matches: Mutex<Vec<MatchParams>>,
         vps: Mutex<Vec<VpParams>>,
+        authorizations: Mutex<Vec<String>>,
     }
 
     #[async_trait::async_trait]
@@ -100,7 +101,11 @@ mod presentation_flow_tests {
         async fn request_tx_code(&self, _flow_id: &str) -> Result<String, HostError> {
             Err(HostError::Cannot("no tx code".to_owned()))
         }
-        async fn open_authorization(&self, _flow_id: &str, _url: &str) -> Result<(), HostError> {
+        async fn open_authorization(&self, _flow_id: &str, url: &str) -> Result<(), HostError> {
+            self.authorizations
+                .lock()
+                .map(|mut a| a.push(url.to_owned()))
+                .ok();
             Ok(())
         }
         async fn request_vp(&self, params: VpParams) -> Result<VpResult, HostError> {
@@ -297,6 +302,7 @@ mod presentation_flow_tests {
         let host = Arc::new(RecordingHost {
             matches: Mutex::new(Vec::new()),
             vps: Mutex::new(Vec::new()),
+            authorizations: Mutex::new(Vec::new()),
         });
         let http = Arc::new(ScriptedHttp::new(vec![(
             "https://verifier.example/response".to_owned(),
@@ -444,6 +450,139 @@ mod presentation_flow_tests {
             "the access_denied error response: {body}"
         );
         assert!(!body.contains("vp_token="));
+    }
+    /// OpenID4VP §14.2 (issue #136): the direct_post answer's
+    /// `redirect_uri` relays — the host's open_authorization ask
+    /// carries the completion URL (the same-device relay: the browser
+    /// that started the flow navigates to the completion page), and
+    /// the flow's completion notification — the outgoing wire the
+    /// wallet consumes — carries the raw cross-device material: the
+    /// completion URL and its one-time `response_code` (the code the
+    /// verifier's /vp/complete gate checks, surfaced by the wallet UX
+    /// that cannot reach the starting browser).
+    #[tokio::test]
+    async fn the_direct_post_answer_relays_the_section_14_2_response_code() {
+        /// The recording transport: the peer's outgoing wire — every
+        /// JSON-RPC message the flow emits lands here, exactly what the
+        /// wallet receives.
+        struct RecordingTransport {
+            outgoing: std::sync::Arc<Mutex<Vec<serde_json::Value>>>,
+        }
+        impl wmp_core::transport::Transport for RecordingTransport {
+            fn read_message(&self) -> Result<Vec<u8>, wmp_core::transport::TransportError> {
+                Ok(Vec::new())
+            }
+            fn write_message(
+                &self,
+                data: &[u8],
+            ) -> Result<(), wmp_core::transport::TransportError> {
+                let text = String::from_utf8_lossy(data);
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                    self.outgoing
+                        .lock()
+                        .map(|mut outgoing| outgoing.push(value))
+                        .ok();
+                }
+                Ok(())
+            }
+            fn close(&self) -> Result<(), wmp_core::transport::TransportError> {
+                Ok(())
+            }
+        }
+
+        let host = Arc::new(RecordingHost {
+            matches: Mutex::new(Vec::new()),
+            vps: Mutex::new(Vec::new()),
+            authorizations: Mutex::new(Vec::new()),
+        });
+        let http = Arc::new(ScriptedHttp::new(vec![(
+            "https://verifier.example/response".to_owned(),
+            HttpResponse {
+                status: 200,
+                headers: Vec::new(),
+                // The verifier v0.3.0's §14.2 answer: the completion
+                // URL with its one-time response_code.
+                body: br#"{"redirect_uri":"https://verifier.example/vp/complete?response_code=otc-1"}"#
+                    .to_vec(),
+            },
+        )]));
+        let outgoing = Arc::new(Mutex::new(Vec::new()));
+        struct NoopHandler;
+        impl wmp_core::handler::Handler for NoopHandler {}
+        let peer = wmp_core::peer::PeerBuilder::new(Arc::new(NoopHandler))
+            .transport(Arc::new(RecordingTransport {
+                outgoing: outgoing.clone(),
+            }))
+            .build();
+        let ctx = FlowContext {
+            flow_id: "flow-vp-1".to_owned(),
+            flow_type: "oid4vp".to_owned(),
+            session: None,
+            ports: Arc::new(Ports {
+                http,
+                clock: Arc::new(FixedClock),
+                rng: Arc::new(FakeRng),
+                host: host.clone(),
+                pdp: Arc::new(TrustedPdp),
+                kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
+                telemetry: Arc::new(NoTelemetry),
+                consent_check: engine_ports::ConsentCheckMode::Warn,
+                require_authorization_response_issuer: false,
+                notifications: std::sync::Arc::new(
+                    engine_core::oid4vci::notification::NotificationContexts::default(),
+                ),
+            }),
+            peer,
+            request_context: wmp_core::context::RequestContext::default(),
+        };
+
+        Oid4vpFlow
+            .start_flow(&ctx, &start_params())
+            .await
+            .expect("the §14.2 presentation completes");
+
+        // The same-device relay: the host's open_authorization asked
+        // with the answer's completion URL, exactly as the verifier
+        // answered it.
+        let authorizations = host.authorizations.lock().expect("lock");
+        assert_eq!(
+            authorizations.len(),
+            1,
+            "the completion URL relayed once: {authorizations:?}"
+        );
+        assert_eq!(
+            authorizations[0], "https://verifier.example/vp/complete?response_code=otc-1",
+            "the relay carries the §14.2 answer's own URL"
+        );
+        drop(authorizations);
+
+        // The outgoing wire: the completion notification — the message
+        // the wallet receives, carrying the §14.2 material.
+        let wire = outgoing.lock().expect("lock");
+        let completion = wire
+            .iter()
+            .rfind(|message| {
+                message.get("method").and_then(|m| m.as_str()) == Some("wmp.flow.complete")
+            })
+            .expect("the completion notification crossed the wire");
+        let params = completion.get("params").cloned().unwrap_or_default();
+        assert_eq!(
+            params.get("flow_id").and_then(|f| f.as_str()),
+            Some("flow-vp-1"),
+            "the completion names the flow"
+        );
+        let result = params.get("result").cloned().unwrap_or_default();
+        assert_eq!(result["presented"], serde_json::json!(true));
+        assert_eq!(
+            result["redirect_uri"],
+            serde_json::json!("https://verifier.example/vp/complete?response_code=otc-1"),
+            "the completion carries the §14.2 redirect_uri"
+        );
+        assert_eq!(
+            result["response_code"],
+            serde_json::json!("otc-1"),
+            "the completion carries the §14.2 response_code, decoded off the query"
+        );
     }
 }
 
