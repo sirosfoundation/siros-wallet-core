@@ -635,8 +635,8 @@ impl FlowHandler for Oid4vpFlow {
                 })
                 .filter(|uri| !uri.is_empty())
         };
-        if let Some(uri) = redirect_uri {
-            let _ = ctx.host().open_authorization(&params.flow_id, &uri).await;
+        if let Some(uri) = redirect_uri.as_deref() {
+            let _ = ctx.host().open_authorization(&params.flow_id, uri).await;
             let _ = ctx
                 .progress(
                     "redirect_opened",
@@ -644,6 +644,18 @@ impl FlowHandler for Oid4vpFlow {
                 )
                 .await;
         }
+
+        // OpenID4VP §14.2's Response Code (issue #136): the completion
+        // URL's one-time `response_code` query member — the cross-device
+        // surface's material. The same-device relay rode the
+        // open_authorization ask above (the browser that started the
+        // flow navigates to the completion page); the completion
+        // payload carries the raw material for the wallet UX that
+        // cannot reach the starting browser — the code shown to the
+        // user, the completion URL rendered as a QR.
+        let response_code = redirect_uri
+            .as_deref()
+            .and_then(response_code_from_redirect);
 
         let _ = ctx
             .complete(&serde_json::json!({
@@ -653,6 +665,8 @@ impl FlowHandler for Oid4vpFlow {
                     .iter()
                     .map(|s| s.credential_id.clone())
                     .collect::<Vec<_>>(),
+                "redirect_uri": redirect_uri,
+                "response_code": response_code,
             }))
             .await;
 
@@ -748,4 +762,16 @@ async fn refuse_verifier(
         flow_id: ctx.flow_id.clone(),
         flow_type: ctx.flow_type.clone(),
     })
+}
+
+/// OpenID4VP §14.2's `response_code` from the completion URL's query —
+/// the verifier's one-time gate code the completion page checks. The
+/// FIRST `response_code` member, percent-decoded (RFC 3986 §2.1);
+/// absent when the redirect carries none (issue #136: the completion
+/// payload's cross-device material).
+fn response_code_from_redirect(redirect_uri: &str) -> Option<String> {
+    let (_, tail) = redirect_uri.split_once("response_code=")?;
+    let raw = tail.split('&').next().unwrap_or(tail);
+    let decoded = request::percent_decode(raw);
+    (!decoded.is_empty()).then_some(decoded)
 }
