@@ -3,6 +3,12 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.1] — 2026-11-28
+
+### Added
+
+- **The §14.2 Response Code relay (#138, issue #136)**: the verifier's v0.3.0 answers a done `direct_post` with `{"redirect_uri": "<verifier>/vp/complete?response_code=<one-time code>"}` — the flow's completion notification (`wmp.flow.complete`, the outgoing wire the wallet consumes) now carries **`redirect_uri`** and **`response_code`** beside `presented`/`credential_ids`: the cross-device material the wallet UX surfaces when it cannot reach the starting browser (the code shown to the user, the completion URL rendered as a QR). The same-device relay keeps riding the `open_authorization` ask. Both members additive — old wallets parse unchanged, bound flows stay fail-closed. The SDK-side relay (custom tab / QR) rides the SDK version line that pins verifier-core v0.3.0.
+
 ## [0.7.0] — 2026-11-27
 
 ### Changed
